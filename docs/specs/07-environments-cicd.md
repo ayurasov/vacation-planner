@@ -31,7 +31,11 @@ make compose-full# полный стенд: nginx :80 → api → postgres
 
 Секреты: `server/.env` (см. `.env.example`): `DATABASE_URL`, `JWT_SECRET` (≥32 симв.). В git их нет.
 
-## 3. Контейнеры
+## 3. Развёртывание
+
+![Развёртывание стенда](diagrams/05-deployment.svg)
+
+## 4. Контейнеры
 
 - `postgres:17-alpine` — том `db-data`, healthcheck `pg_isready`.
 - `server` — multi-stage `server/Dockerfile`: сборка (npm ci, prisma generate, tsc) → рантайм только с prod-зависимостями; при старте `prisma migrate deploy`, затем `node dist/main.js`; `/healthz`, `/readyz`.

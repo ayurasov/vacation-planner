@@ -1,6 +1,6 @@
 # Конвейер CI монорепо: server, web, SBOM, docker, дым полного стенда.
 # Окружения и порядок выпуска — docs/specs/07-environments-cicd.md.
-name: CI
+name: CI (GitHub)
 
 on:
   push:
@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   server:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
     name: 'Сервер: сборка + e2e (Node ${{ matrix.node }})'
     runs-on: ubuntu-latest
     strategy:
@@ -61,6 +62,7 @@ jobs:
         working-directory: server
 
   web:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
     name: 'Клиент: сборка (vue-tsc + vite)'
     runs-on: ubuntu-latest
     steps:
@@ -75,6 +77,7 @@ jobs:
         working-directory: web
 
   sbom:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
     name: 'SBOM и лицензии (реестр ОП)'
     runs-on: ubuntu-latest
     steps:
@@ -101,6 +104,7 @@ jobs:
           retention-days: 30
 
   docker:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
     name: Docker-образы
     runs-on: ubuntu-latest
     steps:
@@ -109,6 +113,7 @@ jobs:
         run: docker compose --profile full build
 
   smoke:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
     name: Дымовой прогон полного стенда
     runs-on: ubuntu-latest
     steps:

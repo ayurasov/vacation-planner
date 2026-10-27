@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { api, type Department } from '@/api/client';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 interface Project { id: number; name: string; managerId: number | null; headcount: number }
 
@@ -118,7 +119,10 @@ onMounted(reload);
             :disabled="!newName.trim()"
             @click="addDepartment"
           >
-            +
+            <AppIcon
+              name="plus"
+              :size="14"
+            />
           </button>
         </div>
         <div
@@ -157,7 +161,10 @@ onMounted(reload);
             class="btn btn-primary"
             @click="addProject"
           >
-            + Проект
+            <AppIcon
+              name="plus"
+              :size="14"
+            /> Проект
           </button>
         </div>
         <div

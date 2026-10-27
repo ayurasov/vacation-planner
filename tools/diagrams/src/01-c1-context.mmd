@@ -1,0 +1,20 @@
+flowchart TB
+    subgraph company["Компания (до 5000 пользователей)"]
+        E["Сотрудник (браузер)"]
+        M["Руководитель (браузер)"]
+        A["Администратор (браузер)"]
+    end
+    VP["Планировщик отпусков<br/>графики · заявки · согласование · балансы"]
+    MAIL["Почтовый релей (v0.3)"]
+    HRIS["Кадровая система (v0.4)"]
+    E -->|"график, свои заявки"| VP
+    M -->|"согласование, панели"| VP
+    A -->|"справочники, аудит"| VP
+    VP -.->|"email-уведомления"| MAIL
+    HRIS -.->|"импорт сотрудников"| VP
+    classDef person fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#438DD5,color:#fff,stroke:#2E6295
+    classDef external fill:#999999,color:#fff,stroke:#8C8C8C
+    class E,M,A person
+    class VP system
+    class MAIL,HRIS external

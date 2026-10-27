@@ -29,6 +29,8 @@ const LICENSE_CLASS = {
   'CC-BY-3.0': { kind: 'permissive-data', risk: 'low', note: 'Attribution для данных (не кода): допускается с указанием авторства' },
   '(MIT OR Apache-2.0)': { kind: 'permissive', risk: 'low', note: 'Двойная разрешительная: допускается' },
   'MIT*': { kind: 'permissive', risk: 'low', note: 'Вариант MIT: допускается' },
+  'MIT/X11': { kind: 'permissive', risk: 'low', note: 'MIT/X11 (ранняя формулировка MIT): допускается' },
+  Zlib: { kind: 'permissive', risk: 'low', note: 'Zlib (разрешительная): допускается' },
   'GPL-2.0-only': { kind: 'copyleft', risk: 'high', note: 'Сильный copyleft: распространение ПО-производной обязывает раскрывать исходники под GPL — НЕ рекомендуется для регистрируемого ПО' },
   'GPL-3.0-only': { kind: 'copyleft', risk: 'high', note: 'Сильный copyleft: обязательное раскрытие исходников — НЕ рекомендуется' },
   'LGPL-2.1-only': { kind: 'weak-copyleft', risk: 'medium', note: 'Слабый copyleft: допустима динамическая линковка без открытия своего кода; требуется анализ способа связывания' },
@@ -44,6 +46,7 @@ const classifyOne = (id) => LICENSE_CLASS[id] ?? null;
 const MANUAL_LICENSES = {
   busboy: 'MIT',
   streamsearch: 'MIT',
+  buffers: 'MIT', // LICENSE-файл пакета — MIT (поле license не заполнено)
 };
 
 function classify(id) {
@@ -53,6 +56,15 @@ function classify(id) {
     const cls = parts.map(classifyOne).filter(Boolean);
     if (cls.length === parts.length && cls.every((c) => c.risk === 'low')) {
       return { kind: 'permissive', risk: 'low', note: `Составная из разрешительных (${id}): допускается` };
+    }
+    // Двойное лицензирование «разрешительная OR copyleft» (напр. MIT OR GPL-3.0):
+    // правополучатель вправе выбрать разрешительную альтернативу — считаем low
+    if (parts.some((x) => classifyOne(x)?.risk === 'low') && /\bOR\b/.test(id) && !/\bAND\b/.test(id)) {
+      return {
+        kind: 'permissive-dual',
+        risk: 'low',
+        note: `Двойное лицензирование ${id}: применяется разрешительная альтернатива (фиксируется в решении о выборе)`,
+      };
     }
     if (cls.length === parts.length && cls.every((c) => c.risk !== 'high')) {
       return { kind: 'weak-copyleft', risk: 'medium', note: `Составная (${id}): как минимум одна составляющая с ограничениями` };

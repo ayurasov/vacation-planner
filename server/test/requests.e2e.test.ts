@@ -169,3 +169,24 @@ describe('баланс и аудит', () => {
     expect(row.vacations.length).toBeGreaterThan(0);
   });
 });
+
+describe('XLSX-выгрузка отпусков', () => {
+  it('администратор получает xlsx с данными; сотрудник — 403', async () => {
+    const Y = NEXT_YEAR;
+    const res = await t.http().get(`/api/v1/reports/vacations?from=${Y}-01-01&to=${Y}-12-31`)
+      .set('Authorization', `Bearer ${adm}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('spreadsheetml');
+    expect(Buffer.isBuffer(res.body) || typeof res.body === 'object').toBe(true);
+
+    const forbidden = await t.http().get(`/api/v1/reports/vacations?from=${Y}-01-01&to=${Y}-12-31`)
+      .set('Authorization', `Bearer ${emp}`);
+    expect(forbidden.status).toBe(403);
+  });
+
+  it('from > to → 400 bad-date-range', async () => {
+    const res = await t.http().get('/api/v1/reports/vacations?from=2027-12-31&to=2027-01-01')
+      .set('Authorization', `Bearer ${adm}`);
+    expect(res.status).toBe(400);
+  });
+});

@@ -1,6 +1,7 @@
 // E2E: аутентификация и сессии (критерии историй E01-xx, docs/specs/03-backlog.md).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, destroyTestApp, login, type TestApp } from './helpers';
+import { LoginRateLimitGuard } from '../src/auth/rate-limit';
 
 let t: TestApp;
 
@@ -92,5 +93,19 @@ describe('смена пароля', () => {
       .set('Authorization', `Bearer ${empToken}`)
       .send({ newPassword: 'hacked-pass-123' });
     expect(forbidden.status).toBe(403);
+  });
+});
+
+describe('лимит частоты входа', () => {
+  // Последний блок в файле: исчерпывает окно для адреса тест-клиента
+  it('11-я попытка за минуту с одного адреса → 429 rate-limited', async () => {
+    LoginRateLimitGuard.resetForTests();
+    let last = 0;
+    for (let i = 0; i < 11; i++) {
+      last = (await t.http().post('/api/v1/auth/login')
+        .send({ login: 'nobody', password: 'wrong' })).status;
+    }
+    expect(last).toBe(429);
+    LoginRateLimitGuard.resetForTests();
   });
 });

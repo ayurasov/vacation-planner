@@ -30,6 +30,11 @@ h1, h2, h3 {
   font-weight: 600;
 }
 
+.mobile-nav-trigger,
+.mobile-nav-backdrop {
+  display: none;
+}
+
 /* ── Каркас приложения ── */
 .app-shell {
   display: flex;
@@ -106,10 +111,12 @@ h1, h2, h3 {
   background: var(--color-primary);
   color: #fff;
   border-radius: 10px;
-  font-size: 11px;
-  padding: 1px 7px;
-  min-width: 20px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  min-width: 18px;
   text-align: center;
+  line-height: 16px;
 }
 
 .main-area {
@@ -168,24 +175,27 @@ h1, h2, h3 {
   margin-top: 2px;
 }
 
-/* ── Кнопки ── */
+/* ── Кнопки (по образцу todo-planner) ── */
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-family: inherit;
-  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
   color: var(--color-text);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .btn:hover {
-  background: var(--color-hover);
+  background: var(--color-hover-strong);
+  border-color: var(--color-border-strong);
 }
 
 .btn:disabled {
@@ -201,64 +211,79 @@ h1, h2, h3 {
 
 .btn-primary:hover {
   background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-ghost:hover {
+  background: var(--color-hover);
+  border-color: transparent;
 }
 
 .btn-danger {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
-  color: #fff;
+  color: var(--color-danger);
 }
 
 .btn-danger:hover {
-  opacity: 0.9;
-  background: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger);
 }
 
 .btn-sm {
-  padding: 4px 10px;
-  font-size: 12.5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  gap: 4px;
 }
 
 .btn-icon {
-  padding: 6px 9px;
-  border-radius: var(--radius-sm);
+  padding: 6px;
+  width: 30px;
+  height: 30px;
+  gap: 0;
 }
 
-/* ── Бейджи-статусы ── */
+.btn-icon.btn-sm {
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+}
+
+/* ── Бейджи-статусы (палитра todo-planner) ── */
 .badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  gap: 4px;
+  border-radius: 20px;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 9px;
+  padding: 2px 7px;
   line-height: 18px;
   white-space: nowrap;
 }
 
-.badge-muted {
+.badge-muted   { background: #eef1f7; color: #6b7280; }
+.badge-info    { background: #e6ecff; color: #3860e0; }
+.badge-success { background: #e4f6ea; color: #1e9e4d; }
+.badge-danger  { background: #fde5e6; color: #c62933; }
+.badge-warning { background: #fdf3e2; color: #c8711a; }
+
+[data-theme='dark'] .badge-muted   { background: #242320; color: #8a857d; }
+[data-theme='dark'] .badge-info    { background: #1d2f4e; color: #6ea1ff; }
+[data-theme='dark'] .badge-success { background: #173327; color: #4ade80; }
+[data-theme='dark'] .badge-danger  { background: #3a2325; color: #f87171; }
+[data-theme='dark'] .badge-warning { background: #332a17; color: #d4a13a; }
+
+.tag {
+  display: inline-flex;
+  padding: 1px 7px;
+  border-radius: 4px;
   background: var(--color-neutral-soft);
   color: var(--color-text-muted);
-}
-
-.badge-info {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-dark);
-}
-
-.badge-success {
-  background: var(--color-success-soft);
-  color: var(--color-success);
-}
-
-.badge-danger {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-}
-
-.badge-warning {
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
+  font-size: 11px;
 }
 
 /* ── Таблицы-сетки (как в todo-planner: CSS-grid, не <table>) ── */
@@ -486,8 +511,12 @@ textarea.input {
 }
 
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
+  background: #d3d8e4;
+  border-radius: 4px;
+}
+
+[data-theme='dark'] .scroll-thin::-webkit-scrollbar-thumb {
+  background: #3d3a34;
 }
 
 .scroll-thin::-webkit-scrollbar-track {
@@ -505,8 +534,13 @@ textarea.input {
     box-shadow: var(--shadow-2);
   }
 
-  .sidebar.open {
+  .sidebar.mobile-open {
     transform: translateX(0);
+    box-shadow: 12px 0 32px rgba(20, 25, 40, 0.2);
+  }
+
+  .nav-item {
+    min-height: 44px;
   }
 
   .app-content {

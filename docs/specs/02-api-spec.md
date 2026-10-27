@@ -73,6 +73,14 @@
 | GET /audit-events | администратор | Журнал изменений |
 | GET /reports/vacations | админ / руководитель | XLSX за период |
 
+## 5а. Сценарии взаимодействия (sequence)
+
+![Вход и обновление токенов](diagrams/seq-02-login.svg)
+
+![Жизненный цикл заявки](diagrams/seq-01-request-flow.svg)
+
+![График отпусков](diagrams/seq-03-schedule.svg)
+
 ## 6. Жизненный цикл заявки через API
 
 1. `POST /vacation-requests` → 201 `pending` (или сразу `approved` при создании за подчинённого/админом). Пересечение периодов → 409 `overlapping-request`. Сверх лимита → 409 `limit-exceeded`.

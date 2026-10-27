@@ -1,0 +1,94 @@
+# CI vacation-planner на собственном раннере (docs/specs/07-environments-cicd.md).
+# Сервер: тесты с postgres → Клиент: сборка → Deploy прод-стенда на этом сервере + smoke.
+# Развёртывание: docker compose -p vacation-planner (том db-data сохраняется).
+name: CI (сервер)
+
+on:
+  push:
+    branches: [main, 'v0.*']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: 'Сервер: тесты (vitest + postgres)'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: vacation
+          POSTGRES_PASSWORD: vacation
+          POSTGRES_DB: vacation_test
+        options: >-
+          --health-cmd "pg_isready -U vacation -d vacation_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://vacation:vacation@postgres:5432/vacation_test
+      JWT_SECRET: ci-secret-ci-secret-ci-secret-32ch
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установка зависимостей
+        run: npm ci
+        working-directory: server
+      - name: Prisma generate
+        run: npx prisma generate
+        working-directory: server
+      - name: Миграции тестовой БД
+        run: npx prisma migrate deploy
+        working-directory: server
+      - name: Сборка (tsc strict)
+        run: npm run build
+        working-directory: server
+      - name: e2e-тесты (vitest + supertest)
+        run: npm test
+        working-directory: server
+      - name: ESLint
+        run: npm run lint
+        working-directory: server
+
+  web:
+    name: 'Клиент: сборка (vue-tsc + vite)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+
+  deploy:
+    name: 'Deploy прод-стенда + smoke'
+    runs-on: deploy
+    needs: [server, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker CLI и compose
+        run: apk add --no-cache docker-cli docker-cli-compose curl
+      - name: Сборка образов и развёртывание (проект vacation-planner)
+        run: docker compose -p vacation-planner --profile full up -d --build
+      - name: Smoke-пробы прод-стенда
+        run: |
+          # Шлюз сети job-контейнера = хост, где опубликованы порты стенда
+          GW=$(ip route | awk '/default/ {print $3}')
+          echo "Прод-стенд через шлюз $GW"
+          for i in $(seq 1 60); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://$GW/api/v1/employees 2>/dev/null)
+            [ "$CODE" = "401" ] && break
+            sleep 2
+          done
+          test "$CODE" = 401 || { echo 'API не поднялся за 120с'; docker compose -p vacation-planner logs server --tail 40; exit 1; }
+          curl -fsS http://$GW/ | grep -qi '<!DOCTYPE html>'   # SPA отдаётся
+          # nginx → server → PostgreSQL: вход с неверным паролем даёт 401 problem+json
+          curl -s -o /tmp/probe.json -X POST http://$GW/api/v1/auth/login \
+            -H 'Content-Type: application/json' -d '{"login":"probe","password":"wrong"}'
+          grep -q 'auth/invalid-credentials' /tmp/probe.json
+          echo 'Дымовой прогон прод-стенда пройден'

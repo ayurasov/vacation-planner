@@ -3,23 +3,44 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { api, type Notification } from '@/api/client';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 const auth = useAuthStore();
 const router = useRouter();
 const sidebarOpen = ref(false);
+const isDark = ref(false);
 const notifications = ref<Notification[]>([]);
 
-const nav = [
-  { section: 'Основное' },
-  { path: '/schedule', label: 'График отпусков', icon: '🗓' },
-  { path: '/my', label: 'Мой отпуск', icon: '🏖' },
-  { section: 'Управление' },
-  { path: '/approvals', label: 'Заявки', icon: '✅', needsApprover: true },
-  { path: '/employees', label: 'Сотрудники', icon: '👥', admin: true },
-  { path: '/directories', label: 'Справочники', icon: '📁', admin: true },
-  { path: '/settings', label: 'Настройки', icon: '⚙' },
-  { path: '/audit', label: 'Аудит', icon: '📜', admin: true },
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+  admin?: boolean;
+  needsApprover?: boolean;
+}
+
+const navSections: Array<{ title: string; items: NavItem[] }> = [
+  {
+    title: 'Основное',
+    items: [
+      { path: '/schedule', label: 'График отпусков', icon: 'calendar' },
+      { path: '/my', label: 'Мой отпуск', icon: 'palm' },
+    ],
+  },
+  {
+    title: 'Управление',
+    items: [
+      { path: '/approvals', label: 'Заявки', icon: 'checklist', needsApprover: true },
+      { path: '/employees', label: 'Сотрудники', icon: 'users', admin: true },
+      { path: '/directories', label: 'Справочники', icon: 'folder', admin: true },
+      { path: '/settings', label: 'Настройки', icon: 'settings' },
+      { path: '/audit', label: 'Аудит', icon: 'history', admin: true },
+    ],
+  },
 ];
+
+const visibleItems = (items: NavItem[]) =>
+  items.filter((i) => (!i.admin || auth.isAdmin) && (!i.needsApprover || auth.isApprover));
 
 const unreadCount = () => notifications.value.filter((n) => !n.isRead).length;
 
@@ -33,8 +54,9 @@ async function pollNotifications(): Promise<void> {
   }
 }
 
-async function toggleTheme(): Promise<void> {
-  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+function toggleTheme(): void {
+  const next = isDark.value ? 'light' : 'dark';
+  isDark.value = !isDark.value;
   document.documentElement.dataset.theme = next;
   localStorage.setItem('vp.theme', next);
 }
@@ -45,6 +67,7 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
+  isDark.value = document.documentElement.dataset.theme === 'dark';
   pollNotifications();
   setInterval(pollNotifications, 30000);
 });
@@ -69,32 +92,43 @@ onMounted(() => {
     v-else
     class="app-shell"
   >
+    <div
+      v-if="sidebarOpen"
+      class="mobile-nav-backdrop"
+      @click="sidebarOpen = false"
+    />
+
     <aside
       class="sidebar scroll-thin"
-      :class="{ open: sidebarOpen }"
+      :class="{ 'mobile-open': sidebarOpen }"
     >
       <div class="sidebar-logo">
-        <span class="logo-dot">VP</span>
-        <span>Планировщик<br>отпусков</span>
+        <span class="logo-mark"><AppIcon
+          name="brandMark"
+          :size="20"
+        /></span>
+        <span class="logo-text">Планировщик<br>отпусков</span>
       </div>
       <template
-        v-for="item in nav"
-        :key="item.path ?? item.section"
+        v-for="section in navSections"
+        :key="section.title"
       >
-        <div
-          v-if="item.section"
-          class="nav-section"
-        >
-          {{ item.section }}
+        <div class="nav-section">
+          {{ section.title }}
         </div>
         <router-link
-          v-else-if="(!item.admin || auth.isAdmin) && (!item.needsApprover || auth.isApprover)"
+          v-for="item in visibleItems(section.items)"
+          :key="item.path"
           class="nav-item"
-          :to="item.path ?? '/'"
+          :to="item.path"
           :class="{ active: $route.path === item.path }"
           @click="sidebarOpen = false"
         >
-          <span>{{ item.icon }}</span>{{ item.label }}
+          <AppIcon
+            :name="item.icon"
+            :size="16"
+          />
+          <span>{{ item.label }}</span>
           <span
             v-if="item.path === '/approvals' && unreadCount()"
             class="nav-badge"
@@ -104,42 +138,62 @@ onMounted(() => {
       <div style="flex: 1" />
       <button
         class="nav-item"
+        type="button"
         @click="logout"
       >
-        ↩ Выйти
+        <AppIcon
+          name="logout"
+          :size="16"
+        />
+        <span>Выйти</span>
       </button>
     </aside>
 
     <div class="main-area">
       <header class="topbar">
         <button
-          class="btn btn-icon"
-          style="display: none"
-          aria-hidden="true"
-        />
-        <strong style="font-size: 14px">{{ auth.displayName }}</strong>
-        <span
-          v-if="auth.isAdmin"
-          class="badge badge-info"
-        >администратор</span>
+          class="btn btn-icon btn-ghost mobile-nav-trigger"
+          type="button"
+          @click="sidebarOpen = true"
+        >
+          <AppIcon
+            name="menu"
+            :size="18"
+          />
+        </button>
+        <div class="topbar-user">
+          <strong>{{ auth.displayName }}</strong>
+          <span
+            v-if="auth.isAdmin"
+            class="badge badge-info"
+          >администратор</span>
+        </div>
         <span class="topbar-spacer" />
         <button
-          class="btn btn-icon"
-          :title="notifications.length ? 'Есть уведомления' : 'Уведомлений нет'"
+          class="btn btn-icon btn-ghost topbar-icon"
+          type="button"
+          title="Уведомления"
           @click="router.push('/my')"
         >
-          🔔<span
+          <AppIcon
+            name="bell"
+            :size="17"
+          />
+          <span
             v-if="unreadCount()"
             class="nav-badge"
-            style="margin-left: 4px"
           >{{ unreadCount() }}</span>
         </button>
         <button
-          class="btn btn-icon"
+          class="btn btn-icon btn-ghost"
+          type="button"
           title="Тема"
           @click="toggleTheme"
         >
-          ◐
+          <AppIcon
+            :name="isDark ? 'sun' : 'moon'"
+            :size="17"
+          />
         </button>
       </header>
       <main class="app-content scroll-thin">
@@ -155,5 +209,80 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+  padding: 4px 12px 16px;
+}
+
+.logo-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--color-primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.nav-badge {
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 16px;
+}
+
+.topbar-icon {
+  position: relative;
+}
+
+.topbar-icon .nav-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  transform: none;
+  padding: 0 4px;
+  min-width: 15px;
+  line-height: 14px;
+  border-radius: 7px;
+  font-size: 9.5px;
+}
+
+.mobile-nav-trigger {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobile-nav-trigger {
+    display: inline-flex;
+  }
+
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--color-overlay);
+    z-index: 99;
+  }
 }
 </style>

@@ -5,6 +5,7 @@ import {
   api, daysBetween, fmtRange, type Balance, type VacationRequest,
 } from '@/api/client';
 import VacationForm from '@/components/VacationForm.vue';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 const auth = useAuthStore();
 const balance = ref<Balance | null>(null);
@@ -86,7 +87,10 @@ onMounted(reload);
         class="btn btn-primary"
         @click="showModal = true"
       >
-        + Добавить отпуск
+        <AppIcon
+          name="plus"
+          :size="14"
+        /> Добавить отпуск
       </button>
     </div>
 

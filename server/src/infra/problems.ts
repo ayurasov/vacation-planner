@@ -50,7 +50,9 @@ export class ProblemException extends HttpException {
   }
 
   toProblem(instance?: string) {
+    const extra = this.code === 'rate-limited' ? { 'Retry-After': 60 } : {};
     return {
+      ...extra,
       type: `${PROBLEM_BASE}/${this.code}`,
       title: CODE_TITLES[this.code] ?? 'Ошибка запроса',
       status: this.getStatus(),

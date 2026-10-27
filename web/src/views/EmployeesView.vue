@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { api, type Department, type Employee, type Page } from '@/api/client';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 const employees = ref<Employee[]>([]);
 const total = ref(0);
@@ -125,7 +126,10 @@ onMounted(async () => {
           class="btn btn-primary"
           @click="openCreate"
         >
-          + Сотрудник
+          <AppIcon
+            name="plus"
+            :size="14"
+          /> Сотрудник
         </button>
       </div>
     </div>

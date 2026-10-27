@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { api } from '@/api/client';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 interface AuditEvent {
   id: number; ts: string; actorId: number | null; action: string;
@@ -70,7 +71,10 @@ onMounted(reload);
         class="btn"
         @click="reload"
       >
-        Обновить
+        <AppIcon
+          name="refresh"
+          :size="14"
+        /> Обновить
       </button>
     </div>
 
