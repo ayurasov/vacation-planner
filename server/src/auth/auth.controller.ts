@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 import type { Request, Response } from 'express';
 import { CurrentUser, Public } from './guards';
+import { LoginRateLimitGuard } from './rate-limit';
 import { AuthService } from './auth.service';
 
 export class LoginDto {
@@ -39,6 +40,7 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @UseGuards(LoginRateLimitGuard)
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ operationId: 'login', summary: 'Вход по логину и паролю' })

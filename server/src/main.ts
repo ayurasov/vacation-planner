@@ -8,6 +8,14 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
   app.use(cookieParser());
+  // Базовые security-заголовки (полный CSP — после аудита v0.3, см. ADR-011/backlog)
+  app.use((req: import('express').Request, res: import('express').Response, next: () => void) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
   app.setGlobalPrefix('');
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true, // неизвестные поля игнорируются (совместимость вперёд)
