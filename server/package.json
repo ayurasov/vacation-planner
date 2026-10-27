@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src test prisma --ext .ts",
-    "sbom": "cyclonedx-npm --output ../sbom/server.cdx.json --spec-version 1.5 --flatten"
+    "sbom": "cyclonedx-npm -o ../sbom/server.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

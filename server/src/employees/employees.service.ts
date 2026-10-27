@@ -7,15 +7,16 @@ import { hashPassword } from '../auth/passwords';
 import { randomBytes } from 'node:crypto';
 
 function translitLogin(name: string): string {
-  const map: Record<string, string> = {
+  const TRANSLIT: Record<string, string> = {
     а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'i',
     к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f',
     х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
   };
+  const translit = (word: string) => word.split('').map((ch) => TRANSLIT[ch] ?? ch).join('');
   const parts = name.toLowerCase().split(/\s+/);
   if (parts.length < 2) return 'user';
-  const last = parts[0];
-  const initials = parts.slice(1).map((p) => p[0]).filter(Boolean);
+  const last = translit(parts[0]);
+  const initials = parts.slice(1).map((p) => translit(p[0])).filter(Boolean);
   return `${last}.${initials.join('')}`;
 }
 

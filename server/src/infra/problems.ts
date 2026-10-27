@@ -99,7 +99,7 @@ export class ProblemFilter implements ExceptionFilter {
       });
       return;
     }
-    // eslint-disable-next-line no-console
+     
     console.error('Необработанная ошибка', exception);
     res.status(500).contentType('application/problem+json').json({
       type: `${PROBLEM_BASE}/internal`,

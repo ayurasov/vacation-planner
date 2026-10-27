@@ -28,25 +28,55 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="login-card card">
-    <div class="login-logo"><span class="logo-dot">VP</span></div>
-    <h1 class="login-title">Планировщик отпусков</h1>
-    <p class="login-hint">Введите корпоративный логин и пароль</p>
+    <div class="login-logo">
+      <span class="logo-dot">VP</span>
+    </div>
+    <h1 class="login-title">
+      Планировщик отпусков
+    </h1>
+    <p class="login-hint">
+      Введите корпоративный логин и пароль
+    </p>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
+    <div
+      v-if="error"
+      class="error-banner"
+    >
+      {{ error }}
+    </div>
 
     <form @submit.prevent="submit">
       <div class="field">
         <label for="login">Логин</label>
-        <input id="login" v-model="login" class="input" autocomplete="username" autofocus />
+        <input
+          id="login"
+          v-model="login"
+          class="input"
+          autocomplete="username"
+          autofocus
+        >
       </div>
       <div class="field">
         <label for="password">Пароль</label>
-        <input id="password" v-model="password" type="password" class="input" autocomplete="current-password" />
+        <input
+          id="password"
+          v-model="password"
+          type="password"
+          class="input"
+          autocomplete="current-password"
+        >
       </div>
       <label class="remember">
-        <input v-model="remember" type="checkbox" /> Запомнить меня
+        <input
+          v-model="remember"
+          type="checkbox"
+        > Запомнить меня
       </label>
-      <button class="btn btn-primary login-btn" type="submit" :disabled="busy || !login || !password">
+      <button
+        class="btn btn-primary login-btn"
+        type="submit"
+        :disabled="busy || !login || !password"
+      >
         {{ busy ? 'Входим…' : 'Войти' }}
       </button>
     </form>

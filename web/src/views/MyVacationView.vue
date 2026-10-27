@@ -74,87 +74,193 @@ onMounted(reload);
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">Мой отпуск</div>
-        <div class="view-subtitle">{{ auth.me?.employee.name }} · {{ year }} год</div>
+        <div class="view-title">
+          Мой отпуск
+        </div>
+        <div class="view-subtitle">
+          {{ auth.me?.employee.name }} · {{ year }} год
+        </div>
       </div>
-      <button v-if="auth.me?.employee.empType !== 'ipsz'" class="btn btn-primary" @click="showModal = true">
+      <button
+        v-if="auth.me?.employee.empType !== 'ipsz'"
+        class="btn btn-primary"
+        @click="showModal = true"
+      >
         + Добавить отпуск
       </button>
     </div>
 
-    <div v-if="auth.me?.employee.empType === 'ipsz'" class="card empty-state">
+    <div
+      v-if="auth.me?.employee.empType === 'ipsz'"
+      class="card empty-state"
+    >
       Для ИП и самозанятых отпуск не предусмотрен.
     </div>
 
     <template v-else>
-      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div
+        v-if="error"
+        class="error-banner"
+      >
+        {{ error }}
+      </div>
 
-      <div v-if="loading" class="empty-state">Загрузка…</div>
+      <div
+        v-if="loading"
+        class="empty-state"
+      >
+        Загрузка…
+      </div>
 
       <template v-else-if="balance">
-        <div v-if="!balance.hasFourteenDayStretch" class="warn-banner">
+        <div
+          v-if="!balance.hasFourteenDayStretch"
+          class="warn-banner"
+        >
           По ТК РФ одна из частей отпуска должна быть не короче 14 календарных дней подряд. Сейчас такой части нет.
         </div>
 
         <div class="kpi-row">
           <div class="card kpi">
-            <div class="kpi-value">{{ balance.entitlement }}</div>
-            <div class="kpi-label">положено дней</div>
+            <div class="kpi-value">
+              {{ balance.entitlement }}
+            </div>
+            <div class="kpi-label">
+              положено дней
+            </div>
           </div>
           <div class="card kpi">
-            <div class="kpi-value">{{ balance.used }}</div>
-            <div class="kpi-label">использовано</div>
+            <div class="kpi-value">
+              {{ balance.used }}
+            </div>
+            <div class="kpi-label">
+              использовано
+            </div>
           </div>
           <div class="card kpi">
-            <div class="kpi-value">{{ balance.pending }}</div>
-            <div class="kpi-label">на согласовании</div>
+            <div class="kpi-value">
+              {{ balance.pending }}
+            </div>
+            <div class="kpi-label">
+              на согласовании
+            </div>
           </div>
-          <div class="card kpi" :class="{ 'kpi-danger': balance.remaining < 0, 'kpi-warn': balance.remaining === 0 }">
-            <div class="kpi-value">{{ balance.remaining }}</div>
-            <div class="kpi-label">остаток</div>
+          <div
+            class="card kpi"
+            :class="{ 'kpi-danger': balance.remaining < 0, 'kpi-warn': balance.remaining === 0 }"
+          >
+            <div class="kpi-value">
+              {{ balance.remaining }}
+            </div>
+            <div class="kpi-label">
+              остаток
+            </div>
           </div>
         </div>
 
-        <div class="card" style="margin-bottom: 16px">
+        <div
+          class="card"
+          style="margin-bottom: 16px"
+        >
           <div class="card-pad">
             <strong>Мои периоды</strong>
           </div>
-          <div v-if="!activeRequests.length" class="empty-state">Активных отпусков нет</div>
-          <div v-for="r in activeRequests" :key="r.id" class="grid-row" style="grid-template-columns: 1fr 130px 110px 120px">
+          <div
+            v-if="!activeRequests.length"
+            class="empty-state"
+          >
+            Активных отпусков нет
+          </div>
+          <div
+            v-for="r in activeRequests"
+            :key="r.id"
+            class="grid-row"
+            style="grid-template-columns: 1fr 130px 110px 120px"
+          >
             <div>
               {{ fmtRange(r.start, r.end) }}
               <span class="muted">{{ daysBetween(r.start, r.end) }} к.д.</span>
-              <div v-if="r.changeFrom" class="muted small">перенос с {{ fmtRange(r.changeFrom.start, r.changeFrom.end) }}</div>
-              <div v-if="r.comment" class="muted small">«{{ r.comment }}»</div>
+              <div
+                v-if="r.changeFrom"
+                class="muted small"
+              >
+                перенос с {{ fmtRange(r.changeFrom.start, r.changeFrom.end) }}
+              </div>
+              <div
+                v-if="r.comment"
+                class="muted small"
+              >
+                «{{ r.comment }}»
+              </div>
             </div>
-            <span class="badge" :class="statusBadge(r.status, r.pendingDeletion).cls">{{ statusBadge(r.status, r.pendingDeletion).label }}</span>
+            <span
+              class="badge"
+              :class="statusBadge(r.status, r.pendingDeletion).cls"
+            >{{ statusBadge(r.status, r.pendingDeletion).label }}</span>
             <span class="muted">{{ new Date(r.createdAt).toLocaleDateString('ru-RU') }}</span>
-            <button class="btn btn-sm" @click="cancel(r)">
+            <button
+              class="btn btn-sm"
+              @click="cancel(r)"
+            >
               {{ r.status === 'approved' ? 'Запросить удаление' : 'Отменить' }}
             </button>
           </div>
         </div>
 
-        <div v-if="pastRequests.length" class="card" style="margin-bottom: 16px">
-          <div class="card-pad"><strong>Архив</strong></div>
-          <div v-for="r in pastRequests" :key="r.id" class="grid-row" style="grid-template-columns: 1fr 110px 1fr">
+        <div
+          v-if="pastRequests.length"
+          class="card"
+          style="margin-bottom: 16px"
+        >
+          <div class="card-pad">
+            <strong>Архив</strong>
+          </div>
+          <div
+            v-for="r in pastRequests"
+            :key="r.id"
+            class="grid-row"
+            style="grid-template-columns: 1fr 110px 1fr"
+          >
             <div>{{ fmtRange(r.start, r.end) }} <span class="muted">{{ daysBetween(r.start, r.end) }} к.д.</span></div>
-            <span class="badge" :class="statusBadge(r.status, false).cls">{{ statusBadge(r.status, false).label }}</span>
-            <span v-if="r.rejectionComment" class="muted small">Причина: {{ r.rejectionComment }}</span>
+            <span
+              class="badge"
+              :class="statusBadge(r.status, false).cls"
+            >{{ statusBadge(r.status, false).label }}</span>
+            <span
+              v-if="r.rejectionComment"
+              class="muted small"
+            >Причина: {{ r.rejectionComment }}</span>
           </div>
         </div>
 
-        <div v-if="notifications.length" class="card">
-          <div class="card-pad"><strong>Уведомления</strong></div>
-          <div v-for="n in notifications" :key="n.id" class="grid-row clickable" style="grid-template-columns: 1fr 130px" @click="!n.isRead && markRead(n.id)">
-            <div :style="n.isRead ? '' : 'font-weight:600'">{{ n.text }}</div>
+        <div
+          v-if="notifications.length"
+          class="card"
+        >
+          <div class="card-pad">
+            <strong>Уведомления</strong>
+          </div>
+          <div
+            v-for="n in notifications"
+            :key="n.id"
+            class="grid-row clickable"
+            style="grid-template-columns: 1fr 130px"
+            @click="!n.isRead && markRead(n.id)"
+          >
+            <div :style="n.isRead ? '' : 'font-weight:600'">
+              {{ n.text }}
+            </div>
             <span class="muted small">{{ new Date(n.createdAt).toLocaleString('ru-RU') }}</span>
           </div>
         </div>
       </template>
     </template>
 
-    <VacationForm v-if="showModal" @close="showModal = false" @created="reload(); showModal = false" />
+    <VacationForm
+      v-if="showModal"
+      @close="showModal = false"
+      @created="reload(); showModal = false"
+    />
   </div>
 </template>
 

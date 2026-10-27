@@ -54,14 +54,20 @@ onMounted(loadSettings);
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">Настройки</div>
-        <div class="view-subtitle">Профиль, пароль{{ auth.isAdmin ? ', организация' : '' }}</div>
+        <div class="view-title">
+          Настройки
+        </div>
+        <div class="view-subtitle">
+          Профиль, пароль{{ auth.isAdmin ? ', организация' : '' }}
+        </div>
       </div>
     </div>
 
     <div class="settings-grid">
       <div class="card">
-        <div class="card-pad"><strong>Мой профиль</strong></div>
+        <div class="card-pad">
+          <strong>Мой профиль</strong>
+        </div>
         <div class="card-pad profile-lines">
           <div><span class="muted">ФИО:</span> {{ auth.me?.employee.name }}</div>
           <div><span class="muted">Логин:</span> <code>{{ auth.me?.employee.login }}</code></div>
@@ -71,39 +77,90 @@ onMounted(loadSettings);
       </div>
 
       <div class="card">
-        <div class="card-pad"><strong>Смена пароля</strong></div>
         <div class="card-pad">
-          <div v-if="pwMessage" class="warn-banner" style="margin-bottom: 10px">{{ pwMessage }}</div>
+          <strong>Смена пароля</strong>
+        </div>
+        <div class="card-pad">
+          <div
+            v-if="pwMessage"
+            class="warn-banner"
+            style="margin-bottom: 10px"
+          >
+            {{ pwMessage }}
+          </div>
           <div class="field">
             <label>Старый пароль</label>
-            <input v-model="oldPassword" type="password" class="input" autocomplete="current-password" />
+            <input
+              v-model="oldPassword"
+              type="password"
+              class="input"
+              autocomplete="current-password"
+            >
           </div>
           <div class="field">
             <label>Новый пароль (≥8 символов)</label>
-            <input v-model="newPassword" type="password" class="input" autocomplete="new-password" />
+            <input
+              v-model="newPassword"
+              type="password"
+              class="input"
+              autocomplete="new-password"
+            >
           </div>
-          <button class="btn btn-primary" :disabled="oldPassword.length < 1 || newPassword.length < 8" @click="changePassword">
+          <button
+            class="btn btn-primary"
+            :disabled="oldPassword.length < 1 || newPassword.length < 8"
+            @click="changePassword"
+          >
             Сменить пароль
           </button>
         </div>
       </div>
 
-      <div v-if="auth.isAdmin && settings" class="card">
-        <div class="card-pad"><strong>Организация</strong></div>
+      <div
+        v-if="auth.isAdmin && settings"
+        class="card"
+      >
         <div class="card-pad">
-          <div v-if="error" class="error-banner">{{ error }}</div>
+          <strong>Организация</strong>
+        </div>
+        <div class="card-pad">
+          <div
+            v-if="error"
+            class="error-banner"
+          >
+            {{ error }}
+          </div>
           <div class="field">
             <label>Порог конфликта отсутствия в отделе: {{ settings.conflictThreshold }}%</label>
-            <input v-model.number="settings.conflictThreshold" type="range" min="20" max="80" step="5" style="width: 100%" />
+            <input
+              v-model.number="settings.conflictThreshold"
+              type="range"
+              min="20"
+              max="80"
+              step="5"
+              style="width: 100%"
+            >
           </div>
           <div class="field">
             <label>Политика лимита дней</label>
-            <select v-model="settings.limitPolicy" class="input">
-              <option value="hard">Жёсткая — заявки сверх остатка блокируются</option>
-              <option value="soft">Мягкая — только предупреждение</option>
+            <select
+              v-model="settings.limitPolicy"
+              class="input"
+            >
+              <option value="hard">
+                Жёсткая — заявки сверх остатка блокируются
+              </option>
+              <option value="soft">
+                Мягкая — только предупреждение
+              </option>
             </select>
           </div>
-          <button class="btn btn-primary" @click="saveSettings">{{ saved ? 'Сохранено ✓' : 'Сохранить' }}</button>
+          <button
+            class="btn btn-primary"
+            @click="saveSettings"
+          >
+            {{ saved ? 'Сохранено ✓' : 'Сохранить' }}
+          </button>
         </div>
       </div>
     </div>

@@ -59,31 +59,76 @@ onMounted(reload);
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">Аудит</div>
-        <div class="view-subtitle">{{ total }} событий · только чтение</div>
+        <div class="view-title">
+          Аудит
+        </div>
+        <div class="view-subtitle">
+          {{ total }} событий · только чтение
+        </div>
       </div>
-      <button class="btn" @click="reload">Обновить</button>
+      <button
+        class="btn"
+        @click="reload"
+      >
+        Обновить
+      </button>
     </div>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-if="loading" class="empty-state">Загрузка…</div>
+    <div
+      v-if="error"
+      class="error-banner"
+    >
+      {{ error }}
+    </div>
+    <div
+      v-if="loading"
+      class="empty-state"
+    >
+      Загрузка…
+    </div>
 
-    <div v-else class="card">
+    <div
+      v-else
+      class="card"
+    >
       <div class="grid-table">
-        <div class="grid-head" style="grid-template-columns: 150px 1fr 160px 1fr">
+        <div
+          class="grid-head"
+          style="grid-template-columns: 150px 1fr 160px 1fr"
+        >
           <div>Время</div><div>Действие</div><div>Кто</div><div>Изменение</div>
         </div>
-        <div v-for="e in events" :key="e.id" class="grid-row" style="grid-template-columns: 150px 1fr 160px 1fr">
+        <div
+          v-for="e in events"
+          :key="e.id"
+          class="grid-row"
+          style="grid-template-columns: 150px 1fr 160px 1fr"
+        >
           <span class="muted">{{ new Date(e.ts).toLocaleString('ru-RU') }}</span>
           <div>{{ actionLabels[e.action] ?? e.action }}</div>
           <span class="muted">#{{ e.actorId ?? 'система' }} · {{ e.entity }}/{{ e.entityId }}</span>
-          <code class="muted small" style="overflow-wrap: anywhere">{{ fmt(e).slice(0, 140) }}</code>
+          <code
+            class="muted small"
+            style="overflow-wrap: anywhere"
+          >{{ fmt(e).slice(0, 140) }}</code>
         </div>
       </div>
       <div class="pager">
-        <button class="btn btn-sm" :disabled="page <= 1" @click="page--; reload()">←</button>
+        <button
+          class="btn btn-sm"
+          :disabled="page <= 1"
+          @click="page--; reload()"
+        >
+          ←
+        </button>
         <span class="muted">стр. {{ page }} из {{ Math.max(1, Math.ceil(total / 50)) }}</span>
-        <button class="btn btn-sm" :disabled="page >= Math.ceil(total / 50)" @click="page++; reload()">→</button>
+        <button
+          class="btn btn-sm"
+          :disabled="page >= Math.ceil(total / 50)"
+          @click="page++; reload()"
+        >
+          →
+        </button>
       </div>
     </div>
   </div>

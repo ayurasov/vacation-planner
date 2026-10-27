@@ -1,68 +1,56 @@
-# Планировщик отпусков — корпоративный инструмент
+# Планировщик отпусков — корпоративная платформа
 
-Внутренний инструмент компании (до 500 сотрудников): график отпусков, заявки с согласованием, балансы дней, режимы офис/удалёнка, справочники и аналитика.
+Внутренний инструмент компании (масштаб 1000 → 5000 пользователей): график отпусков, заявки с согласованием, балансы дней, режимы офис/удалёнка, справочники, аудит. Зрелый стек с первого этапа: **NestJS + PostgreSQL 17 + Vue 3 + Docker**.
 
-**Состояние:** этап 0 завершён (каркас, CI, тесты, контракт API v1, комплект документов). Этап 1 — перевод бизнес-логики на сервер по зафиксированному контракту. Архитектура и план — `docs/specs/01-architecture.md`.
+**Версия:** v0.1.0 (ветки и теги `v0.x.y`; история и авторство — [docs/versions.md](docs/versions.md)).
 
-## Быстрый старт (Linux / WSL / macOS)
+## Быстрый старт
 
 ```bash
-npm install     # зависимости (better-sqlite3 поставится из prebuilt)
-npm start       # http://localhost:3000
+make up          # PostgreSQL (docker)
+make seed        # миграции + демо-данные (131 сотрудник)
+make server-dev  # API → http://localhost:8080 (docs: /api/docs)
+make web-dev     # UI  → http://localhost:5173
 ```
 
-При первом запуске база `data.db` создаётся автоматически из `seed.json` (131 сотрудник).
+Полный стенд в контейнерах: `make compose-full` → http://localhost.
 
-Демо-вход администратора: логин `yurasov.av`, пароль `j2ENXpPi` (демо-данные; на этапе 1 пароли переносятся в хеши, документ 1, решение В1).
+Демо-вход администратора: `yurasov.av` / `j2ENXpPi`.
 
-Запуск на Windows — см. [README-Windows.md](README-Windows.md) (`install.bat`, `start.bat`).
-
-## Команды
+## Проверки
 
 | Команда | Действие |
 |---|---|
-| `npm start` | Сервер на :3000 |
-| `npm run dev` | Сервер с автоперезапуском |
-| `npm test` | Интеграционные тесты API (временная БД) |
-| `npm run lint` | ESLint |
-| `npm run contract:check` | Проверка OpenAPI-контракта |
-
-Переменные окружения: `PORT` (3000), `DB_PATH` (data.db), `SEED_PATH` (seed.json).
+| `make test` | e2e-тесты API (нужен запущенный `make up`) |
+| `make lint` | ESLint (server + web) |
+| `make sbom` | CycloneDX SBOM + отчёт лицензий (реестр ОП) |
+| `make docs-pdf` | PDF-версии документов |
 
 ## Структура
 
 ```text
-contracts/   OpenAPI-контракт API v1 (менять только через ревью)
-docs/specs/  Комплект архитектурных документов 0–10
-docs/adr/    Архитектурные решения
-prompts/     Промпты для ИИ-ассистентов
-src/         Сервер: app.js, db.js; с этапа 1 — domain/, api/, auth/
-public/      SPA-клиент
-test/        Автотесты
-seed.json    Демо-данные
+server/   API: NestJS 11 + TS strict + Prisma 6 + PostgreSQL (src/, prisma/, test/)
+web/      SPA: Vue 3 + Vite + Pinia + TS (без компонентных библиотек)
+contracts/  OpenAPI-контракт v1 (менять только через ревью)
+docs/specs/ Комплект документов 00–11; docs/pdf/ — PDF; docs/versions.md — версии
+sbom/       CycloneDX (генерируется)
+scripts/    Отчёт по лицензиям
+tools/      Генератор PDF
 ```
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`): ESLint + тесты + контракт (Node 20 и 22) и дымовой запуск сервера — на каждый push/PR в `main`/`stage1`.
+GitHub Actions: сборка и тесты server (postgres-сервис) и web, SBOM с блокировкой copyleft-лицензий, сборка docker-образов, дымовой прогон полного стенда. Ветки версий `v0.*`; `main` — только смёрженные версии.
 
 ## Документация
 
-| Документ | Содержание |
-|---|---|
-| [00 Ревизия фич](docs/specs/00-feature-audit.md) | as-is / to-be, пробелы для 500 человек |
-| [01 Архитектура](docs/specs/01-architecture.md) | Целевая архитектура, этапы, решения |
-| [02 Спецификация API](docs/specs/02-api-spec.md) | Протокол v1, права, каталог ошибок |
-| [03 Бэклог этапа 1](docs/specs/03-backlog.md) | Эпики, истории, критерии приёмки |
-| [04 Модель данных](docs/specs/04-data-model.md) | Схема БД, миграция из snapshot |
-| [05 Тексты сообщений](docs/specs/05-messages.md) | UI, уведомления, ошибки |
-| [06 Правила с ИИ](docs/specs/06-ai-rules.md) | Работа ассистентов |
-| [07 Стенды и CI/CD](docs/specs/07-environments-cicd.md) | Окружения, выпуск |
-| [08 ТЗ этапа 1](docs/specs/08-tz.md) | Формальные требования, приёмка |
-| [10 Промпты](docs/specs/10-prompts.md) | Итерации разработки |
+| Документ | | Документ | |
+|---|---|---|---|
+| [00 Ревизия фич](docs/specs/00-feature-audit.md) | as-is/to-be | [06 Правила с ИИ](docs/specs/06-ai-rules.md) | ассистенты |
+| [01 Архитектура](docs/specs/01-architecture.md) | платформа | [07 Стенды и CI/CD](docs/specs/07-environments-cicd.md) | выпуск |
+| [02 Спецификация API](docs/specs/02-api-spec.md) | протокол | [08 ТЗ](docs/specs/08-tz.md) | требования |
+| [03 Бэклог](docs/specs/03-backlog.md) | план | [10 Промпты](docs/specs/10-prompts.md) | итерации |
+| [04 Модель данных](docs/specs/04-data-model.md) | схема | [11 SBOM и лицензии](docs/specs/11-sbom-licenses.md) | реестр ОП |
+| [05 Тексты сообщений](docs/specs/05-messages.md) | UI-копирайт | [Версии](docs/versions.md) | история/авторство |
 
-Правила для ИИ-ассистентов — [AGENTS.md](AGENTS.md).
-
-## Данные
-
-Рабочая БД `data.db` не хранится в git. Сброс к демо-данным: остановите сервер, удалите `data.db*` и запустите снова. Резервная копия — копия файла `data.db`.
+Правила для ИИ-ассистентов — [AGENTS.md](AGENTS.md). Лицензии сторонних компонентов — [автоотчёт](docs/sbom/licenses-report.md).

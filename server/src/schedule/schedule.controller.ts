@@ -4,7 +4,6 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
-import { JwtAuthGuard } from '../auth/guards';
 import { calendarDays, eachDay, toIso } from '../requests/balance';
 
 export class ScheduleQuery {

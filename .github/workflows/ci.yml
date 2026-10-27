@@ -1,12 +1,12 @@
-# Конвейер CI: линтер, тесты, контракт, дымовой запуск сервера.
-# Описание стендов и порядка выпуска — docs/specs/07-environments-cicd.md.
+# Конвейер CI монорепо: server, web, SBOM, docker, дым полного стенда.
+# Окружения и порядок выпуска — docs/specs/07-environments-cicd.md.
 name: CI
 
 on:
   push:
-    branches: [main, stage1]
+    branches: [main, 'v0.*']
   pull_request:
-    branches: [main, stage1]
+    branches: [main, 'v0.*']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,57 +16,112 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    name: Линтер, тесты, контракт
+  server:
+    name: Сервер: сборка + e2e (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node: [20, 22]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: vacation
+          POSTGRES_PASSWORD: vacation
+          POSTGRES_DB: vacation_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vacation -d vacation_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://vacation:vacation@localhost:5432/vacation_test
+      JWT_SECRET: ci-secret-ci-secret-ci-secret-32ch
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-
+        with: { node-version: '${{ matrix.node }}', cache: npm, cache-dependency-path: server/package-lock.json }
       - name: Установка зависимостей
         run: npm ci
-
-      - name: Линтер (ESLint)
-        run: npm run lint
-
-      - name: Тесты (node:test)
+        working-directory: server
+      - name: Prisma generate
+        run: npx prisma generate
+        working-directory: server
+      - name: Миграции тестовой БД
+        run: npx prisma migrate deploy
+        working-directory: server
+      - name: Сборка (tsc strict)
+        run: npm run build
+        working-directory: server
+      - name: e2e-тесты (vitest + supertest)
         run: npm test
+        working-directory: server
+      - name: ESLint
+        run: npm run lint
+        working-directory: server
 
-      - name: Проверка OpenAPI-контракта
-        run: npm run contract:check
-
-  smoke:
-    name: Дымовой запуск сервера
+  web:
+    name: Клиент: сборка (vue-tsc + vite)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+        with: { node-version: 20, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
 
-      - name: Установка зависимостей
-        run: npm ci
-
-      - name: Запуск сервера и проверка эндпоинтов
+  sbom:
+    name: SBOM и лицензии (реестр ОП)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: server/package-lock.json }
+      - name: Сервер: зависимости + SBOM
         run: |
-          npm start &
-          SERVER_PID=$!
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/healthz > /dev/null 2>&1; then break; fi
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:3000/healthz | grep -q '"ok":true'
-          curl -fsS http://127.0.0.1:3000/api/state | grep -q '"employees"'
-          curl -fsS http://127.0.0.1:3000/ | grep -qi '<!DOCTYPE html>'
-          echo "Дымовой прогон пройден"
-          kill $SERVER_PID
+          npm ci
+          npm run sbom
+        working-directory: server
+      - name: Клиент: зависимости + SBOM
+        run: |
+          npm ci
+          npm run sbom
+        working-directory: web
+      - name: Отчёт по лицензиям (падает при copyleft/unknown)
+        run: node scripts/license-report.mjs
+      - name: Загрузка артефактов SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom/*.cdx.json
+          retention-days: 30
+
+  docker:
+    name: Docker-образы
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка server и web
+        run: docker compose --profile full build
+
+  smoke:
+    name: Дымовой прогон полного стенда
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка и запуск (postgres + server + web/nginx)
+        run: docker compose --profile full up -d --build
+        env:
+          JWT_SECRET: smoke-secret-smoke-secret-smoke
+      - name: Пробы стенда
+        run: |
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:80/ >/dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:80/ | grep -qi '<!DOCTYPE html>'        # SPA отдаётся
+          curl -fsS http://127.0.0.1:80/api/v1/calendar/holidays/2026 \
+            | grep -q '2026-01-01'                                           # API+БД отвечают через nginx
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:80/api/v1/employees)" = 401  # доступ закрыт
+          echo 'Дымовой прогон стенда пройден'

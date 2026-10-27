@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
-  ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, MinLength, MaxLength,
+  ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, MinLength, MaxLength,
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';

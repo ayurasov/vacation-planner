@@ -32,30 +32,72 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div
+    class="modal-overlay"
+    @click.self="emit('close')"
+  >
     <div class="modal">
-      <div class="modal-title">Заявка на отпуск</div>
+      <div class="modal-title">
+        Заявка на отпуск
+      </div>
 
-      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div
+        v-if="error"
+        class="error-banner"
+      >
+        {{ error }}
+      </div>
 
       <div class="field">
         <label for="v-start">Первый день</label>
-        <input id="v-start" v-model="start" type="date" class="input" :min="new Date().toISOString().slice(0, 10)" />
+        <input
+          id="v-start"
+          v-model="start"
+          type="date"
+          class="input"
+          :min="new Date().toISOString().slice(0, 10)"
+        >
       </div>
       <div class="field">
         <label for="v-end">Последний день</label>
-        <input id="v-end" v-model="end" type="date" class="input" :min="start || new Date().toISOString().slice(0, 10)" />
+        <input
+          id="v-end"
+          v-model="end"
+          type="date"
+          class="input"
+          :min="start || new Date().toISOString().slice(0, 10)"
+        >
       </div>
       <div class="field">
         <label for="v-comment">Комментарий (необязательно)</label>
-        <textarea id="v-comment" v-model="comment" class="input" rows="2" maxlength="1000" />
+        <textarea
+          id="v-comment"
+          v-model="comment"
+          class="input"
+          rows="2"
+          maxlength="1000"
+        />
       </div>
 
-      <div v-if="calendarDays" class="days-preview">{{ calendarDays }} календарных дней</div>
+      <div
+        v-if="calendarDays"
+        class="days-preview"
+      >
+        {{ calendarDays }} календарных дней
+      </div>
 
       <div class="modal-actions">
-        <button class="btn" @click="emit('close')">Отмена</button>
-        <button class="btn btn-primary" :disabled="busy || !start || !end || start > end" @click="submit">
+        <button
+          class="btn"
+          @click="emit('close')"
+        >
+          Отмена
+        </button>
+        <button
+          class="btn btn-primary"
+          :disabled="busy || !start || !end || start > end"
+          @click="submit"
+        >
           {{ busy ? 'Отправляем…' : 'Отправить' }}
         </button>
       </div>

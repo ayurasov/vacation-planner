@@ -82,28 +82,68 @@ onMounted(reload);
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">Справочники</div>
-        <div class="view-subtitle">Отделы и проекты организации</div>
+        <div class="view-title">
+          Справочники
+        </div>
+        <div class="view-subtitle">
+          Отделы и проекты организации
+        </div>
       </div>
     </div>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
+    <div
+      v-if="error"
+      class="error-banner"
+    >
+      {{ error }}
+    </div>
 
     <div class="dirs-grid">
       <div class="card">
         <div class="card-pad">
           <strong>Отделы</strong> <span class="muted">({{ departments.length }})</span>
         </div>
-        <div class="card-pad" style="display: flex; gap: 8px">
-          <input v-model="newName" class="input" placeholder="Новый отдел" @keyup.enter="addDepartment" />
-          <button class="btn btn-primary" :disabled="!newName.trim()" @click="addDepartment">+</button>
+        <div
+          class="card-pad"
+          style="display: flex; gap: 8px"
+        >
+          <input
+            v-model="newName"
+            class="input"
+            placeholder="Новый отдел"
+            @keyup.enter="addDepartment"
+          >
+          <button
+            class="btn btn-primary"
+            :disabled="!newName.trim()"
+            @click="addDepartment"
+          >
+            +
+          </button>
         </div>
-        <div v-for="d in departments" :key="d.name" class="grid-row" style="grid-template-columns: 1fr 70px 130px">
+        <div
+          v-for="d in departments"
+          :key="d.name"
+          class="grid-row"
+          style="grid-template-columns: 1fr 70px 130px"
+        >
           <div>{{ d.name }}</div>
           <span class="badge badge-muted">{{ d.headcount }}</span>
           <div style="display: flex; gap: 6px">
-            <button class="btn btn-sm" @click="renameDepartment(d.name)">Переим.</button>
-            <button class="btn btn-sm btn-danger" :disabled="d.headcount > 0" :title="d.headcount ? 'В отделе есть сотрудники' : ''" @click="removeDepartment(d)">Удалить</button>
+            <button
+              class="btn btn-sm"
+              @click="renameDepartment(d.name)"
+            >
+              Переим.
+            </button>
+            <button
+              class="btn btn-sm btn-danger"
+              :disabled="d.headcount > 0"
+              :title="d.headcount ? 'В отделе есть сотрудники' : ''"
+              @click="removeDepartment(d)"
+            >
+              Удалить
+            </button>
           </div>
         </div>
       </div>
@@ -113,12 +153,28 @@ onMounted(reload);
           <strong>Проекты</strong> <span class="muted">({{ projects.length }})</span>
         </div>
         <div class="card-pad">
-          <button class="btn btn-primary" @click="addProject">+ Проект</button>
+          <button
+            class="btn btn-primary"
+            @click="addProject"
+          >
+            + Проект
+          </button>
         </div>
-        <div v-for="p in projects" :key="p.id" class="grid-row" style="grid-template-columns: 1fr 70px 90px">
+        <div
+          v-for="p in projects"
+          :key="p.id"
+          class="grid-row"
+          style="grid-template-columns: 1fr 70px 90px"
+        >
           <div>{{ p.name }}</div>
           <span class="badge badge-muted">{{ p.headcount }}</span>
-          <button class="btn btn-sm btn-danger" :disabled="p.headcount > 0" @click="removeProject(p)">Удалить</button>
+          <button
+            class="btn btn-sm btn-danger"
+            :disabled="p.headcount > 0"
+            @click="removeProject(p)"
+          >
+            Удалить
+          </button>
         </div>
       </div>
     </div>

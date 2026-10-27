@@ -1,9 +1,9 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
-import { JwtAuthGuard, CurrentUser } from '../auth/guards';
+import { CurrentUser } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
 import { AuditService } from './audit.service';
 

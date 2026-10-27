@@ -91,21 +91,51 @@ onMounted(async () => {
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">График отпусков · {{ YEAR }}</div>
-        <div class="view-subtitle">{{ filtered.length }} сотрудников{{ deptFilter ? ` · ${deptFilter}` : '' }}</div>
+        <div class="view-title">
+          График отпусков · {{ YEAR }}
+        </div>
+        <div class="view-subtitle">
+          {{ filtered.length }} сотрудников{{ deptFilter ? ` · ${deptFilter}` : '' }}
+        </div>
       </div>
       <div class="view-controls">
-        <select v-model="deptFilter" class="input" style="width: auto" @change="reload">
-          <option value="">Все отделы</option>
-          <option v-for="d in departments" :key="d.name" :value="d.name">{{ d.name }} ({{ d.headcount }})</option>
+        <select
+          v-model="deptFilter"
+          class="input"
+          style="width: auto"
+          @change="reload"
+        >
+          <option value="">
+            Все отделы
+          </option>
+          <option
+            v-for="d in departments"
+            :key="d.name"
+            :value="d.name"
+          >
+            {{ d.name }} ({{ d.headcount }})
+          </option>
         </select>
-        <input v-model="search" class="input" style="width: 200px" placeholder="Поиск по ФИО…" />
+        <input
+          v-model="search"
+          class="input"
+          style="width: 200px"
+          placeholder="Поиск по ФИО…"
+        >
       </div>
     </div>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
+    <div
+      v-if="error"
+      class="error-banner"
+    >
+      {{ error }}
+    </div>
 
-    <div v-if="hasConflicts" class="warn-banner">
+    <div
+      v-if="hasConflicts"
+      class="warn-banner"
+    >
       Дни с превышением порога отсутствия в отделе: {{ [...conflictDates].slice(0, 6).join(', ') }}
       {{ conflictDates.size > 6 ? `… всего ${conflictDates.size}` : '' }}
     </div>
@@ -119,15 +149,34 @@ onMounted(async () => {
       <span class="legend-item"><span class="sw sw-conflict" /> конфликт отдела</span>
     </div>
 
-    <div v-if="loading" class="empty-state">Загрузка графика…</div>
+    <div
+      v-if="loading"
+      class="empty-state"
+    >
+      Загрузка графика…
+    </div>
 
-    <div v-else class="card schedule-card scroll-thin">
+    <div
+      v-else
+      class="card schedule-card scroll-thin"
+    >
       <div class="schedule-grid">
         <!-- Шапка: имя + 12 месяцев -->
-        <div class="grid-head schedule-row head-row" :style="{ gridTemplateColumns: `220px repeat(${totalDays}, 10px)` }">
+        <div
+          class="grid-head schedule-row head-row"
+          :style="{ gridTemplateColumns: `220px repeat(${totalDays}, 10px)` }"
+        >
           <div>Сотрудник</div>
-          <template v-for="(m, mi) in monthNames" :key="m">
-            <div class="month-label" :style="{ gridColumn: `span ${daysInMonth(mi)}` }">{{ m }}</div>
+          <template
+            v-for="(m, mi) in monthNames"
+            :key="m"
+          >
+            <div
+              class="month-label"
+              :style="{ gridColumn: `span ${daysInMonth(mi)}` }"
+            >
+              {{ m }}
+            </div>
           </template>
         </div>
 
@@ -139,11 +188,21 @@ onMounted(async () => {
           @click="selected = e"
         >
           <div class="emp-cell">
-            <div class="emp-name">{{ e.name }}</div>
-            <div class="emp-dept">{{ e.dept ?? 'Без отдела' }}</div>
+            <div class="emp-name">
+              {{ e.name }}
+            </div>
+            <div class="emp-dept">
+              {{ e.dept ?? 'Без отдела' }}
+            </div>
           </div>
-          <template v-for="mi in 12" :key="mi">
-            <template v-for="d in daysInMonth(mi - 1)" :key="`${mi}-${d}`">
+          <template
+            v-for="mi in 12"
+            :key="mi"
+          >
+            <template
+              v-for="d in daysInMonth(mi - 1)"
+              :key="`${mi}-${d}`"
+            >
               <div
                 class="day-cell"
                 :class="[
@@ -162,20 +221,51 @@ onMounted(async () => {
     </div>
 
     <!-- Карточка сотрудника -->
-    <div v-if="selected" class="modal-overlay" @click.self="selected = null">
+    <div
+      v-if="selected"
+      class="modal-overlay"
+      @click.self="selected = null"
+    >
       <div class="modal">
-        <div class="modal-title">{{ selected.name }}</div>
-        <div class="muted" style="margin-bottom: 12px">{{ selected.position }} · {{ selected.dept ?? 'Без отдела' }}</div>
-        <div v-if="!selected.vacations.length" class="empty-state">Отпусков нет</div>
-        <div v-for="v in selected.vacations" :key="v.requestId" class="vac-line">
-          <span class="badge" :class="v.status === 'approved' ? 'badge-success' : 'badge-info'">
+        <div class="modal-title">
+          {{ selected.name }}
+        </div>
+        <div
+          class="muted"
+          style="margin-bottom: 12px"
+        >
+          {{ selected.position }} · {{ selected.dept ?? 'Без отдела' }}
+        </div>
+        <div
+          v-if="!selected.vacations.length"
+          class="empty-state"
+        >
+          Отпусков нет
+        </div>
+        <div
+          v-for="v in selected.vacations"
+          :key="v.requestId"
+          class="vac-line"
+        >
+          <span
+            class="badge"
+            :class="v.status === 'approved' ? 'badge-success' : 'badge-info'"
+          >
             {{ v.status === 'approved' ? 'согласован' : 'на согласовании' }}
           </span>
           {{ fmtRange(v.start, v.end) }} · {{ daysBetween(v.start, v.end) }} к.д.
-          <span v-if="v.type === 'maternity'" class="badge badge-warning">декрет</span>
+          <span
+            v-if="v.type === 'maternity'"
+            class="badge badge-warning"
+          >декрет</span>
         </div>
         <div class="modal-actions">
-          <button class="btn" @click="selected = null">Закрыть</button>
+          <button
+            class="btn"
+            @click="selected = null"
+          >
+            Закрыть
+          </button>
         </div>
       </div>
     </div>

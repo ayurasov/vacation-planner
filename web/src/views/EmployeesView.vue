@@ -100,94 +100,235 @@ onMounted(async () => {
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">Сотрудники</div>
-        <div class="view-subtitle">{{ total }} активных</div>
+        <div class="view-title">
+          Сотрудники
+        </div>
+        <div class="view-subtitle">
+          {{ total }} активных
+        </div>
       </div>
       <div class="view-controls">
-        <input v-model="search" class="input" style="width: 220px" placeholder="Поиск…" @keyup.enter="page = 1; reload()" />
-        <button class="btn" @click="page = 1; reload()">Найти</button>
-        <button class="btn btn-primary" @click="openCreate">+ Сотрудник</button>
+        <input
+          v-model="search"
+          class="input"
+          style="width: 220px"
+          placeholder="Поиск…"
+          @keyup.enter="page = 1; reload()"
+        >
+        <button
+          class="btn"
+          @click="page = 1; reload()"
+        >
+          Найти
+        </button>
+        <button
+          class="btn btn-primary"
+          @click="openCreate"
+        >
+          + Сотрудник
+        </button>
       </div>
     </div>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-if="loading" class="empty-state">Загрузка…</div>
+    <div
+      v-if="error"
+      class="error-banner"
+    >
+      {{ error }}
+    </div>
+    <div
+      v-if="loading"
+      class="empty-state"
+    >
+      Загрузка…
+    </div>
 
-    <div v-else class="card">
+    <div
+      v-else
+      class="card"
+    >
       <div class="grid-table">
-        <div class="grid-head" style="grid-template-columns: 1.6fr 1.2fr 1.2fr 90px 120px 110px">
+        <div
+          class="grid-head"
+          style="grid-template-columns: 1.6fr 1.2fr 1.2fr 90px 120px 110px"
+        >
           <div>ФИО</div><div>Должность</div><div>Отдел</div><div>Дней</div><div>Логин</div><div />
         </div>
-        <div v-for="e in employees" :key="e.id" class="grid-row" style="grid-template-columns: 1.6fr 1.2fr 1.2fr 90px 120px 110px">
+        <div
+          v-for="e in employees"
+          :key="e.id"
+          class="grid-row"
+          style="grid-template-columns: 1.6fr 1.2fr 1.2fr 90px 120px 110px"
+        >
           <div>
             {{ e.name }}
-            <span v-if="e.isAdmin" class="badge badge-info">админ</span>
-            <span v-else-if="e.role === 'manager'" class="badge badge-muted">рук.</span>
+            <span
+              v-if="e.isAdmin"
+              class="badge badge-info"
+            >админ</span>
+            <span
+              v-else-if="e.role === 'manager'"
+              class="badge badge-muted"
+            >рук.</span>
           </div>
-          <div class="muted">{{ e.position ?? '—' }}</div>
-          <div class="muted">{{ e.deptName ?? '—' }}</div>
+          <div class="muted">
+            {{ e.position ?? '—' }}
+          </div>
+          <div class="muted">
+            {{ e.deptName ?? '—' }}
+          </div>
           <div>{{ e.plannedDays }}</div>
           <code class="muted">{{ e.login }}</code>
           <div style="display: flex; gap: 6px">
-            <button class="btn btn-sm" @click="openEdit(e)">Править</button>
-            <button class="btn btn-sm btn-danger" @click="deactivate(e)">Уволить</button>
+            <button
+              class="btn btn-sm"
+              @click="openEdit(e)"
+            >
+              Править
+            </button>
+            <button
+              class="btn btn-sm btn-danger"
+              @click="deactivate(e)"
+            >
+              Уволить
+            </button>
           </div>
         </div>
       </div>
-      <div v-if="!employees.length" class="empty-state">Никого не найдено</div>
-      <div v-if="total > 50" class="pager">
-        <button class="btn btn-sm" :disabled="page <= 1" @click="page--; reload()">←</button>
+      <div
+        v-if="!employees.length"
+        class="empty-state"
+      >
+        Никого не найдено
+      </div>
+      <div
+        v-if="total > 50"
+        class="pager"
+      >
+        <button
+          class="btn btn-sm"
+          :disabled="page <= 1"
+          @click="page--; reload()"
+        >
+          ←
+        </button>
         <span class="muted">стр. {{ page }} из {{ Math.ceil(total / 50) }}</span>
-        <button class="btn btn-sm" :disabled="page >= Math.ceil(total / 50)" @click="page++; reload()">→</button>
+        <button
+          class="btn btn-sm"
+          :disabled="page >= Math.ceil(total / 50)"
+          @click="page++; reload()"
+        >
+          →
+        </button>
       </div>
     </div>
 
-    <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+    <div
+      v-if="showModal"
+      class="modal-overlay"
+      @click.self="showModal = false"
+    >
       <div class="modal">
-        <div class="modal-title">{{ editing ? `Правка: ${editing.name}` : 'Новый сотрудник' }}</div>
-        <div v-if="error" class="error-banner">{{ error }}</div>
+        <div class="modal-title">
+          {{ editing ? `Правка: ${editing.name}` : 'Новый сотрудник' }}
+        </div>
+        <div
+          v-if="error"
+          class="error-banner"
+        >
+          {{ error }}
+        </div>
 
         <template v-if="!generated">
           <div class="field">
             <label>ФИО</label>
-            <input v-model="form.name" class="input" />
+            <input
+              v-model="form.name"
+              class="input"
+            >
           </div>
           <div class="field">
             <label>Должность</label>
-            <input v-model="form.position" class="input" />
+            <input
+              v-model="form.position"
+              class="input"
+            >
           </div>
           <div class="field">
             <label>Отдел</label>
-            <select v-model="form.deptId" class="input">
-              <option value="">Без отдела</option>
-              <option v-for="d in departments" :key="d.name" :value="d.name">{{ d.name }}</option>
+            <select
+              v-model="form.deptId"
+              class="input"
+            >
+              <option value="">
+                Без отдела
+              </option>
+              <option
+                v-for="d in departments"
+                :key="d.name"
+                :value="d.name"
+              >
+                {{ d.name }}
+              </option>
             </select>
           </div>
           <div class="field">
             <label>Плановых дней</label>
-            <input v-model="form.plannedDays" type="number" min="0" class="input" />
+            <input
+              v-model="form.plannedDays"
+              type="number"
+              min="0"
+              class="input"
+            >
           </div>
           <template v-if="!editing">
             <div class="field">
               <label>Логин (пусто — сгенерировать)</label>
-              <input v-model="form.login" class="input" placeholder="ivanov.ii" />
+              <input
+                v-model="form.login"
+                class="input"
+                placeholder="ivanov.ii"
+              >
             </div>
             <div class="field">
               <label>Пароль (пусто — сгенерировать)</label>
-              <input v-model="form.password" type="text" class="input" minlength="8" />
+              <input
+                v-model="form.password"
+                type="text"
+                class="input"
+                minlength="8"
+              >
             </div>
           </template>
           <div class="modal-actions">
-            <button class="btn" @click="showModal = false">Отмена</button>
-            <button class="btn btn-primary" :disabled="busy || form.name.trim().length < 3" @click="save">Сохранить</button>
+            <button
+              class="btn"
+              @click="showModal = false"
+            >
+              Отмена
+            </button>
+            <button
+              class="btn btn-primary"
+              :disabled="busy || form.name.trim().length < 3"
+              @click="save"
+            >
+              Сохранить
+            </button>
           </div>
         </template>
 
         <template v-else>
           <p>Сотрудник создан. Одноразовый пароль (показывается один раз):</p>
-          <div class="one-time">{{ generated }}</div>
+          <div class="one-time">
+            {{ generated }}
+          </div>
           <div class="modal-actions">
-            <button class="btn btn-primary" @click="showModal = false; reload()">Готово</button>
+            <button
+              class="btn btn-primary"
+              @click="showModal = false; reload()"
+            >
+              Готово
+            </button>
           </div>
         </template>
       </div>

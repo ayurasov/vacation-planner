@@ -1,7 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
-import { JwtAuthGuard, CurrentUser } from '../auth/guards';
+import { IsBoolean, IsOptional, Max, Min } from 'class-validator';
+import { CurrentUser } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
 import { NotificationsService } from './notifications.service';
 

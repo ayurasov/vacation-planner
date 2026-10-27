@@ -3,85 +3,76 @@
 | Параметр | Значение |
 |---|---|
 | Документ | Стенды, CI/CD и порядок выпуска (документ 7 комплекта) |
-| Версия | 1.0 |
+| Версия | 2.0 (зрелый стек, Docker) |
 | Дата | 27.10.2026 |
-| Статус | На согласовании |
-| Связанные документы | 1 — Архитектура (разделы 12–14); 3 — Бэклог; `.github/workflows/ci.yml` |
+| Связанные документы | 1 — Архитектура; 11 — SBOM; `docker-compose.yml`; `.github/workflows/ci.yml` |
 
-## 1. Назначение
-
-Окружения, конвейер и порядок выпусков от разработки до рабочего стенда.
-
-## 2. Окружения
+## 1. Окружения
 
 | Стенд | Назначение | Данные | Доступ |
 |---|---|---|---|
-| `local` | Разработка (WSL/Linux/macOS) | seed.json | Разработчик |
-| `ci` (GitHub Actions) | Проверки PR | Синтетика | Автоматика |
-| `stage` | Демонстрации, приёмка HR/QA | Копия рабочей БД, обезличенная | Команда + HR |
-| `prod` | Работа организации | Рабочая БД | Все сотрудники компании |
+| `local` | Разработка (WSL/Linux/macOS) | seed.json через `make seed` | Разработчик |
+| `ci` (GitHub Actions) | Проверки PR | Синтетика + postgres-сервис | Автоматика |
+| `stage` | Демонстрации, приёмка | Обезличенная копия прод-БД | Команда + HR |
+| `prod` | Работа организации | Рабочая БД (том `db-data`) | Все сотрудники |
 
-Прод-стенд: один Linux-хост (2 vCPU / 4 ГБ), Docker Compose (app + Nginx), БД в томе с ежедневным бэкапом.
-
-## 3. Локальное окружение
+## 2. Локальное окружение
 
 ```bash
-npm install        # зависимости
-npm start          # http://localhost:3000, БД data.db из seed.json
-npm run dev        # то же с автоперезапуском
-npm test           # тесты (временная БД во tmp)
-npm run lint       # ESLint
-npm run contract:check
+make up          # PostgreSQL в Docker
+make seed        # миграции + демо-данные (131 сотрудник)
+make server-dev  # API на :8080 (ts-node, авто-рестарт)
+make web-dev     # SPA на :5173 (прокси /api → :8080)
+make test        # e2e-тесты (vacation_test, отдельная БД)
+make lint        # ESLint server + web
+make sbom        # CycloneDX SBOM + отчёт лицензий
+make compose-full# полный стенд: nginx :80 → api → postgres
 ```
 
-Переменные окружения: `PORT` (3000), `DB_PATH` (data.db), `SEED_PATH` (seed.json), `JWT_SECRET` (этап 1). Никакие секреты в файлах репозитория не хранятся; образец — `.env.example`.
+Секреты: `server/.env` (см. `.env.example`): `DATABASE_URL`, `JWT_SECRET` (≥32 симв.). В git их нет.
+
+## 3. Контейнеры
+
+- `postgres:17-alpine` — том `db-data`, healthcheck `pg_isready`.
+- `server` — multi-stage `server/Dockerfile`: сборка (npm ci, prisma generate, tsc) → рантайм только с prod-зависимостями; при старте `prisma migrate deploy`, затем `node dist/main.js`; `/healthz`, `/readyz`.
+- `web` — multi-stage `web/Dockerfile`: сборка Vite → `nginx:1.27-alpine` (статика + прокси `/api` → `server:8080`).
 
 ## 4. Конвейер CI
 
-Файл: `.github/workflows/ci.yml`. Запуск: push и PR в `main`/`stage1`.
+`.github/workflows/ci.yml`; запуск: push/PR в `main` и ветки `v0.*`.
 
-| Задание | Шаги | Условие |
-|---|---|---|
-| checks (matrix Node 20/22) | `npm ci` → `npm run lint` → `npm test` → `npm run contract:check` | всегда |
-| smoke | `npm ci` → запуск `npm start` → пробы `/healthz`, `/api/state`, `/` | всегда |
+| Задание | Что делает |
+|---|---|
+| server | npm ci → prisma generate → tsc build → vitest e2e (postgres-сервис, тестовая БД) |
+| web | npm ci → vue-tsc + vite build |
+| sbom | генерация SBOM + отчёт лицензий; падает при средних/высоких рисках; артефакты приложены |
+| docker | build образов server и web (compose) |
+| smoke | полный compose с postgres-сервисом: /healthz, вход, график |
 
-Правила: красный CI блокирует слияние (branch protection: требовать статусы обеих задач); `contracts/**` и `docs/specs/**` — через ревью владельца (CODEOWNERS); PR без чек-листа шаблона не принимается.
+Правила: красный CI блокирует слияние; `contracts/`, `docs/specs/` — через CODEOWNERS; SBOM-отчёт обновляется в том же PR, что и зависимости.
 
-Расширения этапа 1: покрытие (`node --test --experimental-test-coverage`), E2E Playwright по чек-листу E11-01, сканирование секретов (gitleaks).
+## 5. Версии, ветки, выпуск
 
-## 5. Версии и образ
+1. Ветка версии `v0.x.0` — вся работа цикла; минорные фиксы — `v0.x.y` от неё.
+2. `main` — только смёрженные версии (`--no-ff`), тег `v0.x.y` на merge-коммите.
+3. История и авторство — `docs/versions.md`; технический журнал — `CHANGELOG.md`.
+4. Семвер: до v1.0.0 первая цифра 0; x — крупные накопленные изменения; y — минорные.
 
-1. Версия пакета — semver в `package.json`; каждая сборка на stage/prod — git-тег `vX.Y.Z` + запись в CHANGELOG.
-2. Docker-образ `vacation-planner:<tag>` собирается из одного Dockerfile (multi-stage: npm ci --omit=dev → runtime только prod-зависимости).
-3. `docker-compose.yml`: app (порт внутр. 3000), nginx (TLS, gzip, статика), том `db-data` для `data.db`.
+Порядок выпуска версии: зелёный CI на ветке версии → обновлены CHANGELOG/versions.md/SBOM → merge в main с тегом → сборка образов по тегу → деплой стейджа (compose) → дымовой чек-лист → прод (бэкап БД → `docker compose pull && up -d` → дым) → релизная заметка.
 
 ## 6. Миграции БД
 
-1. Миграции применяются при старте контейнера автоматически (`npm run migrate`), в транзакции.
-2. Прод БД бэкапится до применения миграции: `sqlite3 data.db ".backup pre-migrate-<tag>.db"`.
-3. Необратимая миграция требует плана отката в описании PR.
+- Prisma migrate: схема — `server/prisma/schema.prisma`; миграции применяются автоматически при старте контейнера.
+- Перед применением на проде — бэкап: `docker compose exec postgres pg_dump -U vacation vacation > backup-$(date +%F).sql`.
+- Опасные миграции (удаление/переименование) — в два шага через additive-изменения.
 
-## 7. Порядок выпуска
+## 7. Резервное копирование и мониторинг
 
-1. Истории этапа сливаются в `main` через PR (CI зелёный).
-2. В конце недели: тег `vX.Y.Z`, CHANGELOG, сборка образа.
-3. Stage: деплой compose, дымовой чек-лист (вход, заявка, график), демонстрация.
-4. Prod: бэкап БД → деплой → дым (`/healthz`, вход тестового пользователя, график) → рассылка об изменениях.
-5. Откат: возврат предыдущего тега; при миграции БД — восстановление pre-migrate-бэкапа.
+- Ежедневный `pg_dump` + WAL-архив (v0.3) — хранение 30 дней; ежемесячная проверка восстановления фиксируется в `docs/progress/`.
+- Health: `/healthz`, `/readyz` — для compose healthcheck и балансировщика.
+- Логи: stdout контейнеров (JSON) → docker logging driver, ротация 14 дней.
+- Метрики: v0.3 (p95, счётчики ошибок, пул соединений Prisma).
 
-## 8. Мониторинг и резервное копирование
+## 8. Доступы
 
-- Health: `/healthz` (liveness), этап 2 — `/readyz` с проверкой БД.
-- Логи: stdout (JSON c этапа 1) — собираются docker logging driver; ротация 14 дней.
-- Бэкапы: ежедневный `data.db` (`.backup` + копия на сетевой ресурс), хранение 30 дней; ежемесячная проверка восстановления на stage (фиксируется в `docs/progress/`).
-- Метрики этапа 2: счётчики запросов/ошибок, время ответа p95.
-
-## 9. Доступы
-
-| Роль | Кому | Как |
-|---|---|---|
-| Разработчик | Команда | GitHub collaborator; стенд — SSH по ключу |
-| Администратор приложения | Отв. от HR | Учётка в приложении, isAdmin |
-| Оператор стенда | DevOps | SSH; секреты в `.env` на стенде (не в git) |
-
-Учётные записи стенда и secrets — в менеджере секретов компании; в репозитории их нет и быть не может (CI это не проверяет — проверяет ревью).
+Разработчики — GitHub; оператор стенда — SSH, `.env` вне git; администратор приложения — учётка isAdmin (управляется в самом приложении). Секреты стенда — в менеджере секретов компании.

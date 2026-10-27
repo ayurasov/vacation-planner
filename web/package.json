@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.vue",
     "test": "vitest run",
-    "sbom": "cyclonedx-npm --output ../sbom/web.cdx.json --spec-version 1.5 --flatten"
+    "sbom": "cyclonedx-npm -o ../sbom/web.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only"
   },
   "dependencies": {
     "pinia": "^2.3.0",

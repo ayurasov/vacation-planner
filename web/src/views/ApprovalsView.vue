@@ -65,37 +65,101 @@ onMounted(reload);
   <div>
     <div class="view-header">
       <div>
-        <div class="view-title">Заявки к согласованию</div>
+        <div class="view-title">
+          Заявки к согласованию
+        </div>
         <div class="view-subtitle">
           {{ auth.isAdmin ? 'Все сотрудники организации' : 'Ваши прямые подчинённые' }}
         </div>
       </div>
-      <button class="btn" @click="reload">Обновить</button>
+      <button
+        class="btn"
+        @click="reload"
+      >
+        Обновить
+      </button>
     </div>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-if="loading" class="empty-state">Загрузка…</div>
-    <div v-else-if="!queue.length" class="card empty-state">Заявок к согласованию нет</div>
+    <div
+      v-if="error"
+      class="error-banner"
+    >
+      {{ error }}
+    </div>
+    <div
+      v-if="loading"
+      class="empty-state"
+    >
+      Загрузка…
+    </div>
+    <div
+      v-else-if="!queue.length"
+      class="card empty-state"
+    >
+      Заявок к согласованию нет
+    </div>
 
-    <div v-for="r in queue" :key="r.id" class="card" style="margin-bottom: 12px">
+    <div
+      v-for="r in queue"
+      :key="r.id"
+      class="card"
+      style="margin-bottom: 12px"
+    >
       <div class="approval-row">
         <div style="flex: 1">
-          <div class="approval-name">{{ r.employeeName ?? `Сотрудник #${r.employee}` }}</div>
-          <div class="approval-kind">{{ kindLabel(r) }}</div>
+          <div class="approval-name">
+            {{ r.employeeName ?? `Сотрудник #${r.employee}` }}
+          </div>
+          <div class="approval-kind">
+            {{ kindLabel(r) }}
+          </div>
           <div class="approval-dates">
             {{ fmtRange(r.start, r.end) }} · {{ daysBetween(r.start, r.end) }} календарных дней
           </div>
-          <div v-if="r.comment" class="muted small">«{{ r.comment }}»</div>
+          <div
+            v-if="r.comment"
+            class="muted small"
+          >
+            «{{ r.comment }}»
+          </div>
         </div>
         <div class="approval-actions">
           <template v-if="rejectFor !== r.id">
-            <button class="btn btn-primary" :disabled="busy" @click="approve(r)">Согласовать</button>
-            <button class="btn" :disabled="busy" @click="rejectFor = r.id; rejectComment = ''">Отклонить</button>
+            <button
+              class="btn btn-primary"
+              :disabled="busy"
+              @click="approve(r)"
+            >
+              Согласовать
+            </button>
+            <button
+              class="btn"
+              :disabled="busy"
+              @click="rejectFor = r.id; rejectComment = ''"
+            >
+              Отклонить
+            </button>
           </template>
           <template v-else>
-            <input v-model="rejectComment" class="input" placeholder="Причина (обязательна)" style="width: 260px" />
-            <button class="btn btn-danger" :disabled="busy || rejectComment.trim().length < 3" @click="reject(r)">Отклонить</button>
-            <button class="btn" @click="rejectFor = null">Отмена</button>
+            <input
+              v-model="rejectComment"
+              class="input"
+              placeholder="Причина (обязательна)"
+              style="width: 260px"
+            >
+            <button
+              class="btn btn-danger"
+              :disabled="busy || rejectComment.trim().length < 3"
+              @click="reject(r)"
+            >
+              Отклонить
+            </button>
+            <button
+              class="btn"
+              @click="rejectFor = null"
+            >
+              Отмена
+            </button>
           </template>
         </div>
       </div>

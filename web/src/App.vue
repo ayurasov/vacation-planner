@@ -51,20 +51,42 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="auth.loading" class="empty-state">Загрузка…</div>
+  <div
+    v-if="auth.loading"
+    class="empty-state"
+  >
+    Загрузка…
+  </div>
 
-  <div v-else-if="!auth.isLoggedIn" class="anon-area">
+  <div
+    v-else-if="!auth.isLoggedIn"
+    class="anon-area"
+  >
     <router-view />
   </div>
 
-  <div v-else class="app-shell">
-    <aside class="sidebar scroll-thin" :class="{ open: sidebarOpen }">
+  <div
+    v-else
+    class="app-shell"
+  >
+    <aside
+      class="sidebar scroll-thin"
+      :class="{ open: sidebarOpen }"
+    >
       <div class="sidebar-logo">
         <span class="logo-dot">VP</span>
-        <span>Планировщик<br />отпусков</span>
+        <span>Планировщик<br>отпусков</span>
       </div>
-      <template v-for="item in nav" :key="item.path ?? item.section">
-        <div v-if="item.section" class="nav-section">{{ item.section }}</div>
+      <template
+        v-for="item in nav"
+        :key="item.path ?? item.section"
+      >
+        <div
+          v-if="item.section"
+          class="nav-section"
+        >
+          {{ item.section }}
+        </div>
         <router-link
           v-else-if="(!item.admin || auth.isAdmin) && (!item.needsApprover || auth.isApprover)"
           class="nav-item"
@@ -73,23 +95,52 @@ onMounted(() => {
           @click="sidebarOpen = false"
         >
           <span>{{ item.icon }}</span>{{ item.label }}
-          <span v-if="item.path === '/approvals' && unreadCount()" class="nav-badge">{{ unreadCount() }}</span>
+          <span
+            v-if="item.path === '/approvals' && unreadCount()"
+            class="nav-badge"
+          >{{ unreadCount() }}</span>
         </router-link>
       </template>
       <div style="flex: 1" />
-      <button class="nav-item" @click="logout">↩ Выйти</button>
+      <button
+        class="nav-item"
+        @click="logout"
+      >
+        ↩ Выйти
+      </button>
     </aside>
 
     <div class="main-area">
       <header class="topbar">
-        <button class="btn btn-icon" style="display: none" aria-hidden="true" />
+        <button
+          class="btn btn-icon"
+          style="display: none"
+          aria-hidden="true"
+        />
         <strong style="font-size: 14px">{{ auth.displayName }}</strong>
-        <span v-if="auth.isAdmin" class="badge badge-info">администратор</span>
+        <span
+          v-if="auth.isAdmin"
+          class="badge badge-info"
+        >администратор</span>
         <span class="topbar-spacer" />
-        <button class="btn btn-icon" :title="notifications.length ? 'Есть уведомления' : 'Уведомлений нет'" @click="router.push('/my')">
-          🔔<span v-if="unreadCount()" class="nav-badge" style="margin-left: 4px">{{ unreadCount() }}</span>
+        <button
+          class="btn btn-icon"
+          :title="notifications.length ? 'Есть уведомления' : 'Уведомлений нет'"
+          @click="router.push('/my')"
+        >
+          🔔<span
+            v-if="unreadCount()"
+            class="nav-badge"
+            style="margin-left: 4px"
+          >{{ unreadCount() }}</span>
         </button>
-        <button class="btn btn-icon" title="Тема" @click="toggleTheme">◐</button>
+        <button
+          class="btn btn-icon"
+          title="Тема"
+          @click="toggleTheme"
+        >
+          ◐
+        </button>
       </header>
       <main class="app-content scroll-thin">
         <router-view />
