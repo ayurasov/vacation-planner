@@ -1,0 +1,17 @@
+stateDiagram-v2
+    [*] --> pending : создана (автор)
+    pending --> approved : согласовать (руководитель/админ)
+    pending --> rejected : отклонить (комментарий обязателен)
+    pending --> cancelled : отменить (автор)
+    approved --> pending : перенос (changeFrom) или запрос удаления
+    pending --> approved : отклонение переноса возвращает прежние даты
+    pending --> [*] : удаление согласовано
+    rejected --> [*]
+    cancelled --> [*]
+    note right of pending
+        Инварианты (сервер):
+        · start ≤ end, даты не в прошлом
+        · нет пересечений 409
+        · лимит баланса 409 (hard)
+        · права: автор / согласующий / админ
+    end note

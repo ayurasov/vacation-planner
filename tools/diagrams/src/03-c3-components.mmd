@@ -1,0 +1,36 @@
+flowchart TB
+    CTRL["HTTP-слой src/: контроллеры + DTO<br/>auth · employees · requests · directories<br/>schedule · calendar · settings · audit · notifications · health"]
+    MW["Глобальные guards и фильтры<br/>JwtAuthGuard (@Public) · RolesGuard<br/>ValidationPipe · ProblemFilter (RFC 9457)"]
+    subgraph domain["Домены NestJS"]
+        AUTH["auth/ · TokenService JWT · scrypt · refresh-ротация"]
+        REQ["requests/ · автомат заявок · balance.ts"]
+        EMP["employees/ · CRUD · права · пароли"]
+        DIR["directories/ · отделы · проекты · группы"]
+        SCH["schedule/ · интервалы · конфликты"]
+        AUD["audit/ + notifications/ · журнал · входящие"]
+        CAL["calendar/ + settings/ · календари · настройки"]
+    end
+    PRISMA["infra/PrismaService · одно соединение на процесс"]
+    DB[("PostgreSQL 17")]
+    CTRL --> MW
+    MW --> AUTH
+    MW --> REQ
+    MW --> EMP
+    MW --> DIR
+    MW --> SCH
+    MW --> CAL
+    REQ --> AUD
+    EMP --> AUD
+    AUTH --> PRISMA
+    REQ --> PRISMA
+    EMP --> PRISMA
+    DIR --> PRISMA
+    SCH --> PRISMA
+    CAL --> PRISMA
+    PRISMA --> DB
+    classDef layer fill:#438DD5,color:#fff,stroke:#2E6295
+    classDef dom fill:#85BBF0,color:#1F1F1F,stroke:#78A8D8
+    classDef store fill:#F5E29B,color:#1F1F1F,stroke:#D9C27A
+    class MW,CTRL layer
+    class AUTH,REQ,EMP,DIR,SCH,AUD,CAL dom
+    class PRISMA,DB store

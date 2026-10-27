@@ -77,13 +77,23 @@
 | Р9 | Аудит в той же транзакции | Асинхронные события | Непротиворечивость журнала |
 | Р10 | SBOM CycloneDX + отчёт лицензий в CI | Ручной учёт | Требование сопровождения реестра ОП; блокер для copyleft |
 
-## 6. Архитектура C4 (текстом; Mermaid-исходники — `docs/specs/diagrams/README.md`)
+## 6. Архитектура в нотации C4
 
-**C1.** Сотрудник/Руководитель/Администратор (браузер) → Nginx (TLS, статика) → API-сервер → PostgreSQL. Этап v0.3+: почтовый релей (уведомления), кадровая система (импорт).
+Схемы рендерятся из исходников `tools/diagrams/src/*.mmd` (`cd tools/diagrams && npm run build`); актуальные SVG/PNG — в `docs/specs/diagrams/`.
 
-**C2.** Три контейнера: `web` (Nginx: SPA + прокси `/api`), `server` (NestJS, порт 8080), `postgres` (том `db-data`). Health: `/healthz` (процесс), `/readyz` (БД).
+### C1. Системный контекст
 
-**C3. Компоненты сервера** (`server/src/`):
+![C1. Системный контекст](diagrams/01-c1-context.svg)
+
+### C2. Контейнеры
+
+![C2. Контейнеры](diagrams/02-c2-containers.svg)
+
+### C3. Компоненты сервера
+
+![C3. Компоненты](diagrams/03-c3-components.svg)
+
+Три контейнера стенда (`web` — Nginx со статикой и прокси `/api`; `server` — NestJS на 8080; `postgres` — том `db-data`); health: `/healthz` (процесс), `/readyz` (БД). Каталоги доменов `server/src/`:
 
 ```text
 auth/        login/logout/refresh/me, TokenService (JWT), guards (@Public, Roles)
@@ -102,7 +112,11 @@ infra/       PrismaService, ProblemException (RFC 9457)
 
 ## 7. Доменная модель — документ 4 (схема Prisma = единый источник DDL).
 
-## 8. Состояния заявки — без изменений: `pending ⇄ approved`, переносы через `changeFrom`, удаления через `pendingDeletion`; инварианты (даты, пересечения 409, лимит, права) проверяет сервер. Реализовано в v0.1.0, покрыто тест-таблицей `server/test/requests.e2e.test.ts`.
+## 8. Состояния заявки — без изменений: `pending ⇄ approved`, переносы через `changeFrom`, удаления через `pendingDeletion`; инварианты (даты, пересечения 409, лимит, права) проверяет сервер. Диаграмма состояний и инвариантов:
+
+![Состояния заявки](diagrams/06-state-request.svg)
+
+Реализовано в v0.1.0, покрыто тест-таблицей `server/test/requests.e2e.test.ts`.
 
 ## 9. Безопасность — реализовано в v0.1.0: scrypt+соль+timingSafeEqual, JWT HS256, refresh-ротация (повторное использование старого refresh — 401), глобальная аутентификация с `@Public`-исключениями, version пароля убивает токены, problem+json без утечек. В план v0.2: лимит частоты входа, CSP-заголовки.
 

@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    actor E as Сотрудник
+    participant W as SPA (Vue 3)
+    participant S as API NestJS
+    participant DB as PostgreSQL
+    actor M as Руководитель
+    E->>W: даты отпуска + комментарий
+    W->>S: POST /api/v1/vacation-requests
+    S->>DB: транзакция: заявка(pending) + request_event + audit + уведомление согласующему
+    DB-->>S: ok
+    S-->>W: 201 pending (превью: календарные дни)
+    M->>S: GET /vacation-requests?scope=subordinates&status=pending
+    S-->>M: очередь заявок
+    alt одобрено
+        M->>S: POST …/approve
+        S->>DB: транзакция: approved + аудит + уведомление автору
+        S-->>M: 200 approved
+    else отклонено
+        M->>S: POST …/reject {comment}
+        S->>DB: транзакция: rejected + аудит + уведомление
+        S-->>M: 200 rejected
+    end
+    E->>W: уведомление о решении

@@ -1,0 +1,20 @@
+flowchart TB
+    USERS["Пользователи"]
+    subgraph compose["docker compose --profile full (Linux-стенд 2 vCPU / 4 ГБ)"]
+        NGINX["web: Nginx :80→host<br/>gzip · SPA · proxy /api"]
+        NODE["server: Node 20 :8080<br/>migrate deploy при старте<br/>healthz · readyz"]
+        PG["postgres: PostgreSQL 17<br/>pg_isready healthcheck"]
+        VOL[("том db-data")]
+    end
+    BAK["pg_dump ежедневно →<br/>сетевое хранилище, 30 дней"]
+    USERS -->|":443 TLS"| NGINX
+    NGINX -->|":8080"| NODE
+    NODE -->|":5432"| PG
+    PG --- VOL
+    PG -.-> BAK
+    classDef node fill:#438DD5,color:#fff,stroke:#2E6295
+    classDef data fill:#F5E29B,color:#1F1F1F,stroke:#D9C27A
+    classDef infra fill:#25384B,color:#fff,stroke:#1F2F3F
+    class NGINX,NODE,PG node
+    class VOL,BAK data
+    class USERS infra

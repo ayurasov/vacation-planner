@@ -1,0 +1,13 @@
+sequenceDiagram
+    autonumber
+    actor U as Пользователь
+    participant W as SPA (Vue 3)
+    participant S as API NestJS
+    participant DB as PostgreSQL
+    U->>W: фильтр отдела/поиск, год
+    W->>S: GET /api/v1/schedule?from&to[&dept][&project]
+    S->>DB: активные сотрудники + заявки периодом + шаблоны/переопределения (одним набором)
+    S->>S: конфликты: доля approved-отсутствующих отдела по датам ≥ порога
+    S-->>W: интервалы по сотрудникам + конфликты (без развёртки по дням)
+    W->>W: рендер сетки год×люди, месячная шкала, легенда
+    Note over W,S: p95 ≤ 300 мс на 5000 сотрудников, обновление — операцией или polling 30 c
