@@ -4,11 +4,14 @@
 
 | ADR | Решение | Статус |
 |---|---|---|
-| [ADR-001](ADR-001-modular-monolith.md) | Модульный монолит вместо микросервисов | Принято |
+| [ADR-001](ADR-001-modular-monolith.md) | Модульный монолит вместо микросервисов (дополнен ADR-009) | Принято |
 | [ADR-002](ADR-002-granular-api.md) | Гранулярный REST API v1 вместо снимка состояния | Принято |
 | [ADR-003](ADR-003-jwt-scrypt.md) | JWT-сессии и пароли scrypt | Принято |
-| [ADR-004](ADR-004-sqlite-postgres.md) | SQLite на этапе 1; критерии перехода на PostgreSQL | Принято |
+| [ADR-004](ADR-004-sqlite-postgres.md) | SQLite на этапе 1 (заменён ADR-010) | Заменён |
 | [ADR-005](ADR-005-domain-layer.md) | Доменный слой без HTTP-зависимостей | Принято |
 | [ADR-006](ADR-006-audit-in-transaction.md) | Аудит в той же транзакции, что и изменение | Принято |
-| [ADR-007](ADR-007-frontend-esm.md) | Поэтапный перенос фронтенда на ES-модули без сборки | Принято |
+| [ADR-007](ADR-007-frontend-esm.md) | ES-модули без сборки (заменён ADR-011: Vue 3 + Vite) | Заменён |
 | [ADR-008](ADR-008-calendar-table.md) | Производственный календарь — таблица по годам | Принято |
+| [ADR-009](ADR-009-nestjs.md) | NestJS как серверный каркас (замена части ADR-001) | Принято |
+| [ADR-010](ADR-010-postgresql-immediately.md) | PostgreSQL сразу, без SQLite-этапа (замена ADR-004) | Принято |
+| [ADR-011](ADR-011-vue3-no-lib.md) | Vue 3 без компонентных библиотек | Принято |

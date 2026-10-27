@@ -2,61 +2,58 @@
 
 ## Проект
 
-Корпоративный планировщик отпусков (до 500 сотрудников): сервер Node.js/Express/SQLite, SPA-клиент на ванильном JS.
-Источник истины — `contracts/openapi-vacation-api-v1.yaml` и документы `docs/specs/01-architecture.md`, `02-api-spec.md`, `04-data-model.md`.
+Корпоративный планировщик отпусков (масштаб 1000–5000 пользователей). Монорепо:
+`server/` — NestJS 11 + TypeScript strict + Prisma 6 + PostgreSQL 17; `web/` — Vue 3 + Vite + TS + Pinia.
+Источник истины — `contracts/openapi-vacation-api-v1.yaml`, `docs/specs/01-architecture.md`, `docs/specs/02-api-spec.md`, `server/prisma/schema.prisma`.
 
-## Стек и версии
+## Версионирование
 
-- Node.js 20+ (CI проверяет 20 и 22), CommonJS на сервере, ES-модули на фронтенде (`public/src/`, этап 1)
-- Express 4.21, better-sqlite3 11 (SQLite WAL), ajv для валидации по контракту (этап 1)
-- Тесты: встроенный `node:test` + `fetch`; линтер ESLint 9
-- Новые зависимости не добавлять без задачи и записи в `docs/decisions.md`
+- Формат `v0.x.y` до релиза; работа — в ветке версии (`v0.1.0`), `main` — только смёрженные версии с тегом.
+- Каждый выпуск: запись в `docs/versions.md` (авторство) и `CHANGELOG.md` (технически).
 
 ## Команды
 
-- `npm start` — сервер на :3000 (БД `data.db`, при пустой — из `seed.json`)
-- `npm test` — тесты (используют временную БД, не трогают data.db)
-- `npm run lint` — ESLint
-- `npm run contract:check` — структурная проверка OpenAPI-контракта
-- Перед сообщением о готовности: `npm run lint && npm test && npm run contract:check` — всё зелёное
+- `make up` — PostgreSQL; `make seed` — миграции + демо-данные
+- `make server-dev` / `make web-dev` — разработка
+- `make test` — e2e сервера (тестовая БД vacation_test); `cd web && npm run test` — тесты клиента
+- `make lint` — ESLint обоих пакетов
+- `make sbom` — SBOM + отчёт лицензий; copyleft/unknown — блокер
+- Перед сообщением о готовности: lint + test + build зелёные
 
-## Структура
+## Структура сервера
 
-```text
-src/app.js        сборка Express; src/db.js — схема и слой данных этапа 0
-src/domain/       домены этапа 1: employees, requests, balance, schedule, directories, calendar, audit, notify
-src/api/          HTTP-слой: валидация, маппинг ошибок RFC 9457
-src/infra/        clock.js (время), random.js (случайность)
-test/unit/        тесты доменов (без HTTP); test/api/ — HTTP-тесты
-public/           SPA-клиент; public/src/ — модули этапа 1
-migrations/       нумерованные SQL-миграции (up/down)
-scripts/          служебные скрипты (валидация контракта, миграция stage0)
-```
+- `src/<домен>/` — controller (тонкие: DTO-валидация → сервис → problem+json) + service (логика)
+- `src/infra/` — PrismaService, ProblemException/RFC 9457
+- `prisma/schema.prisma` — схема; изменения через `prisma migrate dev` с ревью SQL
+- Тесты: `test/*.e2e.test.ts` (supertest; фикстуры в `test/helpers.ts`)
+
+## Структура клиента
+
+- `web/src/api/client.ts` — единственный модуль с fetch; типы ответов — здесь же по контракту
+- `web/src/styles/tokens.css` — дизайн-токены (light/dark); паттерны — `base.css`
+- Никаких компонентных библиотек; данные пользователя в шаблонах — через интерполяцию Vue (автоэкранирование), `v-html` запрещён
 
 ## Жёсткие правила
 
-1. Не изменять `contracts/` и `docs/specs/` — только через ревью владельца (CODEOWNERS). Если для задачи «не хватает» контракта — остановись и задай вопрос.
-2. Бизнес-логика только в `src/domain/`. Роуты тонкие: валидация → домен → problem+json.
-3. Домены не импортируют express/node:http и друг друга (кроме явных сервисов чтения).
-4. Время — только через `src/infra/clock.js`; `new Date()`/`Date.now()` в доменах запрещены.
-5. Идентификаторы — из БД (AUTOINCREMENT). `Date.now()` как id запрещён.
-6. Изменение данных и запись `audit_events` — в одной транзакции.
-7. Пароли: только scrypt-хеши; в журналах, тестах, ответах API и выгрузках паролей и токенов нет.
-8. Ошибки API — только problem+json с кодом из каталога `docs/specs/02-api-spec.md` раздел 7. Коды не придумывать.
-9. Ответы API — только добавляющие изменения; поля не удалять и не переименовывать.
-10. Фронтенд: fetch только в `public/src/api/client.js`; вывод данных — через `esc()`, прямое `innerHTML` с данными запрещено.
-11. Тесты — на временную БД (`DB_PATH` в tmp); `data.db` не трогать и не коммитить.
-12. Одна история бэклога — одна ветка `story/<id>` и один PR по шаблону.
+1. `contracts/` и `docs/specs/` — только через ревью владельца (CODEOWNERS). Не хватает контракта — остановись и спроси (P12).
+2. Бизнес-логика — в сервисах NestJS; контроллеры тонкие; чистые вычисления (баланс, интервалы) — в модулях без БД.
+3. Время — через параметры/инъекцию; `new Date()` в сервисах допустим только для «сейчас» в точке входа; тестируемые расчёты принимают даты аргументами.
+4. Изменение данных + `audit_events` — в одной prisma-транзакции (`$transaction`).
+5. Ошибки API — только problem+json с кодом из каталога (документ 2, раздел 7). Коды не придумывать.
+6. Пароли: только `auth/passwords.ts` (scrypt); секреты — из окружения (`JWT_SECRET` ≥ 32); в логи/ответы/выгрузки пароли и токены не попадают.
+7. Новые npm-зависимости — обоснование в `docs/decisions.md` + зелёный SBOM-отчёт (copyleft/unknown — блокер).
+8. Фронтенд: токен в памяти, refresh через httpOnly-cookie (клиент это делает сам); доступ к API — только через `api/client.ts`.
+9. Тесты используют тестовую БД (`vitest.config.ts` env); рабочую БД не трогать.
+10. Одна история/задача — один PR по шаблону; ветки `story/<id>` от ветки версии.
 
 ## Как выполнять задачу
 
-1. Прочитай задачу, указанные разделы docs/ и контракта. Что неясно — задай вопрос, не угадывай.
-2. Напиши тесты по критериям приёмки, запусти — должны падать.
-3. Реализуй минимальный код, проходящий тесты.
-4. `npm run lint && npm test && npm run contract:check` — исправь всё.
-5. Обнови CHANGELOG.md и, если меняется поведение, — заявку на изменение docs/ в PR (меняет человек).
-6. В PR: что сделано, как проверено, решения, что осталось.
+1. Прочитай задачу, разделы docs/, контракт. Неясно — спроси.
+2. Тесты по критериям приёмки (красные) → минимальная реализация → зелёные.
+3. `make lint`, `make test`, сборка обоих пакетов; при зависимостях — `make sbom`.
+4. CHANGELOG/versions.md при выпуске; заявка на изменение docs/ — в PR.
+5. В PR: что сделано / как проверено / решения / что осталось.
 
-## Модули с обязательным ревью человека
+## Обязательное ревью человека
 
-`src/auth/`, `migrations/`, `scripts/migrate-stage0.mjs`, `contracts/`, `docs/specs/`, `.github/workflows/`, любые изменения матрицы прав.
+`server/src/auth/`, `prisma/migrations/`, `contracts/`, `docs/specs/`, `.github/workflows/`, матрица прав, `scripts/license-report.mjs`, любые зависимости.
