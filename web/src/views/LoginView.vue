@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -29,7 +30,10 @@ async function submit(): Promise<void> {
 <template>
   <div class="login-card card">
     <div class="login-logo">
-      <span class="logo-dot">VP</span>
+      <span class="logo-mark"><AppIcon
+        name="brandMark"
+        :size="26"
+      /></span>
     </div>
     <h1 class="login-title">
       Планировщик отпусков
@@ -94,16 +98,16 @@ async function submit(): Promise<void> {
   margin-bottom: 12px;
 }
 
-.login-logo .logo-dot {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+.login-logo .logo-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
   background: var(--color-primary);
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
+  box-shadow: var(--shadow-2);
 }
 
 .login-title {

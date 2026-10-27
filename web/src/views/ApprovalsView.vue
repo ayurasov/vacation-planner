@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { api, daysBetween, fmtRange, type VacationRequest } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
+import AppIcon from '@/components/common/AppIcon.vue';
 
 const auth = useAuthStore();
 const queue = ref<VacationRequest[]>([]);
@@ -76,7 +77,10 @@ onMounted(reload);
         class="btn"
         @click="reload"
       >
-        Обновить
+        <AppIcon
+          name="refresh"
+          :size="14"
+        /> Обновить
       </button>
     </div>
 
