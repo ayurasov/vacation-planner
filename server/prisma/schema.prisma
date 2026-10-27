@@ -1,0 +1,228 @@
+// Схема данных планировщика отпусков (docs/specs/04-data-model.md).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Employee {
+  id           Int        @id @default(autoincrement())
+  login        String     @unique
+  passwordHash String     @map("password_hash")
+  pwVersion    Int        @default(0) @map("pw_version")
+  name         String
+  position     String?
+  deptId       Int?       @map("dept_id")
+  dept         Department? @relation("DeptMembers", fields: [deptId], references: [id], onDelete: SetNull)
+  role         String     @default("employee") // employee | manager
+  isAdmin      Boolean    @default(false) @map("is_admin")
+  empType      String     @default("staff") @map("emp_type") // staff | ipsz
+  managerId    Int?       @map("manager_id")
+  manager      Employee?  @relation("Subordinates", fields: [managerId], references: [id], onDelete: SetNull)
+  subordinates Employee[] @relation("Subordinates")
+  projectId    Int?
+  project      Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  plannedDays  Float      @default(28) @map("planned_days")
+  carryOver    Float      @default(0) @map("carry_over")
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  vacationRequests VacationRequest[]
+  requestEvents    RequestEvent[]    @relation("RequestActor")
+  managedDepts     Department[]      @relation("DeptManager")
+  managedProjects  Project[]         @relation("ProjectManager")
+  workPatterns     WorkPattern[]
+  workOverrides    WorkOverride[]
+  notifications    Notification[]
+  auditEvents      AuditEvent[]      @relation("AuditActor")
+  groups           GroupMember[]
+  ownedGroups      Group[]           @relation("GroupOwner")
+  refreshTokens    RefreshToken[]
+
+  @@index([deptId])
+  @@index([managerId])
+  @@index([isActive])
+  @@map("employees")
+}
+
+model Department {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  managerId Int?      @map("manager_id")
+  manager   Employee? @relation("DeptManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members   Employee[] @relation("DeptMembers")
+
+  @@map("departments")
+}
+
+model Project {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  managerId Int?      @map("manager_id")
+  manager   Employee? @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members   Employee[]
+
+  @@map("projects")
+}
+
+model Group {
+  id      Int            @id @default(autoincrement())
+  ownerId Int            @map("owner_id")
+  owner   Employee       @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name    String
+  members GroupMember[]
+
+  @@unique([ownerId, name])
+  @@map("groups")
+}
+
+model GroupMember {
+  groupId    Int      @map("group_id")
+  employeeId Int      @map("employee_id")
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, employeeId])
+  @@map("group_members")
+}
+
+enum RequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+enum RequestType {
+  vacation
+  maternity
+}
+
+model VacationRequest {
+  id                Int           @id @default(autoincrement())
+  employeeId        Int           @map("employee_id")
+  employee          Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate         DateTime      @map("start_date") @db.Date
+  endDate           DateTime      @map("end_date") @db.Date
+  type              RequestType   @default(vacation)
+  status            RequestStatus @default(pending)
+  pendingDeletion   Boolean       @default(false) @map("pending_deletion")
+  changeFromStart   DateTime?     @map("change_from_start") @db.Date
+  changeFromEnd     DateTime?     @map("change_from_end") @db.Date
+  comment           String?
+  rejectionComment  String?       @map("rejection_comment")
+  createdBy         Int           @map("created_by")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  events RequestEvent[]
+
+  @@index([employeeId, status])
+  @@index([startDate, endDate])
+  @@map("vacation_requests")
+}
+
+model RequestEvent {
+  id        Int            @id @default(autoincrement())
+  requestId Int            @map("request_id")
+  request   VacationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  ts        DateTime       @default(now())
+  actorId   Int?           @map("actor_id")
+  actor     Employee?      @relation("RequestActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  comment   String?
+
+  @@index([requestId])
+  @@map("request_events")
+}
+
+enum WorkMode {
+  office
+  remote
+  off
+}
+
+model WorkPattern {
+  employeeId Int      @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  weekday    Int // 0 (вс) … 6 (сб)
+  mode       WorkMode
+
+  @@id([employeeId, weekday])
+  @@map("work_patterns")
+}
+
+model WorkOverride {
+  employeeId Int      @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  mode       WorkMode
+
+  @@id([employeeId, date])
+  @@map("work_overrides")
+}
+
+model OrgSettings {
+  id                 Int    @id @default(1)
+  conflictThreshold  Int    @default(50) @map("conflict_threshold")
+  timezone           String @default("Europe/Moscow")
+  limitPolicy        String @default("hard") @map("limit_policy") // hard | soft
+  defaultPlannedDays Int    @default(28) @map("default_planned_days")
+
+  @@map("org_settings")
+}
+
+model ProductionCalendar {
+  year      Int    @id
+  holidays  Json // ["2026-01-01", …]
+  transfers Json // [{"from":"2026-01-03","to":"2026-01-09"}, …]
+
+  @@map("calendars")
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  employeeId  Int      @map("employee_id")
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  kind        String
+  text        String
+  payload     Json?
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model AuditEvent {
+  id       Int       @id @default(autoincrement())
+  ts       DateTime  @default(now())
+  actorId  Int?      @map("actor_id")
+  actor    Employee? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action   String
+  entity   String
+  entityId String    @map("entity_id")
+  before   Json?
+  after    Json?
+
+  @@index([entity, entityId, ts])
+  @@index([actorId])
+  @@map("audit_events")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  user      Employee  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}

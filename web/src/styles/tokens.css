@@ -1,0 +1,56 @@
+/* Дизайн-токены: ДНК todo-planner (светлая) + тёмная тема в духе puls/gantt.
+   Стилистика согласована с внутренними продуктами (docs/specs/01-architecture.md). */
+:root,
+[data-theme='light'] {
+  --color-bg: #f6f7fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #fafbfe;
+  --color-border: #e3e6ee;
+  --color-text: #1c2331;
+  --color-text-muted: #6b7280;
+  --color-primary: #4f7cff;
+  --color-primary-dark: #3860e0;
+  --color-primary-soft: #e6ecff;
+  --color-danger: #e5484d;
+  --color-danger-soft: #fde5e6;
+  --color-success: #2fa96b;
+  --color-success-soft: #e4f6ea;
+  --color-warning: #e8a13a;
+  --color-warning-soft: #fdf3e2;
+  --color-neutral-soft: #eef1f7;
+  --color-hover: #eef1f7;
+  --color-row-hover: #fafbfe;
+  --color-overlay: rgba(20, 25, 40, 0.4);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --shadow-1: 0 1px 3px rgba(20, 25, 40, 0.06);
+  --shadow-2: 0 6px 20px rgba(20, 25, 40, 0.1);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+  --sidebar-width: 232px;
+  --topbar-height: 56px;
+}
+
+[data-theme='dark'] {
+  --color-bg: #121211;
+  --color-surface: #1a1918;
+  --color-surface-2: #1f1e1c;
+  --color-border: #2e2d2a;
+  --color-text: #d6d3ce;
+  --color-text-muted: #8a857d;
+  --color-primary: #4f8dfd;
+  --color-primary-dark: #6ea1ff;
+  --color-primary-soft: #1d2f4e;
+  --color-danger: #f87171;
+  --color-danger-soft: #3a2325;
+  --color-success: #4ade80;
+  --color-success-soft: #173327;
+  --color-warning: #d4a13a;
+  --color-warning-soft: #332a17;
+  --color-neutral-soft: #242320;
+  --color-hover: #242320;
+  --color-row-hover: #1f1e1c;
+  --color-overlay: rgba(0, 0, 0, 0.55);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+}

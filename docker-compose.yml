@@ -1,0 +1,44 @@
+# Локальная разработка и стенд (docs/specs/07-environments-cicd.md).
+# dev: docker compose up postgres && make seed   — сервер и фронт запускаются локально
+# стенд: docker compose --profile full up        — всё в контейнерах за Nginx
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: vacation
+      POSTGRES_PASSWORD: vacation
+      POSTGRES_DB: vacation
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vacation -d vacation"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    profiles: ["full"]
+    build:
+      context: ./server
+    environment:
+      DATABASE_URL: postgresql://vacation:vacation@postgres:5432/vacation
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-dev-only-secret-32ch}
+      PORT: 8080
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    profiles: ["full"]
+    build:
+      context: ./web
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+
+volumes:
+  db-data:

@@ -1,26 +1,23 @@
-# Зависимости
+# Зависимости и сборки
 node_modules/
+dist/
+server/dist/
+web/dist/
 
-# Рабочая база данных (создаётся при первом запуске, наполняется из seed.json)
-data.db
-data.db-shm
-data.db-wal
+# Рабочая БД и секреты
 *.db
 *.db-shm
 *.db-wal
-
-# Логи и временные файлы
-*.log
-npm-debug.log*
-.DS_Store
-Thumbs.db
-
-# Локальные секреты и переменные окружения
 .env
-.env.*
-!.env.example
+server/.env
+web/.env
 
-# Редакторы
+# SBOM-артефакты регенерируются
+sbom/
+
+# Логи и временное
+*.log
+.DS_Store
 .idea/
 .vscode/
 *.swp
