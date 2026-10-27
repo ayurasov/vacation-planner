@@ -1,0 +1,17 @@
+{
+  "name": "planirovshchik-app",
+  "version": "1.0.0",
+  "description": "Планировщик отпусков — бэкенд на Express + SQLite",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2"
+  }
+}
