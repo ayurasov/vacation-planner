@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   server:
-    name: Сервер: сборка + e2e (Node ${{ matrix.node }})
+    name: 'Сервер: сборка + e2e (Node ${{ matrix.node }})'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -61,7 +61,7 @@ jobs:
         working-directory: server
 
   web:
-    name: Клиент: сборка (vue-tsc + vite)
+    name: 'Клиент: сборка (vue-tsc + vite)'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,18 +75,18 @@ jobs:
         working-directory: web
 
   sbom:
-    name: SBOM и лицензии (реестр ОП)
+    name: 'SBOM и лицензии (реестр ОП)'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm, cache-dependency-path: server/package-lock.json }
-      - name: Сервер: зависимости + SBOM
+      - name: 'Сервер: зависимости + SBOM'
         run: |
           npm ci
           npm run sbom
         working-directory: server
-      - name: Клиент: зависимости + SBOM
+      - name: 'Клиент: зависимости + SBOM'
         run: |
           npm ci
           npm run sbom
