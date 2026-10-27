@@ -116,7 +116,7 @@ jobs:
       - name: Сборка и запуск (postgres + server + web/nginx)
         run: docker compose --profile full up -d --build
         env:
-          JWT_SECRET: smoke-secret-smoke-secret-smoke
+          JWT_SECRET: smoke-secret-smoke-secret-smoke-32ch
       - name: Пробы стенда
         run: |
           # Ждём готовности API (server применяет миграции при старте — nginx отвечает раньше)
