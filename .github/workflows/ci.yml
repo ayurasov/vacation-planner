@@ -119,12 +119,16 @@ jobs:
           JWT_SECRET: smoke-secret-smoke-secret-smoke
       - name: Пробы стенда
         run: |
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:80/ >/dev/null 2>&1 && break; sleep 2; done
+          # Ждём готовности API (server применяет миграции при старте — nginx отвечает раньше)
+          for i in $(seq 1 60); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:80/api/v1/employees 2>/dev/null)
+            [ "$CODE" = "401" ] && break
+            sleep 2
+          done
+          test "$CODE" = 401 || { echo 'API не поднялся за 120с'; docker compose logs server --tail 40; exit 1; }
           curl -fsS http://127.0.0.1:80/ | grep -qi '<!DOCTYPE html>'   # SPA отдаётся
           # nginx → server → PostgreSQL: вход с неверным паролём даёт 401 problem+json
-          CODE=$(curl -s -o /tmp/probe.json -w '%{http_code}' -X POST http://127.0.0.1:80/api/v1/auth/login \
-            -H 'Content-Type: application/json' -d '{"login":"probe","password":"wrong"}')
-          test "$CODE" = 401
+          curl -s -o /tmp/probe.json -X POST http://127.0.0.1:80/api/v1/auth/login \
+            -H 'Content-Type: application/json' -d '{"login":"probe","password":"wrong"}'
           grep -q 'auth/invalid-credentials' /tmp/probe.json
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:80/api/v1/employees)" = 401  # доступ закрыт
           echo 'Дымовой прогон стенда пройден'
