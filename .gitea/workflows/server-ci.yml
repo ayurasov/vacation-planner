@@ -1,7 +1,7 @@
 # CI vacation-planner на собственном раннере (docs/specs/07-environments-cicd.md).
 # Сервер: тесты с postgres → Клиент: сборка → Deploy прод-стенда на этом сервере + smoke.
 # Развёртывание: docker compose -p vacation-planner (том db-data сохраняется).
-name: CI
+name: CI (сервер)
 
 on:
   push:
