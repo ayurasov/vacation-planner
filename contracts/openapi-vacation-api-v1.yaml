@@ -1,0 +1,1068 @@
+openapi: 3.1.0
+info:
+  title: Vacation Planner API
+  version: 1.0.0
+  summary: Корпоративный планировщик отпусков — публичный контракт API v1
+  description: |
+    Целевой контракт этапа 1 (см. docs/specs/01-architecture.md, docs/specs/02-api-spec.md).
+    Заменяет протокол этапа 0 (GET/PUT /api/state целиком) гранулярными ресурсами.
+
+    Правила совместимости: только добавляющие изменения; поля не удаляются и не
+    переименовываются; неизвестные поля клиент обязан игнорировать.
+
+    Ошибки — RFC 9457 (application/problem+json) с кодом из каталога
+    docs/specs/02-api-spec.md, раздел «Каталог ошибок».
+  license:
+    name: Internal
+  contact:
+    name: Владелец сервиса
+servers:
+  - url: /api/v1
+    description: Относительный путь — тот же хост, что и веб-интерфейс
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+    description: Аутентификация и сессия
+  - name: employees
+    description: Сотрудники и профили
+  - name: vacation-requests
+    description: Заявки на отпуск и их жизненный цикл
+  - name: schedule
+    description: График отпусков и режимы работы
+  - name: balance
+    description: Балансы дней отпуска
+  - name: directories
+    description: 'Справочники: отделы, проекты, группы'
+  - name: settings
+    description: Настройки организации
+  - name: calendar
+    description: Производственный календарь
+  - name: notifications
+    description: Уведомления пользователя
+  - name: audit
+    description: Журнал изменений (только чтение)
+  - name: reports
+    description: Выгрузки и отчёты
+
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Вход по логину и паролю
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [login, password]
+              properties:
+                login: { type: string, minLength: 1, maxLength: 64 }
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '200':
+          description: Сессия создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+    x-rate-limit: 10 запросов в минуту с одного адреса
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Завершить сессию
+      responses:
+        '204': { description: Сессия завершена }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Текущий пользователь и его права
+      responses:
+        '200':
+          description: Профиль и вычисленные права
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /employees:
+    get:
+      tags: [employees]
+      operationId: listEmployees
+      summary: Список сотрудников (постранично, с фильтрами)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - { name: dept, in: query, schema: { type: string }, description: Отдел (точное имя) }
+        - { name: project, in: query, schema: { type: integer }, description: Идентификатор проекта }
+        - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: Поиск по ФИО/должности }
+      responses:
+        '200':
+          description: Страница сотрудников
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeePage' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [employees]
+      operationId: createEmployee
+      summary: Создать сотрудника (только администратор)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeCreate' }
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [employees]
+      operationId: getEmployee
+      summary: Карточка сотрудника
+      responses:
+        '200':
+          description: Сотрудник
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [employees]
+      operationId: updateEmployee
+      summary: Изменить поля сотрудника
+      description: 'Частичное обновление. Пароль через /employees/{id}/password.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeUpdate' }
+      responses:
+        '200':
+          description: Обновлён
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [employees]
+      operationId: deleteEmployee
+      summary: Уволить/удалить сотрудника (только администратор)
+      description: Нельзя удалить последнего администратора.
+      responses:
+        '204': { description: Удалён }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/password:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    put:
+      tags: [employees]
+      operationId: changePassword
+      summary: Смена пароля (свой — со старым, чужой — только администратор)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newPassword]
+              properties:
+                oldPassword: { type: string, description: Обязателен при смене своего пароля }
+                newPassword: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '204': { description: Пароль изменён }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/balance:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [balance]
+      operationId: getBalance
+      summary: Баланс дней отпуска за год
+      parameters:
+        - { name: year, in: query, schema: { type: integer, minimum: 2024, maximum: 2100 } }
+      responses:
+        '200':
+          description: Баланс
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Balance' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/work-pattern:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    put:
+      tags: [schedule]
+      operationId: setWorkPattern
+      summary: Недельный шаблон офис/удалёнка (свой или подчинённый)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkPattern' }
+      responses:
+        '204': { description: Шаблон сохранён }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/work-overrides:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    put:
+      tags: [schedule]
+      operationId: setWorkOverride
+      summary: Ручное переопределение режима на дату
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, mode]
+              properties:
+                date: { type: string, format: date }
+                mode: { type: string, enum: [office, remote, off] }
+      responses:
+        '204': { description: Переопределение сохранено }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /vacation-requests:
+    get:
+      tags: [vacation-requests]
+      operationId: listVacationRequests
+      summary: Заявки (свои, подчинённых или все — по правам)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - { name: scope, in: query, schema: { type: string, enum: [mine, subordinates, all], default: mine } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, cancelled] } }
+        - { name: employee, in: query, schema: { type: integer }, description: Идентификатор сотрудника }
+      responses:
+        '200':
+          description: Страница заявок
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationRequestPage' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [vacation-requests]
+      operationId: createVacationRequest
+      summary: Создать заявку (за себя или за подчинённого)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VacationRequestCreate' }
+      responses:
+        '201':
+          description: Создана; для администратора/руководителя за подчинённого — сразу approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationRequest' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: Пересечение с существующей заявкой того же сотрудника
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /vacation-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    get:
+      tags: [vacation-requests]
+      operationId: getVacationRequest
+      summary: Заявка с историей
+      responses:
+        '200':
+          description: Заявка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationRequest' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [vacation-requests]
+      operationId: updateVacationRequest
+      summary: Изменить свою pending-заявку или запросить перенос approved
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                start: { type: string, format: date }
+                end: { type: string, format: date }
+                comment: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Обновлена (approved-заявка возвращается в pending с признаком переноса)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationRequest' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [vacation-requests]
+      operationId: cancelVacationRequest
+      summary: Отменить свою pending-заявку или запросить удаление approved
+      responses:
+        '204': { description: Отменена / поставлена на удаление }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /vacation-requests/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [vacation-requests]
+      operationId: approveVacationRequest
+      summary: Согласовать (руководитель сотрудника или администратор)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Согласована
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationRequest' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /vacation-requests/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [vacation-requests]
+      operationId: rejectVacationRequest
+      summary: Отклонить с обязательным комментарием
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment: { type: string, minLength: 3, maxLength: 1000 }
+      responses:
+        '200':
+          description: Отклонена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationRequest' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /schedule:
+    get:
+      tags: [schedule]
+      operationId: getSchedule
+      summary: График отпусков и режимов за период
+      description: Данные для Gantt-представления; сервер отдаёт компактные интервалы, клиент рендерит.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: dept, in: query, schema: { type: string } }
+        - { name: project, in: query, schema: { type: integer } }
+        - { name: group, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Интервалы по сотрудникам
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Schedule' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /departments:
+    get:
+      tags: [directories]
+      operationId: listDepartments
+      summary: Отделы с руководителями и численностью
+      responses:
+        '200':
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Department' }
+        '401': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [directories]
+      operationId: createDepartment
+      summary: Создать отдел (администратор)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 128 }
+                managerId: { type: [integer, 'null'] }
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /departments/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [directories]
+      operationId: updateDepartment
+      summary: Переименовать, сменить руководителя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 128 }
+                managerId: { type: [integer, 'null'] }
+      responses:
+        '200':
+          description: Обновлён
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [directories]
+      operationId: deleteDepartment
+      summary: Удалить отдел (нельзя при наличии сотрудников)
+      responses:
+        '204': { description: Удалён }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /projects:
+    get:
+      tags: [directories]
+      operationId: listProjects
+      summary: Проекты
+      responses:
+        '200':
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [directories]
+      operationId: createProject
+      summary: Создать проект (администратор)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 128 }
+                managerId: { type: [integer, 'null'] }
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /projects/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [directories]
+      operationId: updateProject
+      summary: Изменить проект
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 128 }
+                managerId: { type: [integer, 'null'] }
+      responses:
+        '200':
+          description: Обновлён
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [directories]
+      operationId: deleteProject
+      summary: Удалить проект (нельзя при наличии участников)
+      responses:
+        '204': { description: Удалён }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /groups:
+    get:
+      tags: [directories]
+      operationId: listGroups
+      summary: Пользовательские группы для фильтров
+      responses:
+        '200':
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [directories]
+      operationId: createGroup
+      summary: Создать группу
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 128 }
+                members: { type: array, items: { type: integer } }
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /groups/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [directories]
+      operationId: updateGroup
+      summary: Изменить название или состав
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 128 }
+                members: { type: array, items: { type: integer } }
+      responses:
+        '200':
+          description: Обновлена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [directories]
+      operationId: deleteGroup
+      summary: Удалить группу
+      responses:
+        '204': { description: Удалена }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /settings:
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Настройки организации
+      responses:
+        '200':
+          description: Настройки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgSettings' }
+        '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [settings]
+      operationId: updateSettings
+      summary: Изменить настройки (только администратор)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrgSettingsUpdate' }
+      responses:
+        '200':
+          description: Обновлены
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgSettings' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /calendar/holidays:
+    get:
+      tags: [calendar]
+      operationId: getHolidays
+      summary: Праздники и переносы производственного календаря
+      security: []
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer, minimum: 2024, maximum: 2100 } }
+      responses:
+        '200':
+          description: Календарь на год
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionCalendar' }
+
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: Уведомления текущего пользователя
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - { name: unread, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Страница уведомлений
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPage' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /notifications/{id}/read:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Пометить прочитанным
+      responses:
+        '204': { description: Прочитано }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /audit-events:
+    get:
+      tags: [audit]
+      operationId: listAuditEvents
+      summary: Журнал изменений (администратор)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - { name: employee, in: query, schema: { type: integer } }
+        - { name: entity, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Страница событий
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEventPage' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /reports/vacations:
+    get:
+      tags: [reports]
+      operationId: exportVacations
+      summary: Выгрузка отпусков за период (XLSX)
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: XLSX-файл
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access-токен, срок жизни 15 минут; обновление — refresh-токен в httpOnly cookie.
+
+  parameters:
+    EmployeeId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: Идентификатор сотрудника
+    RequestId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: Идентификатор заявки
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    Problem:
+      description: Ошибка в формате RFC 9457
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string, description: 'Код ошибки из каталога, например https://vacation.planner/problems/overlapping-request' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+
+    Session:
+      type: object
+      properties:
+        accessToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/Me' }
+
+    Me:
+      type: object
+      properties:
+        employee: { $ref: '#/components/schemas/Employee' }
+        permissions:
+          type: object
+          properties:
+            approveSubordinates: { type: array, items: { type: integer }, description: Идентификаторы подчинённых }
+            isAdmin: { type: boolean }
+            manageDirectories: { type: boolean }
+
+    Employee:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        position: { type: string }
+        dept: { type: string }
+        role: { type: string, enum: [employee, manager] }
+        isAdmin: { type: boolean }
+        empType: { type: string, enum: [staff, ipsz], description: 'ipsz — ИП/самозанятый, отпуск не предусмотрен' }
+        manager: { type: [integer, 'null'] }
+        projectId: { type: [integer, 'null'] }
+        login: { type: string }
+        plannedDays: { type: number, minimum: 0 }
+        carryOver: { type: number, minimum: 0 }
+
+    EmployeeCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 128 }
+        position: { type: string, maxLength: 128 }
+        dept: { type: string, maxLength: 128 }
+        role: { type: string, enum: [employee, manager], default: employee }
+        isAdmin: { type: boolean, default: false }
+        empType: { type: string, enum: [staff, ipsz], default: staff }
+        manager: { type: [integer, 'null'] }
+        projectId: { type: [integer, 'null'] }
+        login: { type: string, maxLength: 64, description: 'Не задан — генерируется транслитом ФИО' }
+        password: { type: string, minLength: 8, description: 'Не задан — генерируется, возвращается один раз' }
+        plannedDays: { type: number, minimum: 0, default: 28 }
+        carryOver: { type: number, minimum: 0, default: 0 }
+
+    EmployeeUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 3, maxLength: 128 }
+        position: { type: string, maxLength: 128 }
+        dept: { type: string, maxLength: 128 }
+        role: { type: string, enum: [employee, manager] }
+        isAdmin: { type: boolean }
+        empType: { type: string, enum: [staff, ipsz] }
+        manager: { type: [integer, 'null'] }
+        projectId: { type: [integer, 'null'] }
+        plannedDays: { type: number, minimum: 0 }
+        carryOver: { type: number, minimum: 0 }
+
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        perPage: { type: integer }
+        total: { type: integer }
+
+    EmployeePage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Employee' } }
+        meta: { $ref: '#/components/schemas/PageMeta' }
+
+    VacationRequest:
+      type: object
+      properties:
+        id: { type: integer }
+        employee: { type: integer }
+        start: { type: string, format: date }
+        end: { type: string, format: date, description: 'Включительно' }
+        type: { type: string, enum: [vacation, maternity], default: vacation }
+        status: { type: string, enum: [pending, approved, rejected, cancelled] }
+        pendingDeletion: { type: boolean, description: 'Заявка на удаление одобренного отпуска' }
+        changeFrom: { type: object, properties: { start: { type: string, format: date }, end: { type: string, format: date } }, description: 'Прежние даты при переносе' }
+        comment: { type: string }
+        rejectionComment: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              ts: { type: string, format: date-time }
+              action: { type: string }
+              actor: { type: integer }
+              comment: { type: string }
+
+    VacationRequestCreate:
+      type: object
+      required: [start, end]
+      properties:
+        employee: { type: integer, description: 'Не задан — за себя' }
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+        comment: { type: string, maxLength: 1000 }
+
+    VacationRequestPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/VacationRequest' } }
+        meta: { $ref: '#/components/schemas/PageMeta' }
+
+    Balance:
+      type: object
+      properties:
+        year: { type: integer }
+        entitlement: { type: number, description: 'plannedDays + carryOver' }
+        used: { type: number, description: 'Одобренные календарные дни' }
+        pending: { type: number, description: 'Дни в заявках на согласовании' }
+        remaining: { type: number }
+        hasFourteenDayStretch: { type: boolean, description: 'Есть одобренный период не короче 14 календарных дней (ТК РФ, ст. 125)' }
+
+    WorkPattern:
+      type: object
+      description: Ключи — день недели 0 (вс) … 6 (сб)
+      additionalProperties: { type: string, enum: [office, remote, off] }
+
+    Schedule:
+      type: object
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        employees:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              dept: { type: string }
+              vacations:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    requestId: { type: integer }
+                    start: { type: string, format: date }
+                    end: { type: string, format: date }
+                    type: { type: string, enum: [vacation, maternity] }
+                    status: { type: string, enum: [pending, approved] }
+              workIntervals:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    start: { type: string, format: date }
+                    end: { type: string, format: date }
+                    mode: { type: string, enum: [office, remote, off] }
+        conflicts:
+          type: array
+          description: Дни, где доля отсутствующих в отделе не ниже порога из настроек
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              dept: { type: string }
+              absentRatio: { type: number }
+
+    Department:
+      type: object
+      properties:
+        name: { type: string }
+        managerId: { type: [integer, 'null'] }
+        headcount: { type: integer }
+
+    Project:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        managerId: { type: [integer, 'null'] }
+        headcount: { type: integer }
+
+    Group:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        members: { type: array, items: { type: integer } }
+
+    OrgSettings:
+      type: object
+      properties:
+        conflictThreshold: { type: integer, minimum: 20, maximum: 80, description: 'Порог доли отсутствующих в отделе для конфликта, %' }
+        timezone: { type: string, default: 'Europe/Moscow' }
+        defaultPlannedDays: { type: integer, default: 28 }
+
+    OrgSettingsUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        conflictThreshold: { type: integer, minimum: 20, maximum: 80 }
+        timezone: { type: string }
+        defaultPlannedDays: { type: integer, minimum: 20, maximum: 60 }
+
+    ProductionCalendar:
+      type: object
+      properties:
+        year: { type: integer }
+        holidays: { type: array, items: { type: string, format: date }, description: 'Нерабочие праздничные дни' }
+        transfers: { type: array, items: { type: object, properties: { from: { type: string, format: date }, to: { type: string, format: date } } }, description: 'Переносы выходных' }
+
+    Notification:
+      type: object
+      properties:
+        id: { type: integer }
+        kind: { type: string, enum: [request_created, request_approved, request_rejected, request_cancelled, conflict_warning] }
+        text: { type: string }
+        read: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    NotificationPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+        meta: { $ref: '#/components/schemas/PageMeta' }
+
+    AuditEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        ts: { type: string, format: date-time }
+        actor: { type: integer }
+        action: { type: string, description: 'Из каталога действий docs/specs/02-api-spec.md' }
+        entity: { type: string }
+        entityId: { type: string }
+        before: { type: object, additionalProperties: true }
+        after: { type: object, additionalProperties: true }
+
+    AuditEventPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        meta: { $ref: '#/components/schemas/PageMeta' }

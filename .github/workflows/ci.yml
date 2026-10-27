@@ -1,0 +1,72 @@
+# Конвейер CI: линтер, тесты, контракт, дымовой запуск сервера.
+# Описание стендов и порядка выпуска — docs/specs/07-environments-cicd.md.
+name: CI
+
+on:
+  push:
+    branches: [main, stage1]
+  pull_request:
+    branches: [main, stage1]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Линтер, тесты, контракт
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Линтер (ESLint)
+        run: npm run lint
+
+      - name: Тесты (node:test)
+        run: npm test
+
+      - name: Проверка OpenAPI-контракта
+        run: npm run contract:check
+
+  smoke:
+    name: Дымовой запуск сервера
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Запуск сервера и проверка эндпоинтов
+        run: |
+          npm start &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/healthz | grep -q '"ok":true'
+          curl -fsS http://127.0.0.1:3000/api/state | grep -q '"employees"'
+          curl -fsS http://127.0.0.1:3000/ | grep -qi '<!DOCTYPE html>'
+          echo "Дымовой прогон пройден"
+          kill $SERVER_PID
