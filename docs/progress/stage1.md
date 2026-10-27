@@ -27,6 +27,8 @@
 - `express.json()` в strict-режиме отклоняет примитивы верхнего уровня (400 без JSON-тела) — поведение зафиксировано тестом; при переходе на ajv-валидацию сохранить семантику.
 - better-sqlite3 ставится из prebuilt для Node 20/22 linux-x64; на иных платформах нужен toolchain (build-essential/python3).
 - seed.json содержит пароли в открытом виде (демо-данные) — при E01-01 заменить на хеши прямо в seed-конвертере.
+- Первый же прогон CI поймал межверсионную разницу: `node --test test/` работает в Node 20, но в Node 22 каталог аргументом трактуется как модуль (fixed в c4b2e4d: `node --test` без аргументов). Вывод: держать обе версии в matrix окупается с первого дня.
+- Пуш из WSL в GitHub работает через Windows Git Credential Manager: `git config credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe"` (настроен локально в репозитории).
 
 ## Правила ведения
 
