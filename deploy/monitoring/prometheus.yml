@@ -1,0 +1,22 @@
+# Prometheus для «Планировщика отпусков» (E40-01). Запуск в составе стенда:
+#   docker compose --profile full --profile monitoring up
+# В организации с собственным Prometheus перенесите задание scrape_configs и rule_files.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: vacation-planner
+    metrics_path: /metrics
+    # Если задан METRICS_TOKEN — раскомментируйте и положите токен в файл рядом с конфигурацией
+    # authorization:
+    #   credentials_file: /etc/prometheus/metrics-token
+    static_configs:
+      # Несколько экземпляров server — по строке на каждый; процессы внутри экземпляра
+      # (WEB_CONCURRENCY) сервер складывает сам
+      - targets: ['server:8080']
+        labels:
+          env: stand

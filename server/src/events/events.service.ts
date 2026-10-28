@@ -5,6 +5,7 @@ import { Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import type { Response } from 'express';
 import { PrismaService } from '../infra/prisma.service';
 import { DataVersionService } from '../infra/data-version';
+import { sseConnections } from '../infra/metrics';
 
 const POLL_MS = Number(process.env.EVENTS_POLL_MS ?? 2000);
 const HEARTBEAT_MS = 25_000; // меньше таймаута простоя прокси: соединение не рвётся
@@ -45,9 +46,11 @@ export class EventsService implements OnApplicationShutdown {
     let set = this.clients.get(userId);
     if (!set) this.clients.set(userId, (set = new Set()));
     set.add(res);
+    sseConnections.set({}, this.connections);
     onClose(() => {
       set!.delete(res);
       if (!set!.size) this.clients.delete(userId);
+      sseConnections.set({}, this.connections);
       if (!this.clients.size) this.stop();
     });
     // Отсчёт новых уведомлений — с момента подключения: иначе созданные до первого опроса терялись бы

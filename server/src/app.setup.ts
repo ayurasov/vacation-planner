@@ -4,11 +4,13 @@ import { ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 import cookieParser from 'cookie-parser';
+import { httpMetrics } from './infra/metrics';
 
 export function configureApp(app: NestExpressApplication): void {
   // Адрес клиента из X-Forwarded-For только от доверенных прокси (nginx стенда и прокси организации
   // в частных сетях). Без этого req.ip — адрес nginx, и лимит входа общий на всех (auth/rate-limit.ts).
   app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
+  app.use(httpMetrics); // задержки и коды ответов по маршрутам для /metrics
   app.use(cookieParser());
   // Security-заголовки ответов API (статику SPA защищает nginx, включая CSP — web/nginx.conf)
   app.use((_req: Request, res: Response, next: NextFunction) => {

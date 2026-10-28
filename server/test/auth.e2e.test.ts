@@ -121,6 +121,8 @@ describe('лимит частоты входа', () => {
         .send({ login: 'nobody', password: 'wrong' })).status;
     }
     expect(last).toBe(429);
+    const blocked = await t.http().post('/api/v1/auth/login').send({ login: 'nobody', password: 'wrong' });
+    expect(blocked.headers['retry-after']).toBe('60'); // заголовок, обещанный документом 2
   });
 
   it('за прокси лимит считается по адресу клиента, а не nginx', async () => {

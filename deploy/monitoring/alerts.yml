@@ -1,0 +1,103 @@
+# Правила оповещений (E40-01). Пороги — из требований к масштабу (03-backlog, E40-02):
+# p95 чтения ≤ 300 мс, записи ≤ 500 мс, 0 ошибок 5xx. Описание — руководство по развёртыванию.
+# Показатели vp_db_*, vp_mail_*, vp_job_* — общие для всей БД и приходят от каждого экземпляра
+# server одинаковыми: в правилах они берутся через max(), а не суммируются.
+groups:
+  - name: vacation-planner
+    rules:
+      - alert: VacationApiDown
+        expr: up{job="vacation-planner"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: API планировщика не отвечает на сбор метрик
+          description: 'Экземпляр {{ $labels.instance }} недоступен 2 минуты. Проверьте контейнер server и /healthz.'
+
+      - alert: VacationDatabaseDown
+        expr: max(vp_db_up) == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: БД планировщика не отвечает
+          description: 'Запрос показателей БД завершился ошибкой. Пользователи получают 503 service-unavailable.'
+
+      - alert: VacationServerErrors
+        expr: |
+          sum(rate(vp_http_requests_total{code=~"5.."}[5m]))
+            / clamp_min(sum(rate(vp_http_requests_total[5m])), 1e-9) > 0.01
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Больше 1 % ответов API — ошибки 5xx
+          description: 'Доля 5xx за 5 минут: {{ $value | humanizePercentage }}. Журнал контейнера server — «Необработанная ошибка».'
+
+      - alert: VacationReadLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(vp_http_request_duration_seconds_bucket{method="GET"}[5m]))) > 0.3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: p95 чтения выше 300 мс
+          description: 'p95 GET за 5 минут: {{ $value | humanizeDuration }}. Панель «Задержки по маршрутам» покажет медленный маршрут.'
+
+      - alert: VacationWriteLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(vp_http_request_duration_seconds_bucket{method=~"POST|PUT|PATCH|DELETE"}[5m]))) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: p95 записи выше 500 мс
+          description: 'p95 изменяющих запросов за 5 минут: {{ $value | humanizeDuration }}.'
+
+      - alert: VacationDatabaseOverloaded
+        expr: sum by (code) (increase(vp_db_errors_total[5m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: 'Ошибки доступа к БД ({{ $labels.code }})'
+          description: 'P2024 — не хватает соединений пула (connection_limit в DATABASE_URL), P2028 — долгие транзакции, P1001/P1017 — БД недоступна.'
+
+      - alert: VacationConnectionsNearLimit
+        expr: max(sum by (instance) (vp_db_connections)) / max(vp_db_max_connections) > 0.8
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Соединения с БД — больше 80 % max_connections
+          description: 'Увеличьте max_connections PostgreSQL или уменьшите connection_limit / WEB_CONCURRENCY.'
+
+      - alert: VacationIdleInTransaction
+        expr: max(vp_db_connections{state="idle in transaction"}) > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Соединения держат незавершённые транзакции
+          description: 'Признак зависшего запроса: pg_stat_activity покажет запрос и время начала транзакции.'
+
+      - alert: VacationEventLoopLag
+        expr: max by (instance) (vp_eventloop_lag_p99_seconds) > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Цикл событий API задерживается больше 200 мс
+          description: 'Процессор занят долгими синхронными операциями. Увеличьте WEB_CONCURRENCY или число ядер.'
+
+      - alert: VacationMailStuck
+        expr: max(vp_mail_outbox_oldest_seconds) > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Письма не уходят больше 30 минут
+          description: 'Проверьте SMTP_HOST и журнал server (Mail). Неотправленных: смотрите vp_mail_outbox.'
+
+      - alert: VacationMailFailed
+        expr: max(delta(vp_mail_outbox{status="failed"}[1h])) > 0
+        labels: { severity: info }
+        annotations:
+          summary: Появились письма с исчерпанными попытками отправки
+          description: 'Адресаты с ошибкой — таблица email_outbox (status = failed, last_error).'
+
+      - alert: VacationDigestNotRun
+        expr: time() - max(vp_job_last_run_timestamp_seconds{job="weekly-digest"}) > 8 * 86400
+        labels: { severity: warning }
+        annotations:
+          summary: Еженедельная сводка не запускалась больше 8 дней
+          description: 'Проверьте, что server работает в понедельник утром и что почта настроена.'

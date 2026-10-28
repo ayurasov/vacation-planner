@@ -12,6 +12,9 @@ info:
 
     Ошибки — RFC 9457 (application/problem+json) с кодом из каталога
     docs/specs/02-api-spec.md, раздел «Каталог ошибок».
+
+    Любая операция при перегрузке или недоступности БД отвечает 503 service-unavailable
+    с заголовком Retry-After (секунд); 429 rate-limited тоже несёт Retry-After.
   license:
     name: Internal
   contact:

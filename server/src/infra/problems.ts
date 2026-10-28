@@ -3,6 +3,7 @@ import {
   type ArgumentsHost, Catch, type ExceptionFilter, HttpException, HttpStatus, Injectable,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { dbErrors } from './metrics';
 
 export const PROBLEM_BASE = 'https://vacation.planner/problems';
 
@@ -20,6 +21,7 @@ const CODE_TO_STATUS: Record<string, number> = {
   'department-not-empty': 409,
   'rate-limited': 429,
   'calendar-missing': 400,
+  'service-unavailable': 503,
 };
 
 const CODE_TITLES: Record<string, string> = {
@@ -36,7 +38,16 @@ const CODE_TITLES: Record<string, string> = {
   'department-not-empty': 'В отделе ещё есть сотрудники',
   'rate-limited': 'Слишком много запросов. Повторите позже.',
   'calendar-missing': 'Для этого года не загружен производственный календарь',
+  'service-unavailable': 'Сервис перегружен. Повторите через несколько секунд.',
 };
+
+/** Через сколько секунд повторять запрос (заголовок Retry-After). */
+const RETRY_AFTER: Record<string, number> = { 'rate-limited': 60, 'service-unavailable': 5 };
+
+// Ошибки Prisma, означающие перегрузку или недоступность БД, а не ошибку в запросе:
+// P2024 — нет свободного соединения в пуле за pool_timeout, P2028 — транзакция не началась
+// или не завершилась вовремя, P1001/P1002/P1017 — БД недоступна или разорвала соединение.
+const DB_UNAVAILABLE = new Set(['P2024', 'P2028', 'P1001', 'P1002', 'P1017']);
 
 @Injectable()
 export class ProblemException extends HttpException {
@@ -50,7 +61,8 @@ export class ProblemException extends HttpException {
   }
 
   toProblem(instance?: string) {
-    const extra = this.code === 'rate-limited' ? { 'Retry-After': 60 } : {};
+    // Поле в теле — для совместимости с v0.4.0; клиентам следует читать заголовок
+    const extra = this.code === 'rate-limited' ? { 'Retry-After': RETRY_AFTER['rate-limited'] } : {};
     return {
       ...extra,
       type: `${PROBLEM_BASE}/${this.code}`,
@@ -71,8 +83,21 @@ export class ProblemFilter implements ExceptionFilter {
     const req = ctx.getRequest<{ originalUrl?: string }>();
 
     if (exception instanceof ProblemException) {
+      const retry = RETRY_AFTER[exception.code];
+      if (retry) res.setHeader('Retry-After', String(retry));
       res.status(exception.getStatus()).contentType('application/problem+json')
         .json(exception.toProblem(req.originalUrl));
+      return;
+    }
+    // Перегрузка БД — 503 с Retry-After: клиент или балансировщик повторит запрос, а в метриках
+    // это видно отдельно от ошибок кода (vp_db_errors_total)
+    const e = exception as { code?: unknown; errorCode?: unknown } | null;
+    const prismaCode = e?.code ?? e?.errorCode; // errorCode — у ошибок инициализации (P1001)
+    if (typeof prismaCode === 'string' && DB_UNAVAILABLE.has(prismaCode)) {
+      dbErrors.inc({ code: prismaCode });
+      const p = new ProblemException('service-unavailable');
+      res.setHeader('Retry-After', String(RETRY_AFTER['service-unavailable']));
+      res.status(p.getStatus()).contentType('application/problem+json').json(p.toProblem(req.originalUrl));
       return;
     }
     // Нарушение уникальности при гонке (два импорта, два создания с одним логином) —

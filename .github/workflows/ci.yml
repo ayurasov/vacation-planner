@@ -193,4 +193,18 @@ jobs:
           curl -s -o /tmp/probe.json -X POST http://127.0.0.1:80/api/v1/auth/login \
             -H 'Content-Type: application/json' -d '{"login":"probe","password":"wrong"}'
           grep -q 'auth/invalid-credentials' /tmp/probe.json
+          # Метрики: внутри сети стенда отдаются (сложены по всем процессам), через nginx — нет
+          docker compose exec -T server sh -c 'wget -qO- --header "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics' > /tmp/metrics.txt
+          grep -q '^vp_db_up 1' /tmp/metrics.txt
+          grep -q '^vp_process_count [1-9]' /tmp/metrics.txt
+          if curl -s http://127.0.0.1:80/metrics | grep -q 'vp_http_requests_total'; then
+            echo 'Метрики доступны снаружи через nginx'; exit 1
+          fi
+          # Живые обновления через nginx: первое событие приходит сразу — поток не буферизуется
+          docker compose exec -T server npm run db:seed:prod > /dev/null
+          TOKEN=$(curl -fsS -X POST http://127.0.0.1:80/api/v1/auth/login -H 'Content-Type: application/json' \
+            -d '{"login":"yurasov.av","password":"j2ENXpPi"}' | jq -r .accessToken)
+          TICKET=$(curl -fsS -X POST http://127.0.0.1:80/api/v1/events/ticket -H "Authorization: Bearer $TOKEN" | jq -r .ticket)
+          curl -sN --max-time 3 "http://127.0.0.1:80/api/v1/events?ticket=$TICKET" > /tmp/sse.txt || true
+          grep -q '^event: hello' /tmp/sse.txt || { echo 'SSE через nginx не пришёл'; cat /tmp/sse.txt; exit 1; }
           echo 'Дымовой прогон стенда пройден'
