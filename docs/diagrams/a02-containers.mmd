@@ -1,0 +1,26 @@
+flowchart TB
+  classDef client fill:#f2f5ff,stroke:#4f7cff,color:#1d2433
+  classDef box fill:#f2f5ff,stroke:#4f7cff,stroke-width:1.5px,color:#1d2433
+  classDef db fill:#effaf4,stroke:#22a06b,stroke-width:1.5px,color:#1d2433
+  classDef ext fill:#f6f7fa,stroke:#a9b3c7,color:#1d2433
+
+  U["Браузер сотрудника<br/><small>SPA Vue 3, токен доступа в памяти,<br/>refresh — httpOnly-cookie</small>"]:::client
+
+  subgraph HOST["Сервер#nbsp;организации#nbsp;·#nbsp;Linux,#nbsp;Docker#nbsp;Engine#nbsp;+#nbsp;Compose"]
+    RP["<b>Обратный прокси с TLS</b><br/><small>nginx / Caddy организации · :443 → web:80</small>"]:::ext
+    subgraph NET["docker#nbsp;compose:#nbsp;проект#nbsp;vacation‑planner"]
+      WEB["<b>web</b> · nginx 1.27<br/><small>статика SPA (Vite build), маршрутизация SPA, CSP,<br/>проксирование /api → server:8080,<br/>кеш ассетов, gzip</small>"]:::box
+      API["<b>server</b> · Node.js 20, NestJS 11<br/><small>REST API v1 (47 операций), JWT + refresh,<br/>RBAC, RFC 9457, аудит в транзакции,<br/>миграции Prisma при старте</small>"]:::box
+      DB[("<b>postgres</b> · PostgreSQL 17<br/><small>сотрудники, заявки, события,<br/>аудит, календари, уведомления</small>")]:::db
+      BK["<b>backup</b> · postgres:17-alpine<br/><small>pg_dump по расписанию,<br/>ротация копий</small>"]:::ext
+    end
+    VOL[("Тома Docker<br/><small>db-data · db-backups</small>")]:::db
+  end
+
+  U -- "HTTPS 443" --> RP
+  RP -- "HTTP" --> WEB
+  WEB -- "HTTP /api/*" --> API
+  API -- "SQL (Prisma 6, пул соединений)" --> DB
+  BK -- "pg_dump" --> DB
+  DB --- VOL
+  BK --- VOL

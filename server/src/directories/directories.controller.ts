@@ -74,7 +74,7 @@ export class DirectoriesController {
       orderBy: { name: 'asc' },
       include: { _count: { select: { members: { where: { isActive: true } } } } },
     });
-    return depts.map((d) => ({ name: d.name, managerId: d.managerId, headcount: d._count.members }));
+    return depts.map((d) => ({ id: d.id, name: d.name, managerId: d.managerId, headcount: d._count.members }));
   }
 
   @Post('departments')
@@ -89,7 +89,7 @@ export class DirectoriesController {
       await this.audit.record(tx, { actorId, action: 'department.created', entity: 'department', entityId: created.id, after: { name: dto.name } });
       return created;
     });
-    return { name: d.name, managerId: d.managerId, headcount: 0 };
+    return { id: d.id, name: d.name, managerId: d.managerId, headcount: 0 };
   }
 
   @Patch('departments/:name')
@@ -106,7 +106,7 @@ export class DirectoriesController {
       await tx.department.update({ where: { id: d.id }, data: { name: dto.name, managerId: dto.managerId } });
       await this.audit.record(tx, { actorId, action: 'department.updated', entity: 'department', entityId: d.id, before: { name: d.name, managerId: d.managerId }, after: { name: dto.name ?? d.name, managerId: dto.managerId ?? d.managerId } });
     });
-    return { name: dto.name ?? d.name, managerId: dto.managerId ?? d.managerId };
+    return { id: d.id, name: dto.name ?? d.name, managerId: dto.managerId ?? d.managerId };
   }
 
   @Delete('departments/:name')

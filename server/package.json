@@ -1,6 +1,6 @@
 {
   "name": "vacation-planner-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Планировщик отпусков — API-сервер (NestJS + Prisma + PostgreSQL)",
   "license": "UNLICENSED",
@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src test prisma --ext .ts",
-    "sbom": "cyclonedx-npm -o ../sbom/server.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only"
+    "sbom": "cyclonedx-npm -o ../sbom/server.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only",
+    "build:seed": "tsc -p tsconfig.seed.json",
+    "db:seed:prod": "node dist-seed/prisma/seed.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -36,6 +38,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.3.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -49,7 +52,6 @@
     "@types/node": "^20.14.0",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.20.0",
-    "prisma": "^6.3.0",
     "supertest": "^7.0.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.0",

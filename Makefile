@@ -31,8 +31,11 @@ sbom: ## SBOM CycloneDX + отчёт по лицензиям
 	cd web && npm run sbom
 	node scripts/license-report.mjs
 
-docs-pdf: ## PDF-версии документов
-	cd tools/pdfgen && npm install && npm run build
+docs-diagrams: ## схемы docs/diagrams → docs/images (PNG)
+	cd tools/docs && npm ci && node render_diagrams.mjs && python3 optimize_png.py ../../docs/images
+
+docs: ## комплект документов → docs/pdf (PDF) и docs/docx (DOCX)
+	cd tools/docs && npm ci && python3 build_docs.py
 
 compose-full: ## полный стенд в контейнерах (нужен JWT_SECRET в .env)
 	docker compose --profile full up --build

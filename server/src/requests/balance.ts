@@ -22,6 +22,15 @@ export function eachDay(start: string, end: string): string[] {
   return days;
 }
 
+/**
+ * Дни отпуска за период: календарные дни без нерабочих праздничных (ТК РФ ст. 120 —
+ * праздники, приходящиеся на отпуск, в число дней отпуска не включаются и его продлевают).
+ */
+export function vacationDays(start: string, end: string, holidays: ReadonlySet<string> = new Set()): number {
+  if (!holidays.size) return calendarDays(start, end);
+  return eachDay(start, end).filter((d) => !holidays.has(d)).length;
+}
+
 /** Пересекаются ли периоды (включительно) в диапазонах дат. */
 export function overlaps(a: Interval, b: Interval): boolean {
   return a.start <= b.end && b.start <= a.end;
@@ -32,6 +41,7 @@ export interface BalanceInput {
   carryOver: number;
   approved: Interval[]; // только type=vacation, status=approved
   pending: Interval[]; // только type=vacation, status=pending (включая переносы)
+  holidays?: ReadonlySet<string>; // нерабочие праздничные дни производственного календаря
 }
 
 export interface BalanceResult {
@@ -42,17 +52,18 @@ export interface BalanceResult {
   hasFourteenDayStretch: boolean;
 }
 
-/** Уникальные календарные дни по набору периодов (пересекающиеся не считаются дважды). */
-function uniqueDays(intervals: Interval[]): Set<string> {
+/** Уникальные дни отпуска по набору периодов: пересечения не считаются дважды, праздники — не считаются. */
+function uniqueDays(intervals: Interval[], holidays: ReadonlySet<string>): Set<string> {
   const set = new Set<string>();
-  for (const i of intervals) for (const d of eachDay(i.start, i.end)) set.add(d);
+  for (const i of intervals) for (const d of eachDay(i.start, i.end)) if (!holidays.has(d)) set.add(d);
   return set;
 }
 
 export function computeBalance(input: BalanceInput): BalanceResult {
   const entitlement = input.plannedDays + input.carryOver;
-  const used = uniqueDays(input.approved).size;
-  const pending = uniqueDays(input.pending).size;
+  const holidays = input.holidays ?? new Set<string>();
+  const used = uniqueDays(input.approved, holidays).size;
+  const pending = uniqueDays(input.pending, holidays).size;
   const stretch = [...input.approved]
     .map((i) => calendarDays(i.start, i.end))
     .reduce((max, d) => Math.max(max, d), 0);
@@ -60,7 +71,8 @@ export function computeBalance(input: BalanceInput): BalanceResult {
     entitlement,
     used,
     pending,
-    remaining: entitlement - used,
+    // Норма может быть дробной (перенос остатка): округляем до сотых, чтобы не было 9.329999…
+    remaining: Math.round((entitlement - used) * 100) / 100,
     // ТК РФ ст. 125: одна из частей — не короче 14 календарных дней подряд
     hasFourteenDayStretch: stretch >= 14,
   };

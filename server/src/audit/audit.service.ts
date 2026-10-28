@@ -25,8 +25,8 @@ export class AuditService {
         action: data.action,
         entity: data.entity,
         entityId: String(data.entityId),
-        before: data.before === undefined ? undefined : (data.before as Prisma.InputJsonValue),
-        after: data.after === undefined ? undefined : (data.after as Prisma.InputJsonValue),
+        before: data.before == null ? undefined : (data.before as Prisma.InputJsonValue),
+        after: data.after == null ? undefined : (data.after as Prisma.InputJsonValue),
       },
     });
   }
@@ -42,10 +42,11 @@ export class AuditService {
         orderBy: { ts: 'desc' },
         skip: (params.page - 1) * params.perPage,
         take: params.perPage,
+        include: { actor: { select: { name: true } } },
       }),
       this.prisma.auditEvent.count({ where }),
     ]).then(([items, total]) => ({
-      items,
+      items: items.map(({ actor, ...e }) => ({ ...e, actorName: actor?.name ?? null })),
       meta: { page: params.page, perPage: params.perPage, total },
     }));
   }

@@ -1,0 +1,29 @@
+sequenceDiagram
+  autonumber
+  actor U as Пользователь
+  participant W as SPA (Vue 3)
+  participant G as nginx (web)
+  participant A as server · AuthController
+  participant S as AuthService / TokenService
+  participant D as PostgreSQL
+
+  U->>W: логин и пароль
+  W->>G: POST /api/v1/auth/login
+  G->>A: проксирование /api
+  A->>A: LoginRateLimitGuard (10 попыток/мин с адреса)
+  A->>S: login(login, password)
+  S->>D: SELECT employees WHERE login, is_active
+  S->>S: scrypt-проверка пароля (постоянное время)
+  alt неверный логин или пароль
+    S-->>W: 401 auth/invalid-credentials (единый ответ без причины)
+  else успех
+    S->>D: INSERT refresh_tokens (SHA-256 токена, срок)
+    S-->>A: access JWT 15 мин (sub, pw_version) + refresh
+    A-->>W: 200 accessToken + профиль · Set-Cookie vp_refresh (httpOnly, SameSite=Strict, path=/api/v1/auth)
+  end
+  Note over W: access-токен хранится только в памяти вкладки
+  W->>A: POST /auth/refresh (cookie) — при 401 или перезагрузке страницы
+  A->>S: refresh(token)
+  S->>D: найти по хешу, проверить срок и отзыв
+  S->>D: revoked_at = now(), INSERT новый refresh (ротация)
+  A-->>W: новый accessToken + новая cookie

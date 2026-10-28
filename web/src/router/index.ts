@@ -9,19 +9,23 @@ const EmployeesView = () => import('@/views/EmployeesView.vue');
 const DirectoriesView = () => import('@/views/DirectoriesView.vue');
 const SettingsView = () => import('@/views/SettingsView.vue');
 const AuditView = () => import('@/views/AuditView.vue');
+const TeamView = () => import('@/views/TeamView.vue');
+const WorkScheduleView = () => import('@/views/WorkScheduleView.vue');
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: LoginView, meta: { public: true } },
     { path: '/', redirect: '/schedule' },
-    { path: '/schedule', component: ScheduleView },
-    { path: '/my', component: MyVacationView },
-    { path: '/approvals', component: ApprovalsView },
-    { path: '/employees', component: EmployeesView, meta: { admin: true } },
-    { path: '/directories', component: DirectoriesView, meta: { admin: true } },
-    { path: '/settings', component: SettingsView },
-    { path: '/audit', component: AuditView, meta: { admin: true } },
+    { path: '/schedule', component: ScheduleView, meta: { title: 'График отпусков' } },
+    { path: '/my', component: MyVacationView, meta: { title: 'Мой отпуск' } },
+    { path: '/team', component: TeamView, meta: { title: 'Команда' } },
+    { path: '/work-schedule', component: WorkScheduleView, meta: { title: 'График работы' } },
+    { path: '/approvals', component: ApprovalsView, meta: { title: 'Заявки на согласование' } },
+    { path: '/employees', component: EmployeesView, meta: { admin: true, title: 'Сотрудники' } },
+    { path: '/directories', component: DirectoriesView, meta: { admin: true, title: 'Справочники' } },
+    { path: '/settings', component: SettingsView, meta: { title: 'Профиль и настройки' } },
+    { path: '/audit', component: AuditView, meta: { admin: true, title: 'Журнал аудита' } },
     { path: '/:pathMatch(.*)*', redirect: '/schedule' },
   ],
 });
@@ -33,4 +37,9 @@ router.beforeEach(async (to) => {
   if (to.path === '/login' && auth.isLoggedIn) return { path: '/schedule' };
   if (to.meta.admin && !auth.isAdmin) return { path: '/schedule' };
   return true;
+});
+
+router.afterEach((to) => {
+  const title = to.meta.title as string | undefined;
+  document.title = title ? `${title} · Планировщик отпусков` : 'Планировщик отпусков';
 });

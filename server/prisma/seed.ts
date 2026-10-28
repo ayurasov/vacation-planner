@@ -1,19 +1,14 @@
 // Начальное наполнение БД из демонстрационного snapshot (docs/specs/04-data-model.md, раздел 6).
 // Пароли демо-данных хешируются scrypt; исходные пароли из snapshot не сохраняются.
 import { PrismaClient, RequestStatus, RequestType, WorkMode } from '@prisma/client';
-import { randomBytes, scryptSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { hashPassword } from '../src/auth/passwords';
 
-const here = dirname(fileURLToPath(import.meta.url));
+// Данные лежат рядом с исходником (tsx) или в prisma/ относительно скомпилированного dist-seed/ (образ)
+const seedData = [join(__dirname, 'seed-data'), join(__dirname, '..', '..', 'prisma', 'seed-data')]
+  .find((dir) => existsSync(join(dir, 'seed.json')))!;
 const prisma = new PrismaClient();
-
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('base64');
-  const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString('base64');
-  return `scrypt$16384$${salt}$${hash}`;
-}
 
 interface LegacyRequest {
   start: string; end: string; status?: string; type?: string;
@@ -28,7 +23,7 @@ interface LegacyEmployee {
 }
 
 async function main() {
-  const snapshot = JSON.parse(readFileSync(join(here, 'seed-data', 'seed.json'), 'utf-8'));
+  const snapshot = JSON.parse(readFileSync(join(seedData, 'seed.json'), 'utf-8'));
 
   // org_settings
   await prisma.orgSettings.upsert({
@@ -153,6 +148,11 @@ async function main() {
       const status = (['pending', 'approved', 'rejected', 'cancelled'] as const)
         .includes(r.status as never) ? r.status as RequestStatus : 'approved';
       const type = r.type === 'maternity' ? RequestType.maternity : RequestType.vacation;
+      // Идемпотентность: повторный seed не дублирует заявки (данные не удаляются — seed безопасен для рабочей БД)
+      const exists = await prisma.vacationRequest.findFirst({
+        where: { employeeId, startDate: new Date(r.start), endDate: new Date(r.end), type },
+      });
+      if (exists) continue;
       await prisma.vacationRequest.create({
         data: {
           employeeId,
@@ -172,6 +172,35 @@ async function main() {
         },
       });
     }
+  }
+
+  // Демо: несколько заявок на согласовании от «сегодня», чтобы очередь руководителей не была пустой.
+  // В данных прототипа все заявки уже решены. Отключается переменной SEED_DEMO=0.
+  if (process.env.SEED_DEMO !== '0') {
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const base = new Date();
+    base.setUTCHours(0, 0, 0, 0);
+    const withManager = await prisma.employee.findMany({
+      where: { managerId: { not: null }, empType: 'staff', isActive: true }, orderBy: { name: 'asc' }, take: 8,
+    });
+    let created = 0;
+    for (const [i, e] of withManager.entries()) {
+      const start = new Date(base.getTime() + (21 + i * 11) * 86400000);
+      const end = new Date(start.getTime() + ((i % 2 ? 13 : 6) * 86400000));
+      const clash = await prisma.vacationRequest.findFirst({
+        where: { employeeId: e.id, status: { in: ['pending', 'approved'] }, startDate: { lte: end }, endDate: { gte: start } },
+      });
+      if (clash) continue;
+      await prisma.vacationRequest.create({
+        data: {
+          employeeId: e.id, startDate: start, endDate: end, status: 'pending', createdBy: e.id,
+          comment: i % 3 === 0 ? 'Семейная поездка, билеты куплены' : null,
+          events: { create: { actorId: e.id, action: 'created', comment: `Демо-заявка (${iso(start)})` } },
+        },
+      });
+      created++;
+    }
+    console.log(`Демо-заявок на согласовании: ${created}`);
   }
 
   const stats = await prisma.$transaction([

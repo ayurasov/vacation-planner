@@ -1,23 +1,98 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
-import { api, daysBetween, fmtRange, type VacationRequest } from '@/api/client';
+import { computed, onMounted, ref } from 'vue';
+import { api, type Employee, type Page, type Schedule, type ScheduleEmployee, type VacationRequest } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
+import { useApprovalsStore } from '@/stores/approvals';
+import { useCalendarStore } from '@/stores/calendar';
+import { useUiStore } from '@/stores/ui';
+import { fmtDate, fmtRange, localIso, plural, vacationDays } from '@/lib/dates';
+import { shortName } from '@/lib/people';
+import { kindLabel } from '@/lib/requests';
 import AppIcon from '@/components/common/AppIcon.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
+import UserAvatar from '@/components/common/UserAvatar.vue';
+import VacationForm from '@/components/VacationForm.vue';
 
 const auth = useAuthStore();
+const approvals = useApprovalsStore();
+const calendar = useCalendarStore();
+const ui = useUiStore();
+
+type Kind = 'all' | 'new' | 'move' | 'delete';
 const queue = ref<VacationRequest[]>([]);
+const people = ref<Map<number, ScheduleEmployee>>(new Map());
+const holidays = ref<Set<string>>(new Set());
+const filter = ref<Kind>('all');
 const loading = ref(true);
 const error = ref('');
-const rejectFor = ref<number | null>(null);
-const rejectComment = ref('');
-const busy = ref(false);
+const busyId = ref<number | null>(null);
+const subordinates = ref<Employee[]>([]);
+const formOpen = ref(false);
+const today = localIso(new Date());
+
+const kindOf = (r: VacationRequest): Exclude<Kind, 'all'> => (r.pendingDeletion ? 'delete' : r.changeFrom ? 'move' : 'new');
+const counts = computed(() => ({
+  all: queue.value.length,
+  new: queue.value.filter((r) => kindOf(r) === 'new').length,
+  move: queue.value.filter((r) => kindOf(r) === 'move').length,
+  delete: queue.value.filter((r) => kindOf(r) === 'delete').length,
+}));
+const visible = computed(() => queue.value
+  .filter((r) => filter.value === 'all' || kindOf(r) === filter.value)
+  .sort((a, b) => a.start.localeCompare(b.start)));
+
+const KIND_TABS: Array<{ key: Kind; label: string }> = [
+  { key: 'all', label: 'Все' },
+  { key: 'new', label: 'Новые' },
+  { key: 'move', label: 'Переносы' },
+  { key: 'delete', label: 'Удаления' },
+];
+
+/** Коллеги из того же отдела, чьи отпуска пересекаются с заявкой. */
+function overlaps(r: VacationRequest): Array<{ name: string; start: string; end: string; status: string }> {
+  const me = people.value.get(r.employee);
+  if (!me?.dept) return [];
+  const out: Array<{ name: string; start: string; end: string; status: string }> = [];
+  for (const p of people.value.values()) {
+    if (p.id === r.employee || p.dept !== me.dept) continue;
+    for (const v of p.vacations) {
+      if (v.start <= r.end && r.start <= v.end) out.push({ name: p.name, start: v.start, end: v.end, status: v.status });
+    }
+  }
+  return out;
+}
+
+function deptSize(r: VacationRequest): number {
+  const me = people.value.get(r.employee);
+  if (!me?.dept) return 0;
+  return [...people.value.values()].filter((p) => p.dept === me.dept).length;
+}
 
 async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const page = await api.get<{ items: VacationRequest[] }>('/vacation-requests?scope=subordinates&status=pending&per_page=100');
+    const page = await api.get<Page<VacationRequest>>(
+      `/vacation-requests?scope=${approvals.scope(auth.isAdmin)}&status=pending&per_page=200`,
+    );
     queue.value = page.items;
+    approvals.pending = page.meta.total;
+    const years = [...new Set(page.items.flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))];
+    const map = new Map<number, ScheduleEmployee>();
+    const hol = new Set<string>();
+    for (const y of years) {
+      const [s, h] = await Promise.all([
+        api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31`),
+        calendar.holidays(y),
+      ]);
+      for (const e of s.employees) {
+        const prev = map.get(e.id);
+        map.set(e.id, prev ? { ...prev, vacations: [...prev.vacations, ...e.vacations] } : e);
+      }
+      h.forEach((d) => hol.add(d));
+    }
+    people.value = map;
+    holidays.value = hol;
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -26,164 +101,354 @@ async function reload(): Promise<void> {
 }
 
 async function approve(r: VacationRequest): Promise<void> {
-  busy.value = true;
+  busyId.value = r.id;
   try {
     await api.post(`/vacation-requests/${r.id}/approve`, {});
+    ui.toast(r.pendingDeletion ? `Удаление отпуска согласовано: ${shortName(r.employeeName ?? '')}` : `Согласовано: ${shortName(r.employeeName ?? '')}, ${fmtRange(r.start, r.end)}`);
     await reload();
   } catch (e) {
-    alert((e as Error).message);
+    ui.error(e);
   } finally {
-    busy.value = false;
+    busyId.value = null;
   }
 }
 
 async function reject(r: VacationRequest): Promise<void> {
-  if (rejectComment.value.trim().length < 3) return;
-  busy.value = true;
+  const answer = await ui.ask({
+    title: `Отклонить заявку — ${r.employeeName ?? ''}?`,
+    text: `${kindLabel(r)}: ${fmtRange(r.start, r.end)}.${r.changeFrom ? ' Отпуск останется на прежних датах.' : r.pendingDeletion ? ' Отпуск останется согласованным.' : ''}`,
+    confirmLabel: 'Отклонить',
+    danger: true,
+    commentMin: 3,
+    commentLabel: 'Причина отклонения',
+  });
+  if (!answer.ok) return;
+  busyId.value = r.id;
   try {
-    await api.post(`/vacation-requests/${r.id}/reject`, { comment: rejectComment.value.trim() });
-    rejectFor.value = null;
-    rejectComment.value = '';
+    await api.post(`/vacation-requests/${r.id}/reject`, { comment: answer.comment });
+    ui.toast('Заявка отклонена, сотрудник получит уведомление с причиной', 'info');
     await reload();
   } catch (e) {
-    alert((e as Error).message);
+    ui.error(e);
   } finally {
-    busy.value = false;
+    busyId.value = null;
   }
 }
 
-function kindLabel(r: VacationRequest): string {
-  if (r.pendingDeletion) return 'Удаление отпуска';
-  if (r.changeFrom) return `Перенос с ${fmtRange(r.changeFrom.start, r.changeFrom.end)}`;
-  if (r.type === 'maternity') return 'Декрет';
-  return 'Новый отпуск';
+async function loadSubordinates(): Promise<void> {
+  const ids = new Set(auth.me?.permissions.approveSubordinates ?? []);
+  if (!ids.size) return;
+  try {
+    const page = await api.get<Page<Employee>>('/employees?per_page=200');
+    subordinates.value = page.items.filter((e) => ids.has(e.id));
+  } catch { /* кнопка оформления необязательна */ }
 }
 
-onMounted(reload);
+async function onCreated(): Promise<void> {
+  formOpen.value = false;
+  ui.toast('Отпуск сотрудника оформлен и согласован');
+  await reload();
+}
+
+onMounted(() => {
+  void reload();
+  void loadSubordinates();
+});
 </script>
 
 <template>
-  <div>
+  <div class="page-narrow">
     <div class="view-header">
       <div>
         <div class="view-title">
-          Заявки к согласованию
+          Заявки на согласование
         </div>
         <div class="view-subtitle">
           {{ auth.isAdmin ? 'Все сотрудники организации' : 'Ваши прямые подчинённые' }}
         </div>
       </div>
+      <div class="toolbar">
+        <button
+          class="btn"
+          type="button"
+          :disabled="loading"
+          @click="reload"
+        >
+          <AppIcon
+            name="refresh"
+            :size="15"
+          /> Обновить
+        </button>
+        <button
+          v-if="subordinates.length"
+          class="btn btn-primary"
+          type="button"
+          @click="formOpen = true"
+        >
+          <AppIcon
+            name="plus"
+            :size="15"
+          /> Оформить отпуск сотруднику
+        </button>
+      </div>
+    </div>
+
+    <div class="segmented tabs">
       <button
-        class="btn"
-        @click="reload"
+        v-for="t in KIND_TABS"
+        :key="t.key"
+        type="button"
+        :class="{ active: filter === t.key }"
+        @click="filter = t.key"
       >
-        <AppIcon
-          name="refresh"
-          :size="14"
-        /> Обновить
+        {{ t.label }} <span class="tab-count">{{ counts[t.key] }}</span>
       </button>
     </div>
 
     <div
       v-if="error"
-      class="error-banner"
+      class="banner banner-error"
     >
-      {{ error }}
-    </div>
-    <div
-      v-if="loading"
-      class="empty-state"
-    >
-      Загрузка…
-    </div>
-    <div
-      v-else-if="!queue.length"
-      class="card empty-state"
-    >
-      Заявок к согласованию нет
+      <AppIcon
+        name="warning"
+        :size="15"
+      /> {{ error }}
     </div>
 
     <div
-      v-for="r in queue"
-      :key="r.id"
-      class="card"
-      style="margin-bottom: 12px"
+      v-if="loading"
+      class="card card-body"
     >
-      <div class="approval-row">
-        <div style="flex: 1">
-          <div class="approval-name">
-            {{ r.employeeName ?? `Сотрудник #${r.employee}` }}
-          </div>
-          <div class="approval-kind">
-            {{ kindLabel(r) }}
-          </div>
-          <div class="approval-dates">
-            {{ fmtRange(r.start, r.end) }} · {{ daysBetween(r.start, r.end) }} календарных дней
-          </div>
-          <div
-            v-if="r.comment"
-            class="muted small"
-          >
-            «{{ r.comment }}»
+      <div
+        v-for="i in 3"
+        :key="i"
+        class="skeleton"
+        style="height: 64px; margin-bottom: 10px"
+      />
+    </div>
+
+    <div
+      v-else-if="!visible.length"
+      class="card"
+    >
+      <EmptyState
+        icon="approvals"
+        :title="queue.length ? 'В этой категории заявок нет' : 'Все заявки рассмотрены'"
+        :text="queue.length ? 'Переключитесь на «Все», чтобы увидеть остальные.' : 'Новые заявки подчинённых появятся здесь и в колокольчике уведомлений.'"
+      />
+    </div>
+
+    <article
+      v-for="r in visible"
+      :key="r.id"
+      class="card request"
+    >
+      <header class="request-head">
+        <div class="person">
+          <UserAvatar
+            :name="r.employeeName ?? '?'"
+            :size="38"
+          />
+          <div class="person-text">
+            <span class="person-name">{{ r.employeeName }}</span>
+            <span class="person-sub">{{ people.get(r.employee)?.position ?? '' }}{{ people.get(r.employee)?.dept ? ` · ${people.get(r.employee)?.dept}` : '' }}</span>
           </div>
         </div>
-        <div class="approval-actions">
-          <template v-if="rejectFor !== r.id">
-            <button
-              class="btn btn-primary"
-              :disabled="busy"
-              @click="approve(r)"
+        <span
+          class="badge"
+          :class="kindOf(r) === 'new' ? 'badge-info' : kindOf(r) === 'move' ? 'badge-warning' : 'badge-danger'"
+        >
+          <AppIcon
+            :name="kindOf(r) === 'new' ? 'plus' : kindOf(r) === 'move' ? 'swap' : 'trash'"
+            :size="11"
+            :stroke="2"
+          />
+          {{ kindLabel(r) }}
+        </span>
+      </header>
+
+      <div class="request-body">
+        <div class="request-period">
+          <div class="period-big">
+            {{ fmtRange(r.start, r.end) }}
+          </div>
+          <div class="muted small">
+            {{ vacationDays(r.start, r.end, holidays) }} {{ plural(vacationDays(r.start, r.end, holidays), ['день', 'дня', 'дней']) }} отпуска
+            <template v-if="r.changeFrom">
+              · было {{ fmtRange(r.changeFrom.start, r.changeFrom.end) }}
+            </template>
+            · подана {{ fmtDate(r.createdAt.slice(0, 10), r.createdAt.slice(0, 4) !== today.slice(0, 4)) }}
+          </div>
+          <blockquote
+            v-if="r.comment"
+            class="request-comment"
+          >
+            {{ r.comment }}
+          </blockquote>
+        </div>
+
+        <div
+          v-if="!r.pendingDeletion"
+          class="overlaps"
+        >
+          <div class="overlaps-title">
+            <AppIcon
+              :name="overlaps(r).length ? 'warning' : 'check'"
+              :size="14"
+            />
+            <template v-if="overlaps(r).length">
+              Пересечения в отделе: {{ overlaps(r).length }} из {{ deptSize(r) - 1 }} коллег
+            </template>
+            <template v-else>
+              Пересечений с коллегами по отделу нет
+            </template>
+          </div>
+          <ul v-if="overlaps(r).length">
+            <li
+              v-for="(o, i) in overlaps(r).slice(0, 5)"
+              :key="i"
             >
-              Согласовать
-            </button>
-            <button
-              class="btn"
-              :disabled="busy"
-              @click="rejectFor = r.id; rejectComment = ''"
+              <span>{{ shortName(o.name) }}</span>
+              <span class="muted">{{ fmtRange(o.start, o.end) }}</span>
+              <span
+                v-if="o.status === 'pending'"
+                class="badge badge-warning"
+              >ожидает</span>
+            </li>
+            <li
+              v-if="overlaps(r).length > 5"
+              class="muted"
             >
-              Отклонить
-            </button>
-          </template>
-          <template v-else>
-            <input
-              v-model="rejectComment"
-              class="input"
-              placeholder="Причина (обязательна)"
-              style="width: 260px"
-            >
-            <button
-              class="btn btn-danger"
-              :disabled="busy || rejectComment.trim().length < 3"
-              @click="reject(r)"
-            >
-              Отклонить
-            </button>
-            <button
-              class="btn"
-              @click="rejectFor = null"
-            >
-              Отмена
-            </button>
-          </template>
+              и ещё {{ overlaps(r).length - 5 }}
+            </li>
+          </ul>
         </div>
       </div>
-    </div>
+
+      <footer class="request-actions">
+        <button
+          class="btn btn-danger"
+          type="button"
+          :disabled="busyId === r.id"
+          @click="reject(r)"
+        >
+          <AppIcon
+            name="close"
+            :size="14"
+          /> Отклонить
+        </button>
+        <button
+          class="btn btn-success"
+          type="button"
+          :disabled="busyId === r.id"
+          @click="approve(r)"
+        >
+          <AppIcon
+            name="check"
+            :size="14"
+          /> {{ r.pendingDeletion ? 'Согласовать удаление' : 'Согласовать' }}
+        </button>
+      </footer>
+    </article>
+
+    <VacationForm
+      v-if="formOpen"
+      :employees="subordinates"
+      @close="formOpen = false"
+      @saved="onCreated"
+    />
   </div>
 </template>
 
 <style scoped>
-.approval-row {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  padding: 14px 16px;
-  flex-wrap: wrap;
+.tabs {
+  margin-bottom: 14px;
 }
 
-.approval-name { font-weight: 600; font-size: 14px; }
-.approval-kind { color: var(--color-text-muted); font-size: 12.5px; margin-top: 2px; }
-.approval-dates { font-size: 13.5px; margin-top: 6px; }
-.approval-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.muted { color: var(--color-text-muted); }
-.small { font-size: 12px; margin-top: 4px; }
+.tab-count {
+  font-size: 11px;
+  color: var(--color-text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.request {
+  margin-bottom: 12px;
+}
+
+.request-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 0;
+}
+
+.request-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  padding: 14px 18px;
+}
+
+.period-big {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.request-comment {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-surface-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.overlaps {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--color-surface-2);
+  font-size: 12.5px;
+}
+
+.overlaps-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.overlaps ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.overlaps li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.request-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+@media (max-width: 900px) {
+  .request-body {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

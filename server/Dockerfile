@@ -7,17 +7,20 @@ COPY prisma ./prisma
 RUN npx prisma generate
 COPY tsconfig*.json ./
 COPY src ./src
-RUN npm run build && npm prune --omit=dev
+# Seed компилируется в JS: в рабочем образе нет tsx и dev-зависимостей
+RUN npm run build && npm run build:seed && npm prune --omit=dev
 
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-#better-sqlite3 не используется; openssl для Prisma на alpine
+# openssl — для движка Prisma на alpine
 RUN apk add --no-cache openssl
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist-seed ./dist-seed
 COPY --from=build /app/prisma ./prisma
 EXPOSE 8080
-# Миграции применяются при старте; сервер ждёт готовности БД
+# Миграции применяются при старте. prisma — рабочая зависимость: npx не обращается в интернет,
+# стенд поднимается в закрытом контуре. Демо-данные: docker compose exec server npm run db:seed:prod
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

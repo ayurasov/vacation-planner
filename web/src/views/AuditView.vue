@@ -1,43 +1,92 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
-import { api } from '@/api/client';
+import { computed, onMounted, ref, watch } from 'vue';
+import { api, type AuditEvent, type Page } from '@/api/client';
 import AppIcon from '@/components/common/AppIcon.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
+import UserAvatar from '@/components/common/UserAvatar.vue';
 
-interface AuditEvent {
-  id: number; ts: string; actorId: number | null; action: string;
-  entity: string; entityId: string; before: unknown; after: unknown;
-}
-
+const PER_PAGE = 50;
 const events = ref<AuditEvent[]>([]);
 const total = ref(0);
 const page = ref(1);
+const entity = ref('');
 const loading = ref(true);
 const error = ref('');
+const expanded = ref<Set<number>>(new Set());
 
-const actionLabels: Record<string, string> = {
-  'request.created': 'создание заявки',
-  'request.approved': 'согласование',
-  'request.rejected': 'отклонение',
-  'request.cancelled': 'отмена',
-  'request.deleted': 'удаление отпуска',
-  'request.deletion_requested': 'запрос удаления',
-  'request.updated': 'изменение заявки',
-  'employee.created': 'новый сотрудник',
-  'employee.updated': 'изменение сотрудника',
-  'employee.deactivated': 'увольнение',
-  'department.created': 'новый отдел',
-  'department.updated': 'изменение отдела',
-  'department.deleted': 'удаление отдела',
-  'project.created': 'новый проект',
-  'settings.updated': 'изменение настроек',
+const ACTIONS: Record<string, { label: string; tone: string; icon: string }> = {
+  'request.created': { label: 'Создана заявка', tone: 'info', icon: 'plus' },
+  'request.updated': { label: 'Изменена заявка / перенос', tone: 'warning', icon: 'swap' },
+  'request.approved': { label: 'Заявка согласована', tone: 'success', icon: 'check' },
+  'request.rejected': { label: 'Заявка отклонена', tone: 'danger', icon: 'close' },
+  'request.cancelled': { label: 'Заявка отменена', tone: 'muted', icon: 'undo' },
+  'request.deletion_requested': { label: 'Запрошено удаление', tone: 'warning', icon: 'trash' },
+  'request.deleted': { label: 'Отпуск удалён', tone: 'danger', icon: 'trash' },
+  'employee.created': { label: 'Добавлен сотрудник', tone: 'info', icon: 'user' },
+  'employee.updated': { label: 'Изменён сотрудник', tone: 'muted', icon: 'edit' },
+  'employee.deactivated': { label: 'Сотрудник уволен', tone: 'danger', icon: 'logout' },
+  'employee.work_pattern_updated': { label: 'Изменён график работы', tone: 'muted', icon: 'schedule' },
+  'employee.work_override_set': { label: 'Исключение в графике работы', tone: 'muted', icon: 'schedule' },
+  'employee.work_override_removed': { label: 'Снято исключение графика', tone: 'muted', icon: 'schedule' },
+  'department.created': { label: 'Создан отдел', tone: 'info', icon: 'building' },
+  'department.updated': { label: 'Изменён отдел', tone: 'muted', icon: 'building' },
+  'department.deleted': { label: 'Удалён отдел', tone: 'danger', icon: 'building' },
+  'project.created': { label: 'Создан проект', tone: 'info', icon: 'briefcase' },
+  'project.updated': { label: 'Изменён проект', tone: 'muted', icon: 'briefcase' },
+  'project.deleted': { label: 'Удалён проект', tone: 'danger', icon: 'briefcase' },
+  'settings.updated': { label: 'Изменены правила', tone: 'violet', icon: 'sliders' },
+  'report.exported': { label: 'Выгрузка в Excel', tone: 'muted', icon: 'spreadsheet' },
 };
+
+const ENTITIES = [
+  { key: '', label: 'Все объекты' },
+  { key: 'vacation_request', label: 'Заявки' },
+  { key: 'employee', label: 'Сотрудники' },
+  { key: 'department', label: 'Отделы' },
+  { key: 'project', label: 'Проекты' },
+  { key: 'org_settings', label: 'Настройки' },
+  { key: 'report', label: 'Выгрузки' },
+];
+
+const FIELD_LABELS: Record<string, string> = {
+  status: 'статус', start: 'начало', end: 'окончание', name: 'название', managerId: 'руководитель',
+  plannedDays: 'норма', carryOver: 'перенос', deptId: 'отдел', position: 'должность', role: 'роль',
+  isAdmin: 'администратор', empType: 'тип', conflictThreshold: 'порог', limitPolicy: 'лимит', period: 'период',
+};
+
+const pages = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)));
+
+function meta(action: string) {
+  return ACTIONS[action] ?? { label: action, tone: 'muted', icon: 'info' };
+}
+
+/** Изменённые поля: только различающиеся значения, без служебных. */
+function diff(e: AuditEvent): Array<{ key: string; before: string; after: string }> {
+  const keys = new Set([...Object.keys(e.before ?? {}), ...Object.keys(e.after ?? {})]);
+  const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+  return [...keys]
+    .filter((k) => !['id', 'login', 'createdAt', 'updatedAt'].includes(k))
+    .map((k) => ({ key: FIELD_LABELS[k] ?? k, before: show(e.before?.[k]), after: show(e.after?.[k]) }))
+    .filter((d) => d.before !== d.after);
+}
+
+function when(ts: string): string {
+  return new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function toggle(id: number): void {
+  const next = new Set(expanded.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  expanded.value = next;
+}
 
 async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const data = await api.get<{ items: AuditEvent[]; meta: { total: number } }>(
-      `/audit-events?page=${page.value}&per_page=50`);
+    const q = new URLSearchParams({ page: String(page.value), per_page: String(PER_PAGE) });
+    if (entity.value) q.set('entity', entity.value);
+    const data = await api.get<Page<AuditEvent>>(`/audit-events?${q}`);
     events.value = data.items;
     total.value = data.meta.total;
   } catch (e) {
@@ -47,99 +96,275 @@ async function reload(): Promise<void> {
   }
 }
 
-function fmt(e: AuditEvent): string {
-  const b = e.before ? JSON.stringify(e.before) : '';
-  const a = e.after ? JSON.stringify(e.after) : '';
-  return `${b || '—'} → ${a || '—'}`;
-}
-
+watch(entity, () => { page.value = 1; void reload(); });
+watch(page, reload);
 onMounted(reload);
 </script>
 
 <template>
-  <div>
+  <div class="page-narrow">
     <div class="view-header">
       <div>
         <div class="view-title">
-          Аудит
+          Журнал аудита
         </div>
         <div class="view-subtitle">
-          {{ total }} событий · только чтение
+          {{ total }} записей · неизменяемый журнал всех изменений данных
         </div>
       </div>
-      <button
-        class="btn"
-        @click="reload"
+      <select
+        v-model="entity"
+        class="input"
+        style="width: auto"
+        aria-label="Тип объекта"
       >
-        <AppIcon
-          name="refresh"
-          :size="14"
-        /> Обновить
-      </button>
+        <option
+          v-for="e in ENTITIES"
+          :key="e.key"
+          :value="e.key"
+        >
+          {{ e.label }}
+        </option>
+      </select>
     </div>
 
     <div
       v-if="error"
-      class="error-banner"
+      class="banner banner-error"
     >
-      {{ error }}
-    </div>
-    <div
-      v-if="loading"
-      class="empty-state"
-    >
-      Загрузка…
+      <AppIcon
+        name="warning"
+        :size="15"
+      /> {{ error }}
     </div>
 
-    <div
-      v-else
-      class="card"
-    >
-      <div class="grid-table">
+    <div class="card">
+      <div
+        v-if="loading"
+        class="card-body"
+      >
         <div
-          class="grid-head"
-          style="grid-template-columns: 150px 1fr 160px 1fr"
-        >
-          <div>Время</div><div>Действие</div><div>Кто</div><div>Изменение</div>
-        </div>
-        <div
+          v-for="i in 8"
+          :key="i"
+          class="skeleton"
+          style="height: 40px; margin-bottom: 8px"
+        />
+      </div>
+      <EmptyState
+        v-else-if="!events.length"
+        icon="shield"
+        title="Записей нет"
+        text="Изменения данных появятся здесь автоматически."
+      />
+      <ol
+        v-else
+        class="timeline"
+      >
+        <li
           v-for="e in events"
           :key="e.id"
-          class="grid-row"
-          style="grid-template-columns: 150px 1fr 160px 1fr"
+          class="event"
         >
-          <span class="muted">{{ new Date(e.ts).toLocaleString('ru-RU') }}</span>
-          <div>{{ actionLabels[e.action] ?? e.action }}</div>
-          <span class="muted">#{{ e.actorId ?? 'система' }} · {{ e.entity }}/{{ e.entityId }}</span>
-          <code
-            class="muted small"
-            style="overflow-wrap: anywhere"
-          >{{ fmt(e).slice(0, 140) }}</code>
+          <span
+            class="event-icon"
+            :class="`tone-${meta(e.action).tone}`"
+          ><AppIcon
+            :name="meta(e.action).icon"
+            :size="14"
+          /></span>
+          <div class="event-main">
+            <div class="event-line">
+              <strong>{{ meta(e.action).label }}</strong>
+              <span class="soft small">#{{ e.entityId }}</span>
+            </div>
+            <div class="event-meta">
+              <span
+                v-if="e.actorName"
+                class="person"
+              >
+                <UserAvatar
+                  :name="e.actorName"
+                  :size="18"
+                />
+                <span class="small">{{ e.actorName }}</span>
+              </span>
+              <span
+                v-else
+                class="small soft"
+              >система</span>
+              <span class="small soft">{{ when(e.ts) }}</span>
+              <button
+                v-if="diff(e).length"
+                class="link-btn"
+                type="button"
+                @click="toggle(e.id)"
+              >
+                {{ expanded.has(e.id) ? 'скрыть' : `изменения (${diff(e).length})` }}
+              </button>
+            </div>
+            <table
+              v-if="expanded.has(e.id)"
+              class="diff"
+            >
+              <tr
+                v-for="d in diff(e)"
+                :key="d.key"
+              >
+                <td class="muted">
+                  {{ d.key }}
+                </td>
+                <td><span class="before">{{ d.before }}</span></td>
+                <td>
+                  <AppIcon
+                    name="arrowRight"
+                    :size="12"
+                  />
+                </td>
+                <td><span class="after">{{ d.after }}</span></td>
+              </tr>
+            </table>
+          </div>
+        </li>
+      </ol>
+      <div
+        v-if="pages > 1"
+        class="pager"
+      >
+        <span class="muted small">Стр. {{ page }} из {{ pages }}</span>
+        <div class="toolbar">
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="page <= 1"
+            @click="page--"
+          >
+            <AppIcon
+              name="chevronLeft"
+              :size="14"
+            /> Новее
+          </button>
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="page >= pages"
+            @click="page++"
+          >
+            Старше <AppIcon
+              name="chevronRight"
+              :size="14"
+            />
+          </button>
         </div>
-      </div>
-      <div class="pager">
-        <button
-          class="btn btn-sm"
-          :disabled="page <= 1"
-          @click="page--; reload()"
-        >
-          ←
-        </button>
-        <span class="muted">стр. {{ page }} из {{ Math.max(1, Math.ceil(total / 50)) }}</span>
-        <button
-          class="btn btn-sm"
-          :disabled="page >= Math.ceil(total / 50)"
-          @click="page++; reload()"
-        >
-          →
-        </button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.muted { color: var(--color-text-muted); }
-.small { font-size: 11.5px; }
-.pager { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+}
+
+.event {
+  display: flex;
+  gap: 12px;
+  padding: 10px 16px;
+  position: relative;
+}
+
+.event:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 30px;
+  top: 40px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.event-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.tone-success { background: var(--color-success-soft); color: var(--color-success); }
+.tone-danger { background: var(--color-danger-soft); color: var(--color-danger); }
+.tone-info { background: var(--color-primary-soft); color: var(--color-primary); }
+.tone-warning { background: var(--color-warning-soft); color: var(--color-warning); }
+.tone-violet { background: var(--color-violet-soft); color: var(--color-violet); }
+.tone-muted { background: var(--color-neutral-soft); color: var(--color-text-muted); }
+
+.event-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.event-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.event-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.event-meta .person {
+  gap: 6px;
+}
+
+.link-btn {
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.diff {
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.diff td {
+  padding: 4px 10px;
+  vertical-align: middle;
+}
+
+.before {
+  color: var(--color-danger-dark);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+
+.after {
+  color: var(--color-success-dark);
+  font-weight: 600;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+}
 </style>

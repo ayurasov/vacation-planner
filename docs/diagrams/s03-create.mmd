@@ -1,0 +1,32 @@
+sequenceDiagram
+  autonumber
+  actor E as Сотрудник
+  participant W as SPA · «Мой отпуск»
+  participant C as RequestsController
+  participant S as RequestsService
+  participant B as balance.ts (чистые функции)
+  participant D as PostgreSQL
+  actor M as Руководитель
+
+  E->>W: даты начала и окончания, комментарий
+  W->>W: превью: календарные дни без праздников, остаток
+  W->>C: POST /api/v1/vacation-requests
+  C->>S: create(actor, dto)
+  S->>S: права: за себя / за подчинённого / админ
+  S->>S: даты: формат, порядок, не в прошлом
+  S->>D: BEGIN
+  S->>D: пересечения pending/approved сотрудника
+  alt пересечение
+    S-->>W: 409 overlapping-request
+  end
+  S->>B: computeBalance(норма, перенос, согласованные, ожидающие)
+  alt политика hard и дней не хватает
+    S-->>W: 409 limit-exceeded «Доступно дней: N»
+  end
+  S->>D: INSERT vacation_requests (pending, либо approved, если за подчинённого)
+  S->>D: INSERT request_events (created)
+  S->>D: INSERT audit_events (request.created)
+  S->>D: INSERT notifications руководителю
+  S->>D: COMMIT
+  C-->>W: 201 заявка
+  M-->>W: видит заявку в «Заявки» и колокольчике

@@ -22,12 +22,31 @@ export class ApiError extends Error {
   }
 }
 
-async function refreshAccess(): Promise<boolean> {
-  const res = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' });
-  if (!res.ok) return false;
-  const data = await res.json();
-  setAccess(data.accessToken, data.expiresAt);
-  return true;
+// Один refresh на всех: параллельные запросы с истёкшим токеном ждут общий результат.
+// Иначе ротация отзывает refresh-токен первого запроса и остальные получают 401.
+let refreshing: Promise<boolean> | null = null;
+
+function refreshAccess(): Promise<boolean> {
+  refreshing ??= (async () => {
+    try {
+      const res = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' });
+      if (!res.ok) return false;
+      const data = await res.json();
+      setAccess(data.accessToken, data.expiresAt);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setTimeout(() => { refreshing = null; }, 0);
+    }
+  })();
+  return refreshing;
+}
+
+async function toError(res: Response): Promise<ApiError> {
+  const body = await res.json().catch(() => null);
+  const code = String(body?.type ?? '').split('/problems/')[1] ?? 'internal';
+  return new ApiError(res.status, code, body?.detail ?? body?.title ?? `Ошибка ${res.status}`);
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
@@ -39,21 +58,22 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
   const res = await fetch(`/api/v1${path}`, { ...init, headers, credentials: 'include' });
 
-  if (res.status === 401 && retry && path !== '/auth/login') {
-    const body = await res.clone().json().catch(() => null);
-    if (body?.type?.endsWith('auth/token-expired') || res.status === 401) {
-      if (await refreshAccess()) return request<T>(path, init, false);
-    }
+  if (res.status === 401 && retry && !path.startsWith('/auth/login') && (await refreshAccess())) {
+    return request<T>(path, init, false);
   }
 
   if (res.status === 204) return undefined as T;
+  if (!res.ok) throw await toError(res);
+  return (await res.json().catch(() => null)) as T;
+}
 
-  const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    const code = String(body?.type ?? '').split('/problems/')[1] ?? 'internal';
-    throw new ApiError(res.status, code, body?.detail ?? body?.title ?? `Ошибка ${res.status}`);
-  }
-  return body as T;
+/** Файл (выгрузки XLSX): тот же Bearer и автообновление токена, ответ — Blob. */
+async function download(path: string, retry = true): Promise<Blob> {
+  const headers: Record<string, string> = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  const res = await fetch(`/api/v1${path}`, { headers, credentials: 'include' });
+  if (res.status === 401 && retry && (await refreshAccess())) return download(path, false);
+  if (!res.ok) throw await toError(res);
+  return res.blob();
 }
 
 export const api = {
@@ -63,6 +83,7 @@ export const api = {
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  download,
 };
 
 // ── Типы ответов (по contracts/openapi-vacation-api-v1.yaml) ──
@@ -118,7 +139,7 @@ export interface Schedule {
 }
 
 export interface Department {
-  name: string; managerId: number | null; headcount: number;
+  id: number; name: string; managerId: number | null; headcount: number;
 }
 
 export interface OrgSettings {
@@ -130,14 +151,45 @@ export interface Notification {
   id: number; kind: string; text: string; isRead: boolean; createdAt: string;
 }
 
-export function daysBetween(start: string, end: string): number {
-  return Math.floor((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000) + 1;
+export interface AuditEvent {
+  id: number; ts: string; actorId: number | null; actorName?: string | null;
+  action: string; entity: string; entityId: string;
+  before: Record<string, unknown> | null; after: Record<string, unknown> | null;
 }
 
-export function fmtRange(start: string, end: string): string {
-  const [sy, sm, sd] = start.split('-');
-  const [ey, em, ed] = end.split('-');
-  if (sy === ey && sm === em) return `${+sd}–${+ed}.${sm}.${sy}`;
-  if (sy === ey) return `${+sd}.${sm} – ${+ed}.${em}.${sy}`;
-  return `${+sd}.${sm}.${sy} – ${+ed}.${em}.${ey}`;
+// ── Аналитика (с v0.3.0) ──
+export interface Insight { severity: 'danger' | 'warning' | 'info' | 'success'; title: string; text: string }
+
+export interface DepartmentOverview {
+  dept: string; year: number; threshold: number; headcount: number;
+  months: Array<{ month: number; avgRatio: number; planRatio: number; peakRatio: number; peakDate: string | null }>;
+  conflicts: Array<{ start: string; end: string; peakRatio: number; peakAbsent: number; names: string[] }>;
+  planning: Array<{ id: number; name: string; available: number; planned: number; hasStretch: boolean }>;
+  insights: Insight[];
+}
+
+export type DayStatus = 'vacation' | 'office' | 'remote' | 'off';
+
+export interface TeamSnapshot {
+  date: string; threshold: number; headcount: number; absentRatio: number; overThreshold: boolean;
+  counts: Record<DayStatus | 'pending', number>;
+  members: Array<{
+    id: number; name: string; dept: string | null; empType: string; status: DayStatus; until: string | null;
+    next: { start: string; end: string } | null; available: number; hasStretch: boolean; pending: number;
+  }>;
+}
+
+export interface Suggestion {
+  start: string; end: string; vacationDays: number; calendarDays: number; holidays: number;
+  maxRatio: number; avgRatio: number; overlapWith: string[]; score: number; reasons: string[];
+}
+
+export interface Suggestions {
+  employee: number; length: number; available: number; hasStretch: boolean; threshold: number; items: Suggestion[];
+}
+
+export interface WorkSchedule {
+  employee: number;
+  pattern: Record<string, 'office' | 'remote' | 'off'>;
+  overrides: Array<{ date: string; mode: 'office' | 'remote' | 'off' }>;
 }

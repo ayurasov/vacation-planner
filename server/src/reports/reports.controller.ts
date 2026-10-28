@@ -5,10 +5,12 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsISO8601 } from 'class-validator';
 import type { Response } from 'express';
 import ExcelJS from 'exceljs';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../auth/guards';
+import { calendarDays, toIso, vacationDays } from '../requests/balance';
 import type { AccessClaims } from '../auth/token.service';
 
 export class ReportQuery {
@@ -44,15 +46,24 @@ export class ReportsController {
       include: { dept: true, subordinates: { select: { id: true } } },
     });
     if (!me) throw new ProblemException('not-found');
-    // Руководитель отдела выгружает свой отдел; администратор — всю организацию
-    let deptFilter: string | undefined;
+    // Администратор — вся организация; руководитель отдела — свой отдел;
+    // руководитель без отдела в подчинении — только прямые подчинённые и он сам.
+    // (До v0.3.0 последний случай получал выгрузку всей организации.)
+    let scope: Prisma.VacationRequestWhereInput = {};
+    let scopeLabel = 'organization';
     if (!me.isAdmin) {
       const isDeptManager = me.dept?.managerId === me.id;
       const hasSubordinates = me.subordinates.length > 0;
       if (!isDeptManager && !hasSubordinates) {
         throw new ProblemException('auth/forbidden', 'Выгрузка доступна руководителям и администраторам');
       }
-      if (isDeptManager && me.dept) deptFilter = me.dept.name;
+      if (isDeptManager && me.dept) {
+        scope = { employee: { dept: { name: me.dept.name } } };
+        scopeLabel = me.dept.name;
+      } else {
+        scope = { employeeId: { in: [me.id, ...me.subordinates.map((s) => s.id)] } };
+        scopeLabel = 'subordinates';
+      }
     }
 
     const rows = await this.prisma.vacationRequest.findMany({
@@ -60,7 +71,7 @@ export class ReportsController {
         startDate: { lte: to },
         endDate: { gte: from },
         status: { in: ['approved', 'pending'] },
-        ...(deptFilter ? { employee: { dept: { name: deptFilter } } } : {}),
+        ...scope,
       },
       orderBy: [{ startDate: 'asc' }],
       include: { employee: { include: { dept: { select: { name: true } } } } },
@@ -76,6 +87,7 @@ export class ReportsController {
       { header: 'Начало', key: 'start', width: 12 },
       { header: 'Окончание', key: 'end', width: 12 },
       { header: 'Календарных дней', key: 'days', width: 18 },
+      { header: 'Дней отпуска', key: 'vacationDays', width: 15 },
       { header: 'Статус', key: 'status', width: 16 },
       { header: 'Тип', key: 'type', width: 12 },
       { header: 'Комментарий', key: 'comment', width: 36 },
@@ -84,8 +96,12 @@ export class ReportsController {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const ruStatus: Record<string, string> = { approved: 'согласован', pending: 'на согласовании' };
     const ruType: Record<string, string> = { vacation: 'отпуск', maternity: 'декрет' };
+    // Праздники всех затронутых лет: дни отпуска без нерабочих праздничных (ТК РФ ст. 120)
+    const years = [...new Set(rows.flatMap((r) => [r.startDate.getUTCFullYear(), r.endDate.getUTCFullYear()]))];
+    const calendars = await this.prisma.productionCalendar.findMany({ where: { year: { in: years } } });
+    const holidays = new Set(calendars.flatMap((c) => (Array.isArray(c.holidays) ? (c.holidays as string[]) : [])));
     for (const r of rows) {
-      const days = Math.floor((r.endDate.getTime() - r.startDate.getTime()) / 86400000) + 1;
+      const days = calendarDays(toIso(r.startDate), toIso(r.endDate));
       ws.addRow({
         name: r.employee.name,
         position: r.employee.position ?? '',
@@ -93,6 +109,7 @@ export class ReportsController {
         start: iso(r.startDate),
         end: iso(r.endDate),
         days,
+        vacationDays: vacationDays(toIso(r.startDate), toIso(r.endDate), holidays),
         status: ruStatus[r.status] ?? r.status,
         type: ruType[r.type] ?? r.type,
         comment: r.comment ?? '',
@@ -101,7 +118,7 @@ export class ReportsController {
 
     await this.audit.record(this.prisma, {
       actorId: user.sub, action: 'report.exported', entity: 'report', entityId: 'vacations',
-      after: { from: q.from, to: q.to, rows: rows.length, scope: deptFilter ?? 'organization' },
+      after: { from: q.from, to: q.to, rows: rows.length, scope: scopeLabel },
     });
 
     const buffer = await wb.xlsx.writeBuffer();

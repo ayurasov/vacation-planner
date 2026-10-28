@@ -6,7 +6,7 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { calendarDays, computeBalance, overlaps, toIso } from './balance';
+import { calendarDays, computeBalance, overlaps, toIso, vacationDays } from './balance';
 
 export interface Actor {
   id: number;
@@ -61,6 +61,7 @@ export class RequestsService {
     this.validateRange(input.start, input.end, actor.isAdmin);
 
     return this.prisma.$transaction(async (tx) => {
+      await this.lockEmployee(tx, employeeId);
       await this.assertNoOverlap(tx, employeeId, input.start, input.end, null);
       await this.assertWithinLimit(tx, employeeId, input.start, input.end, null);
 
@@ -131,15 +132,18 @@ export class RequestsService {
 
   // ── Правка автором (pending) / запрос переноса (approved) ──
   async update(actor: Actor, id: number, input: { start?: string; end?: string; comment?: string }) {
-    const r = await this.mustExist(id);
-    this.assertCanModify(actor, r, 'изменять');
+    const pre = await this.mustExist(id);
+    this.assertCanModify(actor, pre, 'изменять');
 
     if (input.start || input.end) {
-      const start = input.start ?? isoDate(r.startDate);
-      const end = input.end ?? isoDate(r.endDate);
+      const start = input.start ?? isoDate(pre.startDate);
+      const end = input.end ?? isoDate(pre.endDate);
       this.validateRange(start, end, actor.isAdmin);
 
       return this.prisma.$transaction(async (tx) => {
+        await this.lockEmployee(tx, pre.employeeId);
+        const r = await this.lockFresh(tx, id);
+        if (r.status !== 'pending' && r.status !== 'approved') throw new ProblemException('stale-state', 'Заявка уже закрыта');
         let updated: VacationRequest;
         if (r.status === 'pending') {
           updated = await this.applyEdit(tx, actor, r, start, end, input.comment);
@@ -180,10 +184,11 @@ export class RequestsService {
 
   // ── Отмена (pending) / запрос на удаление (approved) ──
   async cancel(actor: Actor, id: number) {
-    const r = await this.mustExist(id);
-    this.assertCanModify(actor, r, 'отменять');
+    const pre = await this.mustExist(id);
+    this.assertCanModify(actor, pre, 'отменять');
 
     return this.prisma.$transaction(async (tx) => {
+      const r = await this.lockFresh(tx, id);
       if (r.status === 'pending' && !r.pendingDeletion) {
         const upd = await tx.vacationRequest.update({ where: { id }, data: { status: 'cancelled' } });
         await tx.requestEvent.create({ data: { requestId: id, actorId: actor.id, action: 'cancelled' } });
@@ -209,10 +214,12 @@ export class RequestsService {
 
   // ── Решения согласующего ──
   async approve(actor: Actor, id: number, comment?: string): Promise<VacationRequest | { deleted: true }> {
-    const r = await this.mustExist(id);
-    await this.assertApprover(actor, r);
+    const pre = await this.mustExist(id);
+    await this.assertApprover(actor, pre);
 
     return this.prisma.$transaction(async (tx) => {
+      // Блокировка строки: два одновременных решения по одной заявке не применяются дважды
+      const r = await this.lockFresh(tx, id);
       if (r.status !== 'pending') throw new ProblemException('stale-state', 'Заявка уже не на согласовании');
 
       if (r.pendingDeletion) {
@@ -228,7 +235,8 @@ export class RequestsService {
       }
 
       const upd = await tx.vacationRequest.update({
-        where: { id }, data: { status: 'approved', pendingDeletion: false, rejectionComment: null },
+        // Перенос согласован: прежние даты больше не нужны (иначе следующий перенос «помнил» бы самые первые)
+        where: { id }, data: { status: 'approved', pendingDeletion: false, rejectionComment: null, changeFromStart: null, changeFromEnd: null },
       });
       await tx.requestEvent.create({ data: { requestId: id, actorId: actor.id, action: 'approved', comment: comment ?? null } });
       await this.audit.record(tx, {
@@ -241,11 +249,12 @@ export class RequestsService {
   }
 
   async reject(actor: Actor, id: number, comment: string): Promise<VacationRequest> {
-    const r = await this.mustExist(id);
-    await this.assertApprover(actor, r);
-    if (r.status !== 'pending') throw new ProblemException('stale-state', 'Заявка уже не на согласовании');
+    const pre = await this.mustExist(id);
+    await this.assertApprover(actor, pre);
 
     return this.prisma.$transaction(async (tx) => {
+      const r = await this.lockFresh(tx, id);
+      if (r.status !== 'pending') throw new ProblemException('stale-state', 'Заявка уже не на согласовании');
       // Отклонение переноса откатывает даты к прежним
       const restoreDates = !!r.changeFromStart && !r.pendingDeletion;
       const upd = await tx.vacationRequest.update({
@@ -253,7 +262,7 @@ export class RequestsService {
         data: {
           status: 'rejected',
           rejectionComment: comment,
-          ...(restoreDates ? { startDate: r.changeFromStart!, endDate: r.changeFromEnd!, status: 'approved' as const } : {}),
+          ...(restoreDates ? { startDate: r.changeFromStart!, endDate: r.changeFromEnd!, status: 'approved' as const, changeFromStart: null, changeFromEnd: null } : {}),
           ...(r.pendingDeletion ? { pendingDeletion: false, status: 'approved' as const } : {}),
         },
       });
@@ -294,8 +303,15 @@ export class RequestsService {
         plannedDays: e.plannedDays, carryOver: e.carryOver,
         approved: requests.filter((r) => r.status === 'approved' && !r.pendingDeletion).map(clip),
         pending: requests.filter((r) => r.status === 'pending' && !r.pendingDeletion).map(clip),
+        holidays: await this.holidays(this.prisma, year),
       }),
     };
+  }
+
+  /** Нерабочие праздничные дни года (пустое множество, если календарь не загружен). */
+  private async holidays(db: Prisma.TransactionClient | PrismaService, year: number): Promise<Set<string>> {
+    const cal = await db.productionCalendar.findUnique({ where: { year } });
+    return new Set(Array.isArray(cal?.holidays) ? (cal.holidays as string[]) : []);
   }
 
   // ── Вспомогательные проверки ──
@@ -347,14 +363,34 @@ export class RequestsService {
       const e = r.endDate > to ? to : r.endDate;
       return { start: isoDate(s), end: isoDate(e) };
     };
+    const holidays = await this.holidays(tx, year);
     const b = computeBalance({
       plannedDays: employee.plannedDays, carryOver: employee.carryOver,
       approved: requests.filter((r) => r.status === 'approved' && !r.pendingDeletion).map(clip),
       pending: requests.filter((r) => r.status === 'pending' && !r.pendingDeletion).map(clip),
+      holidays,
     });
-    if (b.remaining - calendarDays(start, end) < 0) {
-      throw new ProblemException('limit-exceeded', `Доступно дней: ${b.remaining}`);
+    // Заявки на согласовании тоже резервируют дни: иначе несколько заявок обходят лимит
+    const available = Math.round((b.remaining - b.pending) * 100) / 100;
+    if (available - vacationDays(start, end, holidays) < 0) {
+      throw new ProblemException('limit-exceeded', `Доступно дней: ${available}`);
     }
+  }
+
+  /**
+   * Сериализует изменения заявок одного сотрудника: проверки пересечений и лимита видят
+   * результат параллельной транзакции (READ COMMITTED сам по себе этого не гарантирует).
+   */
+  private async lockEmployee(tx: Prisma.TransactionClient, employeeId: number): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId} FOR UPDATE`;
+  }
+
+  /** Заявка, заблокированная до конца транзакции, в актуальном состоянии. */
+  private async lockFresh(tx: Prisma.TransactionClient, id: number): Promise<VacationRequest> {
+    await tx.$queryRaw`SELECT id FROM vacation_requests WHERE id = ${id} FOR UPDATE`;
+    const r = await tx.vacationRequest.findUnique({ where: { id } });
+    if (!r) throw new ProblemException('stale-state', 'Заявка уже удалена');
+    return r;
   }
 
   private mustExist(id: number) {
