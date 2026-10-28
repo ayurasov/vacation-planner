@@ -1,0 +1,45 @@
+erDiagram
+  departments ||--o{ employees : "состоит из"
+  employees |o--o{ departments : "руководит"
+  employees |o--o{ employees : "руководитель"
+  projects ||--o{ employees : "участники"
+  employees |o--o{ projects : "руководит"
+  employees ||--o{ groups : "владелец"
+  groups ||--o{ group_members : "состав"
+  employees ||--o{ group_members : "входит"
+  employees {
+    int id PK
+    string login UK "уникальный логин"
+    string password_hash "scrypt"
+    int pw_version "отзыв токенов"
+    string name "ФИО"
+    string position
+    int dept_id FK
+    string role "employee | manager"
+    bool is_admin
+    string emp_type "staff | ipsz"
+    int manager_id FK
+    int project_id FK
+    float planned_days "норма в год"
+    float carry_over "перенос остатка"
+    bool is_active "мягкое удаление"
+  }
+  departments {
+    int id PK
+    string name UK
+    int manager_id FK
+  }
+  projects {
+    int id PK
+    string name UK
+    int manager_id FK
+  }
+  groups {
+    int id PK
+    int owner_id FK
+    string name "уникально у владельца"
+  }
+  group_members {
+    int group_id PK
+    int employee_id PK
+  }

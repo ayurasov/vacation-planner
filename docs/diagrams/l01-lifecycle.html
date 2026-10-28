@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="diagram.css">
+<div class="wrap" style="width:1100px">
+<div class="flow">
+ <div class="step box blue"><span class="n">1</span><b>План версии</b>история из бэклога (документ 3) с критериями приёмки; ветка версии <code>v0.x.y</code></div>
+ <div class="step box blue"><span class="n">2</span><b>Проектирование</b>ADR, изменения контракта OpenAPI и схемы — только через ревью владельца</div>
+ <div class="step box blue"><span class="n">3</span><b>Разработка</b>ветка <code>story/&lt;id&gt;</code>: сначала красные тесты, затем код и миграции</div>
+ <div class="step box blue eol"><span class="n">4</span><b>Проверка кода</b>pull request по шаблону, ревью человека, CI GitHub и Gitea</div>
+ <div class="step box green"><span class="n">5</span><b>Тестирование</b>e2e API на PostgreSQL, модульные тесты клиента, e2e интерфейса, SBOM-гейт</div>
+ <div class="step box green"><span class="n">6</span><b>Выпуск</b><code>docs/versions.md</code>, CHANGELOG, PDF/DOCX документов; merge в <code>main</code> с тегом</div>
+ <div class="step box green"><span class="n">7</span><b>Развёртывание</b>раннер deploy в Gitea: <code>docker compose up -d --build</code> и smoke-пробы</div>
+ <div class="step box green last"><span class="n">8</span><b>Эксплуатация</b>резервные копии, health-пробы, журнал аудита, обращения пользователей</div>
+</div>
+<div class="loop"><b>Обратная связь:</b> замечания ревью и красный CI возвращают историю на этап 3; дефекты и пожелания из эксплуатации попадают в бэклог следующей версии (этап 1). Минорная версия <code>v0.x.y</code> — исправления, мажорная <code>v0.x.0</code> — накопленные изменения с полным прогоном всех тестов.</div>
+</div>

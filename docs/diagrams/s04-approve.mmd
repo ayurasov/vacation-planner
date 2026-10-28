@@ -1,0 +1,33 @@
+sequenceDiagram
+  autonumber
+  actor M as Руководитель
+  participant W as SPA · «Заявки»
+  participant C as RequestsController
+  participant S as RequestsService
+  participant D as PostgreSQL
+  actor E as Сотрудник
+
+  M->>W: открыть очередь согласования
+  W->>C: GET /vacation-requests?scope=subordinates&status=pending
+  C-->>W: заявки + пересечения в отделе
+  alt согласовать
+    M->>W: «Согласовать»
+    W->>C: POST /vacation-requests/{id}/approve
+    C->>S: approve(actor, id)
+    S->>S: руководитель сотрудника или администратор
+    S->>D: BEGIN · статус ещё pending? (иначе 409 stale-state)
+    alt запрошено удаление
+      S->>D: DELETE заявки, audit request.deleted
+      S->>D: уведомление «Отпуск удалён по согласованию»
+    else новая заявка или перенос
+      S->>D: status = approved, audit request.approved
+      S->>D: уведомление «Отпуск согласован»
+    end
+    S->>D: COMMIT
+  else отклонить
+    M->>W: «Отклонить» + обязательная причина
+    W->>C: POST /vacation-requests/{id}/reject {comment}
+    S->>D: перенос — вернуть прежние даты (approved), удаление — оставить approved, иначе rejected
+    S->>D: audit request.rejected + уведомление с причиной
+  end
+  E-->>W: уведомление в «Мой отпуск»

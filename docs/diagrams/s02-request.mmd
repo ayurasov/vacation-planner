@@ -1,0 +1,39 @@
+flowchart LR
+  classDef step fill:#f2f5ff,stroke:#4f7cff,color:#1d2433
+  classDef err fill:#fff1f1,stroke:#e5484d,color:#1d2433
+  classDef ok fill:#effaf4,stroke:#22a06b,color:#1d2433
+  classDef term fill:#ffffff,stroke:#4f7cff,stroke-width:1.5px,color:#1d2433
+
+  IN(["Запрос /api/v1/*"]):::term
+  RL{"Маршрут входа?<br/><small>LoginRateLimitGuard</small>"}:::step
+  PUB{"@Public()?<br/><small>health, calendar,<br/>login, refresh</small>"}:::step
+  JWT{"Bearer JWT<br/>действителен?"}:::step
+  PWV{"pw_version<br/>совпадает?"}:::step
+  ROLE{"@Roles('admin')<br/>выполнено?"}:::step
+  DTO{"DTO валиден?<br/><small>ValidationPipe,<br/>whitelist</small>"}:::step
+  SVC["Сервис домена<br/><small>права на объект,<br/>инварианты</small>"]:::step
+  TX[("$transaction:<br/>изменение + request_events<br/>+ audit_events + уведомления")]:::ok
+  OUT(["JSON-ответ"]):::term
+
+  E429["429 rate-limited<br/>+ Retry-After"]:::err
+  E401["401 auth/unauthorized"]:::err
+  E403["403 auth/forbidden"]:::err
+  E400["400 validation/*"]:::err
+  E409["409 overlapping-request ·<br/>limit-exceeded · stale-state"]:::err
+
+  IN --> RL
+  RL -- "превышен лимит" --> E429
+  RL -- "нет / в пределах" --> PUB
+  PUB -- "да" --> DTO
+  PUB -- "нет" --> JWT
+  JWT -- "нет" --> E401
+  JWT -- "да" --> PWV
+  PWV -- "нет (пароль сменён)" --> E401
+  PWV -- "да" --> ROLE
+  ROLE -- "нет" --> E403
+  ROLE -- "да" --> DTO
+  DTO -- "нет" --> E400
+  DTO -- "да" --> SVC
+  SVC -- "нарушение" --> E409
+  SVC -- "чужой объект" --> E403
+  SVC -- "ок" --> TX --> OUT

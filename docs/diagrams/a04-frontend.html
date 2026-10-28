@@ -1,0 +1,40 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="diagram.css">
+<div class="wrap">
+<div class="side"><div>
+<div class="layer"><div class="lname">Экраны<small>src/views — маршруты vue-router</small></div>
+ <div class="cells c4">
+  <div class="box blue"><b>График отпусков</b>Гант на год, фильтры, конфликты, KPI</div>
+  <div class="box blue"><b>Мой отпуск</b>баланс, периоды, новая заявка, уведомления</div>
+  <div class="box blue"><b>Заявки</b>очередь согласования, решения с причиной</div>
+  <div class="box blue"><b>Администрирование</b>сотрудники, справочники, настройки, аудит</div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">Компоненты<small>src/components — без сторонних UI-библиотек</small></div>
+ <div class="cells c4">
+  <div class="box violet"><b>Каркас</b>боковое меню, верхняя панель, мобильное меню</div>
+  <div class="box violet"><b>AppIcon</b>собственный набор тонких иконок 24×24</div>
+  <div class="box violet"><b>Формы</b>диалог заявки с превью календарных дней</div>
+  <div class="box violet"><b>Состояния</b>пустые экраны, загрузка, ошибки problem+json</div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">Состояние<small>Pinia + чистые модули</small></div>
+ <div class="cells c3">
+  <div class="box orange"><b>auth</b>текущий пользователь, роли, токен доступа в памяти</div>
+  <div class="box orange"><b>lib/dates</b>форматирование, календарные дни, месяцы — с модульными тестами</div>
+  <div class="box orange"><b>Тема</b>светлая и тёмная, по системе или выбору пользователя</div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">Доступ к API<small>src/api/client.ts — единственный модуль с fetch</small></div>
+ <div class="cells c3">
+  <div class="box green"><b>Типы ответов</b>по контракту OpenAPI v1</div>
+  <div class="box green"><b>Сессия</b>Bearer-токен; при 401 — один <code>POST /auth/refresh</code> по httpOnly-cookie и повтор</div>
+  <div class="box green"><b>Ошибки</b><code>ApiError</code> с кодом и текстом из problem+json</div>
+ </div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+ <div class="box gray" style="flex:1"><b>Дизайн-токены</b><code>styles/tokens.css</code>: цвета, радиусы, тени — общий стандарт с todo-planner</div>
+ <div class="box gray" style="flex:1"><b>Безопасность</b>только интерполяция Vue (автоэкранирование), <code>v-html</code> запрещён</div>
+ <div class="box gray" style="flex:1"><b>Сборка</b>Vite 6 + vue-tsc strict; статика ~50 КБ gzip, отдаётся nginx</div>
+ <div class="box gray" style="flex:1"><b>Адаптивность</b>до 360 px: выдвижное меню, карточки вместо таблиц</div>
+</div></div>
+</div>

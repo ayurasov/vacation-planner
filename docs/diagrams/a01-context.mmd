@@ -1,0 +1,24 @@
+flowchart TB
+  classDef person fill:#1d2433,stroke:#1d2433,color:#ffffff
+  classDef system fill:#f2f5ff,stroke:#4f7cff,stroke-width:2px,color:#1d2433
+  classDef ext fill:#f6f7fa,stroke:#c7cfdf,color:#1d2433
+  classDef plan fill:#ffffff,stroke:#c7cfdf,stroke-dasharray:5 4,color:#6b7385
+
+  E["<b>Сотрудник</b><br/><small>планирует отпуск, подаёт заявки,<br/>видит график отдела</small>"]:::person
+  M["<b>Руководитель</b><br/><small>согласует заявки подчинённых,<br/>контролирует пересечения</small>"]:::person
+  A["<b>Администратор / кадровая служба</b><br/><small>сотрудники, справочники, календарь,<br/>настройки, аудит, выгрузки</small>"]:::person
+
+  VP["<b>Планировщик отпусков</b><br/><small>веб-приложение организации:<br/>график, заявки, балансы, согласование,<br/>уведомления, аудит, отчёты XLSX</small>"]:::system
+
+  SMTP["<b>Почтовый релей</b><br/><small>письма о решениях · v0.4</small>"]:::plan
+  HR["<b>Кадровая система / 1С</b><br/><small>импорт сотрудников и остатков · v0.4</small>"]:::plan
+  AD["<b>Active Directory / OIDC</b><br/><small>единый вход · v0.4</small>"]:::plan
+  MON["<b>Мониторинг</b><br/><small>health-пробы, метрики</small>"]:::ext
+
+  E -- "HTTPS, браузер" --> VP
+  M -- "HTTPS, браузер" --> VP
+  A -- "HTTPS, браузер" --> VP
+  VP -. "SMTP" .-> SMTP
+  HR -. "REST / файл" .-> VP
+  VP -. "LDAPS / OIDC" .-> AD
+  MON -- "/healthz · /readyz" --> VP

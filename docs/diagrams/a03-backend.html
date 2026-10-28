@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="diagram.css">
+<div class="wrap">
+<div class="side"><div>
+<div class="layer"><div class="lname">Вход<small>Express 4 + NestJS 11, Node.js 22</small></div>
+ <div class="cells c4">
+  <div class="box gray"><b>Security-заголовки</b>nosniff, X-Frame-Options DENY, Referrer-Policy, Permissions-Policy</div>
+  <div class="box red"><b>Ограничение частоты</b><code>LoginRateLimitGuard</code>: 10 попыток входа в минуту с адреса → 429 + Retry-After</div>
+  <div class="box red"><b>Аутентификация</b>глобальный <code>JwtAuthGuard</code>: Bearer JWT 15 мин, сверка <code>pw_version</code>; <code>@Public()</code> — исключения</div>
+  <div class="box red"><b>Роли</b>глобальный <code>RolesGuard</code>, <code>@Roles('admin')</code>; права на объект — в сервисах</div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">API v1<small>11 контроллеров, 44 операции REST/JSON; DTO + ValidationPipe</small></div>
+ <div class="cells c5">
+  <div class="box blue"><b>Доступ</b><code>auth</code> <code>employees</code></div>
+  <div class="box blue"><b>Отпуска</b><code>vacation-requests</code> <code>schedule</code> <code>calendar</code></div>
+  <div class="box blue"><b>Структура</b><code>departments</code> <code>projects</code> <code>groups</code></div>
+  <div class="box blue"><b>Сервис</b><code>notifications</code> <code>settings</code> <code>audit-events</code></div>
+  <div class="box blue"><b>Отчёты и пробы</b><code>reports/vacations</code> (XLSX), <code>healthz</code> <code>readyz</code></div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">Прикладные сервисы<small>src/&lt;домен&gt;/*.service.ts</small></div>
+ <div class="cells c3">
+  <div class="box violet"><b>Сессии</b><code>AuthService</code>, <code>TokenService</code>: scrypt, ротация refresh, отзыв при смене пароля</div>
+  <div class="box violet"><b>Жизненный цикл заявки</b><code>RequestsService</code>: автомат состояний, пересечения, лимиты, перенос и удаление</div>
+  <div class="box violet"><b>Сотрудники</b><code>EmployeesService</code>: логины, одноразовые пароли, балансы, режимы работы</div>
+  <div class="box violet"><b>Аудит</b><code>AuditService</code>: append-only <code>audit_events</code> в той же транзакции</div>
+  <div class="box violet"><b>Уведомления</b><code>NotificationsService</code>: решения и новые заявки</div>
+  <div class="box violet"><b>Отчёты</b>выгрузка отпусков в XLSX (exceljs) с проверкой прав</div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">Домен<small>чистые функции без БД и фреймворка</small></div>
+ <div class="cells c3">
+  <div class="box orange"><b>balance.ts</b>календарные дни без праздников, остаток = норма + перенос − согласованные − ожидающие</div>
+  <div class="box orange"><b>Интервалы</b>пересечения периодов, обрезка по году, перебор дней</div>
+  <div class="box orange"><b>Правила ТК РФ</b>часть отпуска не менее 14 дней — предупреждение</div>
+ </div></div>
+<div class="down">▼</div>
+<div class="layer"><div class="lname">Данные<small>src/infra, prisma/</small></div>
+ <div class="cells c3">
+  <div class="box green"><b>PrismaService</b>пул соединений, <code>$transaction</code> для изменений с аудитом</div>
+  <div class="box green"><b>Prisma 6</b>15 таблиц, миграции SQL с ревью, seed демо-данных</div>
+  <div class="box green"><b>PostgreSQL 17</b>ограничения целостности, индексы по сотруднику, статусу и датам</div>
+ </div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+ <div class="box gray" style="flex:1"><b>Ошибки RFC 9457</b><code>ProblemFilter</code>: только коды каталога документа 2, <code>application/problem+json</code></div>
+ <div class="box gray" style="flex:1"><b>Контракт</b><code>contracts/openapi-vacation-api-v1.yaml</code> — источник истины; Swagger реализации на <code>/api/docs</code></div>
+ <div class="box gray" style="flex:1"><b>Конфигурация</b>переменные окружения: <code>DATABASE_URL</code>, <code>JWT_SECRET</code> ≥ 32 символов, <code>PORT</code></div>
+ <div class="box gray" style="flex:1"><b>Миграции при старте</b>контейнер выполняет <code>prisma migrate deploy</code>, затем запускает API</div>
+</div></div>
+</div>

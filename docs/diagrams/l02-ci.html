@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="diagram.css">
+<div class="wrap" style="width:1180px">
+<div class="box gray" style="text-align:center;margin-bottom:12px"><b>push в ветку версии v0.* или main · pull request</b>одинаковый состав проверок в GitHub Actions и Gitea Actions; изменения не сливаются, пока все проверки не зелёные</div>
+<div class="cols" style="grid-template-columns:repeat(5,1fr)">
+ <div class="col"><h4>Сервер</h4>
+  <div class="box violet">npm ci · prisma generate</div><div class="arr">▼</div>
+  <div class="box violet">служба PostgreSQL 17, migrate deploy</div><div class="arr">▼</div>
+  <div class="box violet">tsc strict</div><div class="arr">▼</div>
+  <div class="box violet">Vitest + supertest: e2e API</div><div class="arr">▼</div>
+  <div class="box violet">ESLint · Node 20 и 22</div></div>
+ <div class="col"><h4>Клиент</h4>
+  <div class="box blue">npm ci</div><div class="arr">▼</div>
+  <div class="box blue">ESLint</div><div class="arr">▼</div>
+  <div class="box blue">Vitest: модульные тесты</div><div class="arr">▼</div>
+  <div class="box blue">vue-tsc + vite build</div></div>
+ <div class="col"><h4>e2e интерфейса</h4>
+  <div class="box orange">PostgreSQL, миграции, seed</div><div class="arr">▼</div>
+  <div class="box orange">сервер + vite preview</div><div class="arr">▼</div>
+  <div class="box orange">Playwright Chromium: вход, график, заявка, согласование</div></div>
+ <div class="col"><h4>SBOM и лицензии</h4>
+  <div class="box green">CycloneDX 1.5 server + web</div><div class="arr">▼</div>
+  <div class="box green">отчёт лицензий; copyleft / unknown — блокер</div><div class="arr">▼</div>
+  <div class="box green">артефакт sbom-cyclonedx</div></div>
+ <div class="col"><h4>Docker и стенд</h4>
+  <div class="box gray">docker compose build</div><div class="arr">▼</div>
+  <div class="box gray">up: postgres + server + web</div><div class="arr">▼</div>
+  <div class="box gray">smoke: SPA, 401 на API, problem+json входа</div><div class="arr">▼</div>
+  <div class="box gray">Gitea: deploy стенда на раннере</div></div>
+</div>
+<div class="side" style="margin-top:12px;grid-template-columns:1fr 1fr">
+ <div class="box green"><b>Все проверки пройдены</b>merge ветки версии в main, тег v0.x.y, запись в docs/versions.md</div>
+ <div class="box red"><b>Есть ошибки</b>исправление в той же ветке и повторный прогон; отключать или пропускать тесты запрещено</div>
+</div>
+</div>

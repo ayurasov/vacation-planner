@@ -1,0 +1,21 @@
+stateDiagram-v2
+  direction TB
+  state "pending<br/><small>на согласовании</small>" as pending
+  state "approved<br/><small>согласован</small>" as approved
+  state "rejected<br/><small>отклонён</small>" as rejected
+  state "cancelled<br/><small>отменён автором</small>" as cancelled
+  state "pending · перенос<br/><small>change_from = прежние даты</small>" as moving
+  state "pending · удаление<br/><small>pending_deletion</small>" as deleting
+
+  [*] --> pending : подал сотрудник
+  [*] --> approved : оформил руководитель
+  pending --> approved : согласовать
+  pending --> rejected : отклонить с причиной
+  pending --> cancelled : отменить
+  approved --> moving : перенести даты
+  approved --> deleting : запросить удаление
+  moving --> approved : решение руководителя
+  deleting --> approved : отклонить
+  deleting --> [*] : согласовать
+  rejected --> [*]
+  cancelled --> [*]

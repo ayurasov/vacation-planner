@@ -1,0 +1,20 @@
+flowchart LR
+  classDef dev fill:#f6f7fa,stroke:#a9b3c7,color:#1d2433
+  classDef ci fill:#f2f5ff,stroke:#4f7cff,stroke-width:1.5px,color:#1d2433
+  classDef stand fill:#effaf4,stroke:#22a06b,stroke-width:1.5px,color:#1d2433
+  classDef gate fill:#fff8ec,stroke:#e8a13a,color:#1d2433
+
+  DEV["Рабочее место<br/><small>make up · make test<br/>ветка story/&lt;id&gt;</small>"]:::dev
+  subgraph GH["GitHub#nbsp;(публичное#nbsp;зеркало)"]
+    GHA["<b>GitHub Actions</b><br/><small>сервер ×2 Node · клиент · e2e UI<br/>SBOM · docker · smoke</small>"]:::ci
+  end
+  subgraph GT["Gitea#nbsp;организации"]
+    GTA["<b>Gitea Actions</b><br/><small>полный прогон на собственных раннерах:<br/>тесты · сборки · SBOM · e2e</small>"]:::ci
+    DEP["<b>Раннер deploy</b><br/><small>docker compose -p vacation-planner<br/>up -d --build + smoke</small>"]:::gate
+  end
+  STAND["<b>Стенд</b><br/><small>web · server · postgres · backup<br/>том db-data сохраняется</small>"]:::stand
+
+  DEV -- "git push v0.x.y" --> GHA
+  DEV -- "git push v0.x.y / main" --> GTA
+  GTA -- "все проверки зелёные" --> DEP
+  DEP --> STAND

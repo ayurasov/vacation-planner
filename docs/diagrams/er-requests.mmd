@@ -1,0 +1,51 @@
+erDiagram
+  employees ||--o{ vacation_requests : "подаёт"
+  vacation_requests ||--o{ request_events : "история"
+  employees |o--o{ request_events : "действует"
+  employees ||--o{ notifications : "получает"
+  employees ||--o{ work_patterns : "недельный шаблон"
+  employees ||--o{ work_overrides : "исключения"
+  vacation_requests {
+    int id PK
+    int employee_id FK
+    date start_date
+    date end_date
+    enum type "vacation | maternity"
+    enum status "pending | approved | rejected | cancelled"
+    bool pending_deletion "запрошено удаление"
+    date change_from_start "прежние даты при переносе"
+    date change_from_end
+    string comment
+    string rejection_comment
+    int created_by
+  }
+  request_events {
+    int id PK
+    int request_id FK
+    timestamp ts
+    int actor_id FK
+    string action "created | approved | rejected ..."
+    string comment
+  }
+  notifications {
+    int id PK
+    int employee_id FK
+    string kind
+    string text
+    json payload
+    bool is_read
+  }
+  work_patterns {
+    int employee_id PK
+    int weekday PK "0..6"
+    enum mode "office | remote | off"
+  }
+  work_overrides {
+    int employee_id PK
+    date date PK
+    enum mode
+  }
+  employees {
+    int id PK
+    string name
+  }
