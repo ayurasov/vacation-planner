@@ -73,9 +73,13 @@ jobs:
     runs-on: deploy
     needs: [server, web]
     steps:
-      - uses: actions/checkout@v4
       - name: Docker CLI и compose
         run: apk add --no-cache docker-cli docker-cli-compose curl
+      - name: Получить код (tarball из Gitea — в образе deploy нет node для actions/checkout)
+        run: |
+          curl -sfSL -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            "http://gitea:3000/${{ github.repository }}/archive/${{ github.sha }}.tar.gz" \
+            | tar xz --strip-components=1
       - name: Сборка образов и развёртывание (проект vacation-planner)
         run: docker compose -p vacation-planner --profile full up -d --build
       - name: Smoke-пробы прод-стенда
