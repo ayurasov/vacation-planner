@@ -31,6 +31,9 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       DATABASE_URL: postgresql://vacation:vacation@postgres:5432/vacation_test
+      # vitest.config.ts читает TEST_DATABASE_URL (fallback — localhost, это для GitHub-раннеров
+      # с published-портом сервиса; здесь сервис доступен по имени postgres)
+      TEST_DATABASE_URL: postgresql://vacation:vacation@postgres:5432/vacation_test
       JWT_SECRET: ci-secret-ci-secret-ci-secret-32ch
     steps:
       - uses: actions/checkout@v4
