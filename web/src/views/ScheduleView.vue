@@ -1061,19 +1061,20 @@ const selectedDays = computed(() => selected.value
 }
 
 .g-row:hover .g-name,
+.g-row:hover .g-pick,
 .g-row:hover {
   background: color-mix(in srgb, var(--color-primary-soft) 30%, transparent);
 }
 
 .g-name {
   position: sticky;
-  left: 0;
+  left: 24px;
   z-index: 4;
-  flex: 0 0 var(--name-col);
+  flex: 0 0 calc(var(--name-col) - 24px);
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 0 12px 0 22px;
+  padding: 0 12px 0 0;
   border: none;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -1207,22 +1208,19 @@ const selectedDays = computed(() => selected.value
   position: sticky;
   left: 0;
   z-index: 5;
-  width: 0;
-  flex: 0 0 0;
-  overflow: visible;
+  flex: 0 0 24px;
+  width: 24px;
   border: none;
-  padding: 0;
-  background: none;
+  padding: 0 0 0 6px;
+  background: var(--color-surface);
   cursor: pointer;
+  display: flex;
+  align-items: center;
 }
 
 .g-pick .app-icon {
-  position: absolute;
-  left: 5px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   padding: 1px;
   border-radius: 4px;
   border: 1px solid var(--color-border-strong);
@@ -1244,6 +1242,7 @@ const selectedDays = computed(() => selected.value
   color: #fff;
 }
 
+.g-row.picked .g-pick,
 .g-row.picked .g-name {
   background: color-mix(in srgb, var(--color-warning-soft) 70%, var(--color-surface));
 }

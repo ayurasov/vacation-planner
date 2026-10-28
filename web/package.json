@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.vue",
     "test": "vitest run",
-    "sbom": "cyclonedx-npm -o ../sbom/web.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only"
+    "sbom": "cyclonedx-npm -o ../sbom/web.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "pinia": "^2.3.0",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@cyclonedx/cyclonedx-npm": "^6.0.1",
+    "@playwright/test": "1.63.0",
     "@tsconfig/node20": "^20.1.0",
     "@types/node": "^26.6.5",
     "@vitejs/plugin-vue": "^5.2.0",

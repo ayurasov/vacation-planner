@@ -13,7 +13,7 @@ server/.env
 web/.env
 
 # SBOM-артефакты регенерируются
-sbom/
+/sbom/
 
 # Логи и временное
 *.log

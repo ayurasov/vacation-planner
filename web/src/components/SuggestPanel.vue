@@ -31,8 +31,8 @@ async function search(): Promise<void> {
 }
 
 onMounted(() => {
-  // До конца года меньше двух месяцев — ищем и в следующем
-  if (to.value < addDays(from.value, 60)) to.value = `${Number(today.slice(0, 4)) + 1}-12-31`;
+  // До конца года меньше трёх месяцев — ищем на полгода вперёд (сервер ограничивает поиск 400 днями)
+  if (to.value < addDays(from.value, 90)) to.value = addDays(from.value, 182);
   void search();
 });
 </script>
