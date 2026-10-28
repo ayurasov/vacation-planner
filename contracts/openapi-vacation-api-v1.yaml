@@ -185,7 +185,7 @@ paths:
       description: Authorization code + PKCE (S256); state, nonce и verifier — в подписанной httpOnly-cookie на 10 минут.
       security: []
       responses:
-        '302': { description: Перенаправление на страницу входа провайдера или на /login?sso=disabled|unavailable }
+        '302': { description: 'Перенаправление на страницу входа провайдера или на /login?sso=disabled|unavailable' }
 
   /auth/oidc/callback:
     get:

@@ -27,7 +27,7 @@ export function oidcConfig(env: NodeJS.ProcessEnv = process.env): OidcConfig {
     clientId: env.OIDC_CLIENT_ID ?? '',
     clientSecret: env.OIDC_CLIENT_SECRET ?? '',
     loginClaim: env.OIDC_LOGIN_CLAIM || 'preferred_username',
-    label: env.OIDC_LABEL || 'корпоративной учётной записью',
+    label: env.OIDC_LABEL || 'корпоративную учётную запись',
     localLogin: env.LOCAL_LOGIN !== 'false',
     redirectUri: `${appUrl}/api/v1/auth/oidc/callback`,
     appUrl,

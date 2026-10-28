@@ -13,10 +13,13 @@ erDiagram
     string password_hash "scrypt"
     int pw_version "отзыв токенов"
     string name "ФИО"
+    string email UK "без учёта регистра"
     string position
     int dept_id FK
     string role "employee | manager"
     bool is_admin
+    bool is_hr "кадровая служба"
+    bool email_notifications "письма о заявках"
     string emp_type "staff | ipsz"
     int manager_id FK
     int project_id FK

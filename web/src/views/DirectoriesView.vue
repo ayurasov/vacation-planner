@@ -105,7 +105,8 @@ function dayClass(d: string): Record<string, boolean> {
     weekend: isWeekend(d),
     holiday: !!ed?.holidays.includes(d),
     'transfer-off': !!ed?.transfers.some((t) => t.to === d),
-    'transfer-work': !!ed?.transfers.some((t) => t.from === d),
+    // «откуда» переноса становится рабочим, только если это выходной и не праздник
+    'transfer-work': !!ed?.transfers.some((t) => t.from === d) && isWeekend(d) && !ed?.holidays.includes(d),
   };
 }
 
