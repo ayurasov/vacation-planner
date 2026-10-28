@@ -72,20 +72,31 @@ async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const page = await api.get<Page<VacationRequest>>(
-      `/vacation-requests?scope=${approvals.scope(auth.isAdmin)}&status=pending&per_page=200`,
-    );
-    queue.value = page.items;
-    approvals.pending = page.meta.total;
-    const years = [...new Set(page.items.flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))];
+    // Очередь целиком: у администратора организации на 5000 человек заявок бывает больше 200
+    const items: VacationRequest[] = [];
+    for (let p = 1; p <= 50; p++) {
+      const page = await api.get<Page<VacationRequest>>(
+        `/vacation-requests?scope=${approvals.scope(auth.isAdmin)}&status=pending&page=${p}&per_page=200`,
+      );
+      items.push(...page.items);
+      approvals.pending = page.meta.total;
+      if (items.length >= page.meta.total || !page.items.length) break;
+    }
+    queue.value = items;
+    const years = [...new Set(items.flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))];
+    // Пересечения ищутся внутри отдела — график только отделов из очереди, а не всей организации
+    const depts = [...new Set(items.map((r) => r.employeeDept).filter((d): d is string => !!d))];
     const map = new Map<number, ScheduleEmployee>();
     const hol = new Set<string>();
     for (const y of years) {
-      const [s, h] = await Promise.all([
-        api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31`),
+      const [schedules, h] = await Promise.all([
+        // Очередь администратора из многих отделов — один запрос всей организации дешевле десятков
+        depts.length > 20
+          ? Promise.all([api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31`)])
+          : Promise.all(depts.map((d) => api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31&dept=${encodeURIComponent(d)}`))),
         calendar.holidays(y),
       ]);
-      for (const e of s.employees) {
+      for (const e of schedules.flatMap((s) => s.employees)) {
         const prev = map.get(e.id);
         map.set(e.id, prev ? { ...prev, vacations: [...prev.vacations, ...e.vacations] } : e);
       }
@@ -136,11 +147,11 @@ async function reject(r: VacationRequest): Promise<void> {
 }
 
 async function loadSubordinates(): Promise<void> {
-  const ids = new Set(auth.me?.permissions.approveSubordinates ?? []);
-  if (!ids.size) return;
+  if (!auth.me?.permissions.approveSubordinates.length) return;
   try {
-    const page = await api.get<Page<Employee>>('/employees?per_page=200');
-    subordinates.value = page.items.filter((e) => ids.has(e.id));
+    // Прямые подчинённые фильтром сервера: первые 200 сотрудников организации их не содержат
+    const page = await api.get<Page<Employee>>(`/employees?manager=${auth.me.employee.id}&per_page=200`);
+    subordinates.value = page.items;
   } catch { /* кнопка оформления необязательна */ }
 }
 

@@ -11,6 +11,9 @@ const POLL_MS = Number(process.env.EVENTS_POLL_MS ?? 2000);
 const HEARTBEAT_MS = 25_000; // меньше таймаута простоя прокси: соединение не рвётся
 // При 5000 пользователях данные меняются несколько раз в секунду: «данные изменились» — не чаще 15 с
 const DATA_EVERY_MS = 15_000;
+// Отзыв сеанса (смена пароля, увольнение) закрывает открытые потоки — не позже чем через 10 с,
+// как и кэш сеанса в JwtAuthGuard
+const SESSION_CHECK_MS = 10_000;
 
 @Injectable()
 export class EventsService implements OnApplicationShutdown {
@@ -22,6 +25,9 @@ export class EventsService implements OnApplicationShutdown {
   private lastVersion: bigint | null = null;
   private polling = false;
   private lastDataSent = 0;
+  private lastSessionCheck = 0;
+  /** Версия пароля, с которой открыт поток. */
+  private readonly pwv = new WeakMap<Response, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -35,7 +41,7 @@ export class EventsService implements OnApplicationShutdown {
   }
 
   /** Подключение: заголовки SSE, начальное состояние, учёт до закрытия соединения. */
-  async connect(userId: number, res: Response, onClose: (cb: () => void) => void): Promise<void> {
+  async connect(userId: number, pwVersion: number, res: Response, onClose: (cb: () => void) => void): Promise<void> {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -46,13 +52,9 @@ export class EventsService implements OnApplicationShutdown {
     let set = this.clients.get(userId);
     if (!set) this.clients.set(userId, (set = new Set()));
     set.add(res);
+    this.pwv.set(res, pwVersion);
     sseConnections.set({}, this.connections);
-    onClose(() => {
-      set!.delete(res);
-      if (!set!.size) this.clients.delete(userId);
-      sseConnections.set({}, this.connections);
-      if (!this.clients.size) this.stop();
-    });
+    onClose(() => this.drop(userId, res));
     // Отсчёт новых уведомлений — с момента подключения: иначе созданные до первого опроса терялись бы
     if (this.lastNotificationId < 0) {
       const last = await this.prisma.notification.aggregate({ _max: { id: true } });
@@ -61,6 +63,15 @@ export class EventsService implements OnApplicationShutdown {
     this.start();
     const [unread, version] = await Promise.all([this.unread([userId]), this.version.current()]);
     this.send(res, 'hello', { unread: unread.get(userId) ?? 0, version: String(version) });
+  }
+
+  /** Поток больше не учитывается: клиент отключился или сеанс отозван (повторный вызов безвреден). */
+  private drop(userId: number, res: Response): void {
+    const set = this.clients.get(userId);
+    if (!set?.delete(res)) return;
+    if (!set.size) this.clients.delete(userId);
+    sseConnections.set({}, this.connections);
+    if (!this.clients.size) this.stop();
   }
 
   private send(res: Response, event: string, data: unknown): void {
@@ -105,6 +116,10 @@ export class EventsService implements OnApplicationShutdown {
         for (const res of this.clients.get(id) ?? []) this.send(res, 'notifications', { unread: counts.get(id) ?? 0 });
       }
       const now = Date.now();
+      if (now - this.lastSessionCheck >= SESSION_CHECK_MS) {
+        this.lastSessionCheck = now;
+        await this.closeRevoked();
+      }
       if (now - this.lastDataSent >= DATA_EVERY_MS) {
         const v = await this.version.current();
         if (this.lastVersion !== null && v !== this.lastVersion) {
@@ -117,6 +132,23 @@ export class EventsService implements OnApplicationShutdown {
       this.log.warn(`Опрос событий: ${(e as Error).message}`);
     } finally {
       this.polling = false;
+    }
+  }
+
+  /** Потоки сотрудников, чей сеанс отозван: событие revoked и закрытие соединения. */
+  private async closeRevoked(): Promise<void> {
+    const ids = [...this.clients.keys()];
+    if (!ids.length) return;
+    const rows = await this.prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, isActive: true, pwVersion: true } });
+    const state = new Map(rows.map((r) => [r.id, r]));
+    for (const id of ids) {
+      const e = state.get(id);
+      for (const res of [...(this.clients.get(id) ?? [])]) {
+        if (e?.isActive && e.pwVersion === this.pwv.get(res)) continue;
+        this.send(res, 'revoked', {});
+        res.end();
+        this.drop(id, res);
+      }
     }
   }
 

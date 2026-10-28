@@ -65,10 +65,12 @@ export class EmployeesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string }) {
+  async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string; manager?: number }) {
     const where = {
       isActive: true,
       ...(params.dept ? { dept: { name: params.dept } } : {}),
+      // Прямые подчинённые: руководителю не нужно перебирать всю организацию постранично
+      ...(params.manager ? { managerId: params.manager } : {}),
       ...(params.project ? { projectId: params.project } : {}),
       ...(params.search ? {
         OR: [
@@ -185,12 +187,16 @@ export class EmployeesService {
     await this.prisma.$transaction(async (tx) => {
       // soft delete: увольнение сохраняет историю
       await tx.employee.update({ where: { id }, data: { isActive: false } });
-      invalidateSession(id);
+      // Выданные refresh-токены отзываются вместе с увольнением, а не только отклоняются при обновлении
+      await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
       await this.audit.record(tx, {
         actorId, action: 'employee.deactivated', entity: 'employee', entityId: id,
         before: toPublic(e), after: { isActive: false },
       });
     });
+    // После фиксации: сброс внутри транзакции позволял параллельному запросу закэшировать на 10 с
+    // ещё не изменённое состояние, и старый токен работал до истечения кэша
+    invalidateSession(id);
   }
 
   private async assertEmailFree(email: string | undefined, exceptId?: number): Promise<void> {

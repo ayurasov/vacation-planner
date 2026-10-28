@@ -6,6 +6,7 @@ import { api, type ImportAction, type ImportResult } from '@/api/client';
 import { useUiStore } from '@/stores/ui';
 import { fmtNumber, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
+import { vDialog } from '@/directives/dialog';
 
 const emit = defineEmits<{ close: []; done: [] }>();
 const ui = useUiStore();
@@ -126,6 +127,7 @@ async function copyCredentials(): Promise<void> {
     @click.self="emit('close')"
   >
     <div
+      v-dialog="() => emit('close')"
       class="modal modal-import"
       role="dialog"
       aria-modal="true"

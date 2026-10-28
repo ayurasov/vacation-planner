@@ -39,7 +39,10 @@ export const useNotificationsStore = defineStore('notifications', {
       await api.post(`/notifications/${id}/read`).catch(() => { n.isRead = false; });
     },
     async markAllRead(): Promise<void> {
-      await Promise.all(this.items.filter((n) => !n.isRead).map((n) => this.markRead(n.id)));
+      const unread = this.items.filter((n) => !n.isRead);
+      unread.forEach((n) => { n.isRead = true; });
+      // Один запрос на все (с v0.5.0), а не по запросу на уведомление
+      await api.post('/notifications/read-all').catch(() => { unread.forEach((n) => { n.isRead = false; }); });
     },
   },
 });

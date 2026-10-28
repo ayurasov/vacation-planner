@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useApprovalsStore } from '@/stores/approvals';
 import { useLiveStore } from '@/stores/live';
-import { subscribeLive } from '@/api/client';
+import { onSessionLost, subscribeLive } from '@/api/client';
 import AppSidebar from '@/components/layout/AppSidebar.vue';
 import AppTopBar from '@/components/layout/AppTopBar.vue';
 import ToastHost from '@/components/common/ToastHost.vue';
@@ -31,6 +31,13 @@ function toggleSidebar(): void {
   collapsed.value = !collapsed.value;
   try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0'); } catch { /* приватный режим */ }
 }
+
+// Пароль сменён, сотрудник уволен или сеанс истёк — на экран входа с объяснением
+onSessionLost(() => {
+  if (!auth.isLoggedIn) return;
+  auth.drop();
+  void router.push({ path: '/login', query: { ended: '1' } });
+});
 
 async function logout(): Promise<void> {
   await auth.logout();

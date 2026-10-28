@@ -37,14 +37,17 @@ async function reload(): Promise<void> {
   if (!me.value || isIpsz.value) { loading.value = false; return; }
   error.value = '';
   try {
-    const [b, rq, h] = await Promise.all([
+    // Праздники соседних лет — для отпусков через Новый год (дни отпуска в списке без них завышены)
+    const [b, rq, ...h] = await Promise.all([
       api.get<Balance>(`/employees/${me.value.id}/balance?year=${year.value}`),
       api.get<Page<VacationRequest>>('/vacation-requests?scope=mine&per_page=200'),
+      calendar.holidays(year.value - 1),
       calendar.holidays(year.value),
+      calendar.holidays(year.value + 1),
     ]);
     balance.value = b;
     requests.value = rq.items;
-    holidays.value = h;
+    holidays.value = new Set(h.flatMap((x) => [...x]));
   } catch (e) {
     error.value = (e as Error).message;
   } finally {

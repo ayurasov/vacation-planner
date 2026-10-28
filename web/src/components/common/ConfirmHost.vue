@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useUiStore } from '@/stores/ui';
+import { vDialog } from '@/directives/dialog';
 
 const ui = useUiStore();
 const comment = ref('');
@@ -16,10 +17,6 @@ watch(() => ui.confirm, async (c) => {
     commentEl.value?.focus();
   }
 });
-
-function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') ui.answer(false);
-}
 </script>
 
 <template>
@@ -27,9 +24,9 @@ function onKey(e: KeyboardEvent): void {
     v-if="ui.confirm"
     class="modal-overlay"
     @click.self="ui.answer(false)"
-    @keydown="onKey"
   >
     <div
+      v-dialog="() => ui.answer(false)"
       class="modal"
       role="dialog"
       aria-modal="true"

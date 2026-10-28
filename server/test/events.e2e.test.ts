@@ -87,4 +87,20 @@ describe('поток событий', () => {
     await t.http().post('/api/v1/auth/password').set(auth(emp)).send({ oldPassword: t.employee.password, newPassword: 'new-pass-12345' });
     expect((await t.http().get(`/api/v1/events?ticket=${encodeURIComponent(body.ticket)}`)).status).toBe(401);
   });
+
+  it('отзыв сеанса закрывает уже открытый поток: событие revoked и конец соединения', async () => {
+    const { body } = await t.http().post('/api/v1/events/ticket').set(auth(mgr));
+    const stream = await open(body.ticket);
+    try {
+      await stream.next('hello');
+      // пароль руководителя сменён в другом месте (другой процесс, кадровая служба)
+      await t.prisma.employee.update({ where: { id: t.manager.id }, data: { pwVersion: { increment: 1 } } });
+      const events = t.app.get(EventsService);
+      (events as unknown as { lastSessionCheck: number }).lastSessionCheck = 0; // проверка — без ожидания 10 с
+      await events.poll();
+      expect(await stream.next('revoked')).toEqual({});
+    } finally {
+      stream.close();
+    }
+  });
 });

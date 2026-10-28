@@ -22,6 +22,22 @@ export class ApiError extends Error {
   }
 }
 
+let sessionLost: (() => void) | null = null;
+
+/**
+ * Сеанс потерян: access-токен отклонён, а обновить его не удалось — пароль сменён, сотрудник
+ * уволен или истёк refresh. Без этого интерфейс оставался «вошедшим» и каждое действие
+ * заканчивалось ошибкой (v0.5.0).
+ */
+export function onSessionLost(cb: () => void): void {
+  sessionLost = cb;
+}
+
+/** 401 после неудачного обновления: сеанс был (токен в памяти) — значит, он потерян. */
+function lost(): void {
+  if (accessToken) sessionLost?.();
+}
+
 // Один refresh на всех: параллельные запросы с истёкшим токеном ждут общий результат.
 // Иначе ротация отзывает refresh-токен первого запроса и остальные получают 401.
 let refreshing: Promise<boolean> | null = null;
@@ -59,8 +75,9 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
   const res = await fetch(`/api/v1${path}`, { ...init, headers, credentials: 'include' });
 
-  if (res.status === 401 && retry && !path.startsWith('/auth/login') && (await refreshAccess())) {
-    return request<T>(path, init, false);
+  if (res.status === 401 && retry && !path.startsWith('/auth/login')) {
+    if (await refreshAccess()) return request<T>(path, init, false);
+    lost();
   }
 
   if (res.status === 204) return undefined as T;
@@ -72,7 +89,10 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 async function download(path: string, retry = true): Promise<Blob> {
   const headers: Record<string, string> = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
   const res = await fetch(`/api/v1${path}`, { headers, credentials: 'include' });
-  if (res.status === 401 && retry && (await refreshAccess())) return download(path, false);
+  if (res.status === 401 && retry) {
+    if (await refreshAccess()) return download(path, false);
+    lost();
+  }
   if (!res.ok) throw await toError(res);
   return res.blob();
 }
@@ -182,7 +202,7 @@ export interface Page<T> {
 }
 
 export interface VacationRequest {
-  id: number; employee: number; employeeName?: string;
+  id: number; employee: number; employeeName?: string; employeeDept?: string | null;
   start: string; end: string; type: 'vacation' | 'maternity';
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   pendingDeletion: boolean;

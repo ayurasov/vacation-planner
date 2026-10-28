@@ -26,6 +26,7 @@ const SSO_ERRORS: Record<string, string> = {
 onMounted(async () => {
   const code = route.query.sso;
   if (typeof code === 'string') error.value = SSO_ERRORS[code] ?? SSO_ERRORS.invalid;
+  if (route.query.ended) error.value = 'Сеанс завершён: пароль изменён, учётная запись отключена или вы долго не входили. Войдите снова.';
   try {
     sso.value = await api.get('/auth/oidc/config');
   } catch { /* без единого входа — только пароль */ }
@@ -51,11 +52,17 @@ async function submit(): Promise<void> {
     await auth.login(login.value.trim(), password.value);
     router.push('/schedule');
   } catch (e) {
-    error.value = e instanceof ApiError && e.status === 429
-      ? 'Слишком много попыток входа. Подождите минуту и попробуйте снова.'
-      : e instanceof ApiError && e.status === 403
-        ? 'Вход по паролю отключён — войдите через корпоративную учётную запись.'
-        : 'Неверный логин или пароль. Проверьте раскладку и Caps Lock.';
+    // «Неверный пароль» — только на 401: при перегрузке (503) или обрыве сети человек иначе
+    // вводил бы верный пароль заново
+    error.value = !(e instanceof ApiError)
+      ? 'Нет связи с сервером. Проверьте подключение и попробуйте снова.'
+      : e.status === 401
+        ? 'Неверный логин или пароль. Проверьте раскладку и Caps Lock.'
+        : e.status === 429
+          ? 'Слишком много попыток входа. Подождите минуту и попробуйте снова.'
+          : e.status === 403
+            ? 'Вход по паролю отключён — войдите через корпоративную учётную запись.'
+            : e.message;
   } finally {
     busy.value = false;
   }

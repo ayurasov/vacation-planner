@@ -9,6 +9,7 @@ import { parseCalendarFile, toggleHoliday, type Transfer } from '@/lib/calendar'
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { vDialog } from '@/directives/dialog';
 
 interface Project { id: number; name: string; managerId: number | null; headcount: number }
 type Tab = 'departments' | 'projects' | 'calendar';
@@ -607,6 +608,7 @@ onMounted(() => {
       @click.self="editor = null"
     >
       <form
+        v-dialog="() => (editor = null)"
         class="modal"
         role="dialog"
         aria-modal="true"

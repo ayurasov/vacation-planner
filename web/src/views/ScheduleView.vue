@@ -16,6 +16,7 @@ import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
+import { vDialog } from '@/directives/dialog';
 
 const auth = useAuthStore();
 const calendar = useCalendarStore();
@@ -820,9 +821,9 @@ const selectedDays = computed(() => selected.value
       v-if="selected"
       class="modal-overlay"
       @click.self="selected = null"
-      @keydown.esc="selected = null"
     >
       <div
+        v-dialog="() => (selected = null)"
         class="modal modal-wide"
         role="dialog"
         aria-modal="true"

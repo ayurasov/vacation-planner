@@ -106,12 +106,13 @@ export class RequestsService {
       this.prisma.vacationRequest.findMany({
         where, orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.perPage, take: params.perPage,
-        include: { employee: { select: { name: true } } },
+        include: { employee: { select: { name: true, dept: { select: { name: true } } } } },
       }),
       this.prisma.vacationRequest.count({ where }),
     ]);
     return {
-      items: items.map((r) => ({ ...publicView(r), employeeName: r.employee.name })),
+      // employeeDept: очередь руководителя запрашивает пересечения только по нужным отделам
+      items: items.map((r) => ({ ...publicView(r), employeeName: r.employee.name, employeeDept: r.employee.dept?.name ?? null })),
       meta: { page: params.page, perPage: params.perPage, total },
     };
   }

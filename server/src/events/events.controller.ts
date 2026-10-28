@@ -36,6 +36,6 @@ export class EventsController {
     // Смена пароля или увольнение после выдачи билета — поток не открывается
     const me = await this.prisma.employee.findUnique({ where: { id: claims.sub }, select: { isActive: true, pwVersion: true } });
     if (!me?.isActive || me.pwVersion !== claims.pwv) throw new ProblemException('auth/invalid-credentials');
-    await this.events.connect(claims.sub, res, (cb) => req.on('close', cb));
+    await this.events.connect(claims.sub, me.pwVersion, res, (cb) => req.on('close', cb));
   }
 }

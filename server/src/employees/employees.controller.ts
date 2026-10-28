@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
-  IsBoolean, IsEmail, IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, Min, MinLength, MaxLength,
+  IsBoolean, IsEmail, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsString, Matches, Max, Min, MinLength, MaxLength,
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
@@ -53,10 +53,10 @@ export class EmployeeCreateDto {
   @IsOptional() @IsString() @MinLength(8) @MaxLength(128)
     password?: string;
 
-  @IsOptional() @IsInt() @Min(0)
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     plannedDays?: number;
 
-  @IsOptional() @IsInt() @Min(0)
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     carryOver?: number;
 }
 
@@ -91,10 +91,10 @@ export class EmployeeUpdateDto {
   @IsOptional() @IsInt()
     projectId?: number | null;
 
-  @IsOptional() @IsInt() @Min(0)
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     plannedDays?: number;
 
-  @IsOptional() @IsInt() @Min(0)
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     carryOver?: number;
 }
 
@@ -121,6 +121,9 @@ export class ListQuery {
 
   @IsOptional() @IsString() @MaxLength(100)
     search?: string;
+
+  @IsOptional() @IsInt()
+    manager?: number;
 }
 
 export class WorkPatternDto {
@@ -181,7 +184,7 @@ export class EmployeesController {
   async list(@Query() q: ListQuery) {
     return this.employees.list({
       page: q.page ?? 1, perPage: q.per_page ?? 50,
-      dept: q.dept, project: q.project, search: q.search,
+      dept: q.dept, project: q.project, search: q.search, manager: q.manager,
     });
   }
 
