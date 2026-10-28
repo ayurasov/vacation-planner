@@ -6,7 +6,7 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { calendarDays, computeBalance, overlaps, toIso } from './balance';
+import { calendarDays, computeBalance, overlaps, toIso, vacationDays } from './balance';
 
 export interface Actor {
   id: number;
@@ -294,8 +294,15 @@ export class RequestsService {
         plannedDays: e.plannedDays, carryOver: e.carryOver,
         approved: requests.filter((r) => r.status === 'approved' && !r.pendingDeletion).map(clip),
         pending: requests.filter((r) => r.status === 'pending' && !r.pendingDeletion).map(clip),
+        holidays: await this.holidays(this.prisma, year),
       }),
     };
+  }
+
+  /** Нерабочие праздничные дни года (пустое множество, если календарь не загружен). */
+  private async holidays(db: Prisma.TransactionClient | PrismaService, year: number): Promise<Set<string>> {
+    const cal = await db.productionCalendar.findUnique({ where: { year } });
+    return new Set(Array.isArray(cal?.holidays) ? (cal.holidays as string[]) : []);
   }
 
   // ── Вспомогательные проверки ──
@@ -347,13 +354,17 @@ export class RequestsService {
       const e = r.endDate > to ? to : r.endDate;
       return { start: isoDate(s), end: isoDate(e) };
     };
+    const holidays = await this.holidays(tx, year);
     const b = computeBalance({
       plannedDays: employee.plannedDays, carryOver: employee.carryOver,
       approved: requests.filter((r) => r.status === 'approved' && !r.pendingDeletion).map(clip),
       pending: requests.filter((r) => r.status === 'pending' && !r.pendingDeletion).map(clip),
+      holidays,
     });
-    if (b.remaining - calendarDays(start, end) < 0) {
-      throw new ProblemException('limit-exceeded', `Доступно дней: ${b.remaining}`);
+    // Заявки на согласовании тоже резервируют дни: иначе несколько заявок обходят лимит
+    const available = Math.round((b.remaining - b.pending) * 100) / 100;
+    if (available - vacationDays(start, end, holidays) < 0) {
+      throw new ProblemException('limit-exceeded', `Доступно дней: ${available}`);
     }
   }
 

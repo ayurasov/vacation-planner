@@ -149,6 +149,21 @@ describe('баланс и аудит', () => {
     expect(res.body.hasFourteenDayStretch).toBe(true); // была заявка 06-01..06-14
   });
 
+  it('праздник внутри отпуска не уменьшает остаток (ТК РФ ст. 120)', async () => {
+    const url = `/api/v1/employees/${t.employee.id}/balance?year=${NEXT_YEAR}`;
+    const before = await t.http().get(url).set('Authorization', `Bearer ${emp}`);
+    // 12 июня попадает в согласованный отпуск 06-01..06-14
+    await t.prisma.productionCalendar.upsert({
+      where: { year: NEXT_YEAR },
+      update: { holidays: [`${NEXT_YEAR}-06-12`] },
+      create: { year: NEXT_YEAR, holidays: [`${NEXT_YEAR}-06-12`], transfers: [] },
+    });
+    const after = await t.http().get(url).set('Authorization', `Bearer ${emp}`);
+    expect(after.body.used).toBe(before.body.used - 1);
+    expect(after.body.remaining).toBe(before.body.remaining + 1);
+    await t.prisma.productionCalendar.delete({ where: { year: NEXT_YEAR } });
+  });
+
   it('аудит доступен только администратору и содержит действия', async () => {
     const forbidden = await t.http().get('/api/v1/audit-events').set('Authorization', `Bearer ${emp}`);
     expect(forbidden.status).toBe(403);
