@@ -15,6 +15,11 @@ concurrency:
 permissions:
   contents: read
 
+# Раннер выполняет шаги через bash, которого нет в alpine-образе deploy
+defaults:
+  run:
+    shell: sh
+
 jobs:
   server:
     name: 'Сервер: тесты (vitest + postgres)'
