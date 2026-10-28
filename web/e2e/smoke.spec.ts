@@ -7,9 +7,11 @@ import { ADMIN, login, nextYear } from './helpers';
 test.describe.configure({ mode: 'serial' });
 
 let page: Page;
+const cspViolations: string[] = [];
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
+  page.on('console', (m) => { if (/Content Security Policy/i.test(m.text())) cspViolations.push(m.text()); });
 });
 
 test.afterAll(async () => {
@@ -90,4 +92,12 @@ test('график работы: шаблон меняется и сохраня
   await monday.click();
   await page.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.locator('.toast')).toContainText('Недельный график сохранён');
+});
+
+test('CSP стенда не нарушается ни на одном экране', async () => {
+  for (const path of ['/schedule', '/my', '/approvals', '/employees', '/directories', '/settings', '/audit']) {
+    await page.goto(path);
+    await page.waitForLoadState('networkidle');
+  }
+  expect(cspViolations).toEqual([]);
 });

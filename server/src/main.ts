@@ -1,28 +1,13 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
-  app.use(cookieParser());
-  // Базовые security-заголовки (полный CSP — после аудита v0.3, см. ADR-011/backlog)
-  app.use((req: import('express').Request, res: import('express').Response, next: () => void) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    next();
-  });
-  app.setGlobalPrefix('');
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true, // неизвестные поля игнорируются (совместимость вперёд)
-    transform: true,
-    transformOptions: { enableImplicitConversion: true }, // query-параметры приходят строками
-    validationError: { target: false },
-  }));
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['log', 'warn', 'error'] });
+  configureApp(app);
   app.enableShutdownHooks();
 
   // Спецификация реализации; источник истины — contracts/openapi-vacation-api-v1.yaml

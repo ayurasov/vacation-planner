@@ -97,8 +97,8 @@ describe('смена пароля', () => {
 });
 
 describe('лимит частоты входа', () => {
-  // Последний блок в файле: исчерпывает окно для адреса тест-клиента
-  it('11-я попытка за минуту с одного адреса → 429 rate-limited', async () => {
+  // Последний блок в файле: исчерпывает окна для адресов тест-клиента
+  it('11-я попытка за минуту к одному логину с адреса → 429 rate-limited', async () => {
     LoginRateLimitGuard.resetForTests();
     let last = 0;
     for (let i = 0; i < 11; i++) {
@@ -106,6 +106,25 @@ describe('лимит частоты входа', () => {
         .send({ login: 'nobody', password: 'wrong' })).status;
     }
     expect(last).toBe(429);
+  });
+
+  it('за прокси лимит считается по адресу клиента, а не nginx', async () => {
+    LoginRateLimitGuard.resetForTests();
+    const attempt = (ip: string) => t.http().post('/api/v1/auth/login')
+      .set('X-Forwarded-For', ip).send({ login: 'nobody', password: 'wrong' });
+    for (let i = 0; i < 10; i++) await attempt('10.1.1.1');
+    expect((await attempt('10.1.1.1')).status).toBe(429);
+    // Другой сотрудник за тем же nginx не заблокирован
+    expect((await attempt('10.1.1.2')).status).toBe(401);
+  });
+
+  it('другие логины с того же адреса не блокируются лимитом одной учётной записи', async () => {
+    LoginRateLimitGuard.resetForTests();
+    const attempt = (login: string) => t.http().post('/api/v1/auth/login')
+      .set('X-Forwarded-For', '10.2.2.2').send({ login, password: 'wrong' });
+    for (let i = 0; i < 10; i++) await attempt('nobody');
+    expect((await attempt('nobody')).status).toBe(429);
+    expect((await attempt(t.employee.login)).status).toBe(401);
     LoginRateLimitGuard.resetForTests();
   });
 });
