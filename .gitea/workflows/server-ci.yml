@@ -62,15 +62,21 @@ jobs:
         working-directory: server
 
   web:
-    name: 'Клиент: сборка (vue-tsc + vite)'
+    name: 'Клиент: линтер, тесты, сборка'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci
+      - name: Установка зависимостей
+        run: npm ci
         working-directory: web
-      - run: npm run build
+      - name: ESLint
+        run: npm run lint
         working-directory: web
-      - run: npm run lint
+      - name: 'Модульные тесты (vitest: lib/*)'
+        run: npm test
+        working-directory: web
+      - name: Сборка (vue-tsc strict + vite)
+        run: npm run build
         working-directory: web
 
   sbom:
@@ -117,7 +123,7 @@ jobs:
           GW=$(ip route | awk '/default/ {print $3}')
           echo "Прод-стенд через шлюз $GW"
           for i in $(seq 1 60); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://$GW/api/v1/employees 2>/dev/null)
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://$GW/api/v1/employees 2>/dev/null || true)
             [ "$CODE" = "401" ] && break
             sleep 2
           done
