@@ -76,6 +76,44 @@ paths:
           $ref: '#/components/responses/Problem'
     x-rate-limit: 10 запросов в минуту с одного адреса
 
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      summary: Новый access-токен по refresh-cookie (ротация; старый refresh отзывается)
+      security: []
+      responses:
+        '200':
+          description: Новая пара — access в теле, refresh в httpOnly-cookie vp_refresh
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/password:
+    post:
+      tags: [auth]
+      operationId: changeOwnPassword
+      summary: Смена своего пароля (все сессии завершаются)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword: { type: string }
+                newPassword: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '204': { description: Пароль изменён }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+
   /auth/logout:
     post:
       tags: [auth]
@@ -730,20 +768,21 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
-  /calendar/holidays:
+  /calendar/holidays/{year}:
     get:
       tags: [calendar]
       operationId: getHolidays
       summary: Праздники и переносы производственного календаря
       security: []
       parameters:
-        - { name: year, in: query, required: true, schema: { type: integer, minimum: 2024, maximum: 2100 } }
+        - { name: year, in: path, required: true, schema: { type: integer, minimum: 2024, maximum: 2100 } }
       responses:
         '200':
           description: Календарь на год
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProductionCalendar' }
+        '400': { $ref: '#/components/responses/Problem' }
 
   /notifications:
     get:
