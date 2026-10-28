@@ -27,9 +27,9 @@ export class ChangePasswordDto {
     newPassword!: string;
 }
 
-const REFRESH_COOKIE = 'vp_refresh';
+export const REFRESH_COOKIE = 'vp_refresh';
 
-function setRefreshCookie(res: Response, token: string, expiresAt: Date): void {
+export function setRefreshCookie(res: Response, token: string, expiresAt: Date): void {
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',

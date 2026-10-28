@@ -41,6 +41,19 @@ export class TokenService {
     }
   }
 
+  /** Короткоживущий подписанный контейнер (состояние входа OIDC в cookie): 10 минут, своя аудитория. */
+  signTransient(payload: object): string {
+    return jwt.sign(payload, this.secret, { expiresIn: '10m', audience: 'vp-oidc-state' });
+  }
+
+  verifyTransient<T>(token: string): T | null {
+    try {
+      return jwt.verify(token, this.secret, { audience: 'vp-oidc-state' }) as T;
+    } catch {
+      return null;
+    }
+  }
+
   newRefresh(): { token: string; hash: string; expiresAt: Date } {
     const token = randomBytes(32).toString('base64url');
     return {

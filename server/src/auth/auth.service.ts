@@ -4,6 +4,7 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { hashPassword, verifyPassword } from './passwords';
 import { TokenService } from './token.service';
+import { oidcConfig } from './oidc';
 import { AuditService } from '../audit/audit.service';
 
 export interface LoginResult {
@@ -30,6 +31,11 @@ export class AuthService {
     if (!employee || !verifyPassword(password, employee.passwordHash)) {
       throw new ProblemException('auth/invalid-credentials');
     }
+    // С единым входом пароль можно отключить; администраторам он остаётся — аварийный доступ
+    const sso = oidcConfig();
+    if (sso.enabled && !sso.localLogin && !employee.isAdmin) {
+      throw new ProblemException('auth/forbidden', 'Вход по паролю отключён — войдите через корпоративную учётную запись');
+    }
     const pwv = employee.pwVersion;
     const access = this.tokens.signAccess({
       sub: employee.id, login: employee.login, isAdmin: employee.isAdmin, pwv,
@@ -44,6 +50,14 @@ export class AuthService {
       refreshToken: refresh.token,
       user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
     };
+  }
+
+  /** Вход через единый вход: сотрудник найден по логину из утверждений провайдера. */
+  async loginByLogin(login: string): Promise<LoginResult | null> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { login: { equals: login, mode: 'insensitive' }, isActive: true }, select: { id: true },
+    });
+    return employee ? this.issueFor(employee.id) : null;
   }
 
   /** Ротация refresh: старый отзывается, выдаётся новая пара. */

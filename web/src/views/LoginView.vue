@@ -1,12 +1,35 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { ApiError } from '@/api/client';
+import { api, ApiError } from '@/api/client';
 import AppIcon from '@/components/common/AppIcon.vue';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+
+// Единый вход: кнопка провайдера; вход по паролю может быть оставлен только администраторам
+const sso = ref<{ enabled: boolean; label: string; localLogin: boolean } | null>(null);
+const showLocal = ref(false);
+const passwordForm = computed(() => !sso.value?.enabled || sso.value.localLogin || showLocal.value);
+
+const SSO_ERRORS: Record<string, string> = {
+  cancelled: 'Вход через корпоративную учётную запись отменён.',
+  expired: 'Время на вход истекло. Попробуйте ещё раз.',
+  invalid: 'Не удалось подтвердить вход у провайдера. Попробуйте ещё раз или обратитесь к администратору.',
+  unknown: 'Учётная запись не найдена в планировщике или отключена. Обратитесь в кадровую службу.',
+  unavailable: 'Сервис единого входа недоступен. Попробуйте позже.',
+  disabled: 'Единый вход не настроен.',
+};
+
+onMounted(async () => {
+  const code = route.query.sso;
+  if (typeof code === 'string') error.value = SSO_ERRORS[code] ?? SSO_ERRORS.invalid;
+  try {
+    sso.value = await api.get('/auth/oidc/config');
+  } catch { /* без единого входа — только пароль */ }
+});
 
 const login = ref('');
 const password = ref('');
@@ -30,7 +53,9 @@ async function submit(): Promise<void> {
   } catch (e) {
     error.value = e instanceof ApiError && e.status === 429
       ? 'Слишком много попыток входа. Подождите минуту и попробуйте снова.'
-      : 'Неверный логин или пароль. Проверьте раскладку и Caps Lock.';
+      : e instanceof ApiError && e.status === 403
+        ? 'Вход по паролю отключён — войдите через корпоративную учётную запись.'
+        : 'Неверный логин или пароль. Проверьте раскладку и Caps Lock.';
   } finally {
     busy.value = false;
   }
@@ -94,7 +119,7 @@ async function submit(): Promise<void> {
           Вход
         </h1>
         <p class="form-hint">
-          Корпоративный логин и пароль. Нет доступа — обратитесь к администратору.
+          {{ sso?.enabled ? 'Корпоративная учётная запись — без отдельного пароля.' : 'Корпоративный логин и пароль. Нет доступа — обратитесь к администратору.' }}
         </p>
 
         <div
@@ -109,61 +134,90 @@ async function submit(): Promise<void> {
           <span>{{ error }}</span>
         </div>
 
-        <div class="field">
-          <label for="login">Логин</label>
-          <div class="input-icon">
+        <template v-if="sso?.enabled">
+          <a
+            class="btn btn-primary btn-lg btn-block"
+            href="/api/v1/auth/oidc/start"
+          >
             <AppIcon
-              name="user"
+              name="shield"
+              :size="16"
+            /> Войти через {{ sso.label }}
+          </a>
+          <div
+            v-if="passwordForm"
+            class="divider"
+          >
+            <span>или по логину и паролю</span>
+          </div>
+          <button
+            v-else
+            class="btn btn-ghost btn-block admin-login"
+            type="button"
+            @click="showLocal = true"
+          >
+            Вход администратора по паролю
+          </button>
+        </template>
+
+        <template v-if="passwordForm">
+          <div class="field">
+            <label for="login">Логин</label>
+            <div class="input-icon">
+              <AppIcon
+                name="user"
+                :size="15"
+              />
+              <input
+                id="login"
+                v-model="login"
+                class="input input-lg"
+                autocomplete="username"
+                placeholder="ivanov.ii"
+                autofocus
+                required
+              >
+            </div>
+          </div>
+          <div class="field">
+            <label for="password">Пароль</label>
+            <div class="input-icon">
+              <AppIcon
+                name="key"
+                :size="15"
+              />
+              <input
+                id="password"
+                v-model="password"
+                class="input input-lg"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                required
+              >
+              <button
+                type="button"
+                class="reveal"
+                :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                @click="showPassword = !showPassword"
+              >
+                {{ showPassword ? 'Скрыть' : 'Показать' }}
+              </button>
+            </div>
+          </div>
+          <button
+            class="btn btn-lg btn-block"
+            :class="sso?.enabled ? '' : 'btn-primary'"
+            type="submit"
+            :disabled="busy || !login.trim() || !password"
+          >
+            {{ busy ? 'Входим…' : 'Войти' }}
+            <AppIcon
+              v-if="!busy"
+              name="arrowRight"
               :size="15"
             />
-            <input
-              id="login"
-              v-model="login"
-              class="input input-lg"
-              autocomplete="username"
-              placeholder="ivanov.ii"
-              autofocus
-              required
-            >
-          </div>
-        </div>
-        <div class="field">
-          <label for="password">Пароль</label>
-          <div class="input-icon">
-            <AppIcon
-              name="key"
-              :size="15"
-            />
-            <input
-              id="password"
-              v-model="password"
-              class="input input-lg"
-              :type="showPassword ? 'text' : 'password'"
-              autocomplete="current-password"
-              required
-            >
-            <button
-              type="button"
-              class="reveal"
-              :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
-              @click="showPassword = !showPassword"
-            >
-              {{ showPassword ? 'Скрыть' : 'Показать' }}
-            </button>
-          </div>
-        </div>
-        <button
-          class="btn btn-primary btn-lg btn-block"
-          type="submit"
-          :disabled="busy || !login.trim() || !password"
-        >
-          {{ busy ? 'Входим…' : 'Войти' }}
-          <AppIcon
-            v-if="!busy"
-            name="arrowRight"
-            :size="15"
-          />
-        </button>
+          </button>
+        </template>
         <p class="form-foot">
           Сеанс защищён: пароль хранится только в виде хеша, вход ограничен по частоте попыток.
         </p>
@@ -173,6 +227,27 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 14px;
+  color: var(--color-text-soft);
+  font-size: 12px;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.admin-login {
+  margin-top: 10px;
+}
+
 .login-page {
   min-height: 100dvh;
   display: grid;

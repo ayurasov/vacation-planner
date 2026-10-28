@@ -35,6 +35,13 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-Планировщик отпусков <noreply@localhost>}
       APP_URL: ${APP_URL:-http://localhost}
+      # Единый вход (необязательно): OpenID Connect — Keycloak, ADFS, Blitz Identity и др.
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_LOGIN_CLAIM: ${OIDC_LOGIN_CLAIM:-preferred_username}
+      OIDC_LABEL: ${OIDC_LABEL:-корпоративную учётную запись}
+      LOCAL_LOGIN: ${LOCAL_LOGIN:-true}
     depends_on:
       postgres:
         condition: service_healthy

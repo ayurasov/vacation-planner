@@ -159,6 +159,51 @@ paths:
               schema: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/Problem' }
 
+  /auth/oidc/config:
+    get:
+      tags: [auth]
+      operationId: getSsoConfig
+      summary: Единый вход — включён ли, подпись кнопки, разрешён ли вход по паролю
+      security: []
+      responses:
+        '200':
+          description: Настройки экрана входа
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  label: { type: string, description: 'Подпись: «Войти через …»' }
+                  localLogin: { type: boolean, description: 'false — пароль только у администраторов (LOCAL_LOGIN=false)' }
+
+  /auth/oidc/start:
+    get:
+      tags: [auth]
+      operationId: startSso
+      summary: Начать вход через провайдер OpenID Connect
+      description: Authorization code + PKCE (S256); state, nonce и verifier — в подписанной httpOnly-cookie на 10 минут.
+      security: []
+      responses:
+        '302': { description: Перенаправление на страницу входа провайдера или на /login?sso=disabled|unavailable }
+
+  /auth/oidc/callback:
+    get:
+      tags: [auth]
+      operationId: ssoCallback
+      summary: Возврат от провайдера
+      description: |
+        Код меняется на токены, id_token проверяется (подпись по JWKS, issuer, audience, срок, nonce),
+        сотрудник ищется по логину из утверждения OIDC_LOGIN_CLAIM. Успех — refresh-cookie и 302 на /schedule;
+        отказ — 302 на /login?sso=cancelled|expired|invalid|unknown.
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302': { description: В приложение или на экран входа с кодом причины }
+
   /employees:
     get:
       tags: [employees]
