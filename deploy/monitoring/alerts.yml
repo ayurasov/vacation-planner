@@ -100,7 +100,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: Еженедельная сводка не запускалась больше 8 дней
-          description: 'Проверьте, что server работает в понедельник утром и что почта настроена.'
+          description: 'Сводка уходит по пятницам после 12:00 по времени организации. Проверьте, что server работал в это время и почта настроена.'
 
       # Реплика и архив WAL (E40-03, docker-compose.replica.yml): цель — не больше 15 минут потерь
       - alert: VacationReplicaDisconnected

@@ -39,7 +39,7 @@ describe('/metrics', () => {
     expect(res.headers['content-type']).toMatch(/^text\/plain;.*version=0\.0\.4/);
     const route = 'method="GET",route="/api/v1/vacation-requests/:id"';
     expect(value(res.text, `vp_http_requests_total{${route},code="404"}`)).toBeGreaterThanOrEqual(2);
-    expect(res.text).not.toContain('999999');
+    expect(res.text).not.toContain('/vacation-requests/999999'); // путь с id не становится меткой
     // Корзины накопительные, +Inf равна числу наблюдений
     const inf = value(res.text, `vp_http_request_duration_seconds_bucket{${route},le="+Inf"}`);
     expect(inf).toBe(value(res.text, `vp_http_request_duration_seconds_count{${route}}`));

@@ -1292,7 +1292,7 @@
       "id": 21,
       "type": "timeseries",
       "title": "Очередь писем",
-      "description": "pending — ждут отправки, failed — исчерпали 5 попыток (адрес и ошибка — в email_outbox).",
+      "description": "pending — ждут отправки, failed — исчерпали все попытки (адрес и ошибка — в email_outbox).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1449,7 +1449,7 @@
       "id": 23,
       "type": "stat",
       "title": "С последней еженедельной сводки",
-      "description": "Сводка уходит по понедельникам. Больше 8 дней — задача не запускалась.",
+      "description": "Сводка уходит по пятницам после 12:00. Больше 8 дней — задача не запускалась.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
