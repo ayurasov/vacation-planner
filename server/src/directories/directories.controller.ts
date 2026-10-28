@@ -72,9 +72,10 @@ export class DirectoriesController {
   async departments() {
     const depts = await this.prisma.department.findMany({
       orderBy: { name: 'asc' },
-      include: { _count: { select: { members: { where: { isActive: true } } } } },
+      include: { _count: { select: { members: { where: { isActive: true } } } }, manager: { select: { name: true } } },
     });
-    return depts.map((d) => ({ id: d.id, name: d.name, managerId: d.managerId, headcount: d._count.members }));
+    // managerName: справочникам не нужно загружать всех сотрудников ради имён руководителей
+    return depts.map((d) => ({ id: d.id, name: d.name, managerId: d.managerId, managerName: d.manager?.name ?? null, headcount: d._count.members }));
   }
 
   @Post('departments')
@@ -129,9 +130,9 @@ export class DirectoriesController {
   async projects() {
     const items = await this.prisma.project.findMany({
       orderBy: { name: 'asc' },
-      include: { _count: { select: { members: { where: { isActive: true } } } } },
+      include: { _count: { select: { members: { where: { isActive: true } } } }, manager: { select: { name: true } } },
     });
-    return items.map((p) => ({ id: p.id, name: p.name, managerId: p.managerId, headcount: p._count.members }));
+    return items.map((p) => ({ id: p.id, name: p.name, managerId: p.managerId, managerName: p.manager?.name ?? null, headcount: p._count.members }));
   }
 
   @Post('projects')

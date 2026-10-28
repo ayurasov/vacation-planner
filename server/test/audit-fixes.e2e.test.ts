@@ -56,6 +56,19 @@ describe('карточка сотрудника', () => {
   });
 });
 
+describe('справочники', () => {
+  it('отделы и проекты несут имя руководителя — справочникам не нужен список всех сотрудников', async () => {
+    const res = await t.http().get('/api/v1/departments').set(auth(hr));
+    expect(res.status).toBe(200);
+    const dept = (res.body as Array<{ name: string; managerId: number | null; managerName: string | null }>).find((d) => d.name === 'Тестовый отдел')!;
+    expect(dept.managerId).toBe(t.manager.id);
+    expect(dept.managerName).toBeTruthy();
+    const projects = await t.http().get('/api/v1/projects').set(auth(hr));
+    expect(projects.status).toBe(200);
+    expect((projects.body as Array<Record<string, unknown>>).every((p) => 'managerName' in p)).toBe(true);
+  });
+});
+
 describe('уведомления', () => {
   it('POST /notifications/read-all отмечает все непрочитанные одним запросом и только свои', async () => {
     await t.http().post('/api/v1/vacation-requests').set(auth(emp)).send({ start: `${NEXT_YEAR}-06-01`, end: `${NEXT_YEAR}-06-05` });

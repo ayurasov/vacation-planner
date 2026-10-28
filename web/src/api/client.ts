@@ -233,7 +233,7 @@ export interface Schedule {
 }
 
 export interface Department {
-  id: number; name: string; managerId: number | null; headcount: number;
+  id: number; name: string; managerId: number | null; managerName?: string | null; headcount: number;
 }
 
 export interface OrgSettings {
