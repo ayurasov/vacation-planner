@@ -10,8 +10,11 @@ import { AuditService } from '../audit/audit.service';
 
 export interface LoginResult {
   accessToken: string;
-  expiresAt: Date;
+  expiresAt: Date; // срок access-токена
   refreshToken: string; // выставляется контроллером в httpOnly cookie
+  // Срок refresh-токена и cookie (30 дней). До v0.5.0 cookie получала срок access-токена (15 минут):
+  // браузер удалял её вместе с истечением токена, и через 15 минут работы сотрудника выбрасывало на вход
+  refreshExpiresAt: Date;
   user: Employee & { subordinates: number[] };
 }
 
@@ -51,6 +54,7 @@ export class AuthService {
       accessToken: access.token,
       expiresAt: access.expiresAt,
       refreshToken: refresh.token,
+      refreshExpiresAt: refresh.expiresAt,
       user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
     };
   }
@@ -146,6 +150,7 @@ export class AuthService {
     });
     return {
       accessToken: access.token, expiresAt: access.expiresAt, refreshToken: refresh.token,
+      refreshExpiresAt: refresh.expiresAt,
       user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
     };
   }

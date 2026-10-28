@@ -7,6 +7,13 @@ import { LoginRateLimitGuard } from '../src/auth/rate-limit';
 
 let t: TestApp;
 
+/** Через сколько дней истекает refresh-cookie из Set-Cookie. */
+const cookieDays = (setCookie: string[]): number => {
+  const c = setCookie.find((h) => h.startsWith('vp_refresh='))!;
+  const expires = /Expires=([^;]+)/i.exec(c)?.[1];
+  return expires ? (Date.parse(expires) - Date.now()) / 86_400_000 : 0;
+};
+
 beforeAll(async () => {
   t = await createTestApp();
 });
@@ -24,6 +31,9 @@ describe('POST /api/v1/auth/login', () => {
     expect(res.body.user.permissions.isAdmin).toBe(true);
     const setCookie = res.headers['set-cookie'] as string[];
     expect(setCookie?.some((c) => c.startsWith('vp_refresh='))).toBe(true);
+    // Cookie живёт как refresh-токен (30 дней), а не как access (15 минут): иначе браузер удалял
+    // её вместе с истечением access-токена и через 15 минут работы выбрасывал на экран входа
+    expect(cookieDays(setCookie)).toBeGreaterThan(29);
   });
 
   it('неверный пароль → 401 problem+json без раскрытия причины', async () => {
@@ -77,6 +87,7 @@ describe('POST /api/v1/auth/refresh', () => {
     const first = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
     expect(first.status).toBe(200);
     expect(first.body.accessToken).toBeTypeOf('string');
+    expect(cookieDays(first.headers['set-cookie'] as unknown as string[])).toBeGreaterThan(29);
 
     // Повторное использование старого refresh отклоняется (ротация)
     const second = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
