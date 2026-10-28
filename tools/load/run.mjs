@@ -40,7 +40,35 @@ const record = (op, ms, ok, code) => {
   else if (!ok) { s.errors++; s.codes[code] = (s.codes[code] ?? 0) + 1; }
 };
 
-async function call(vu, op, path, init = {}) {
+/** Новый access-токен по refresh-cookie — как клиент при 401 (токен живёт 15 минут). */
+async function refresh(vu) {
+  vu.refreshing ??= (async () => {
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${URL_BASE}/api/v1/auth/refresh`, {
+        method: 'POST', headers: { 'X-Forwarded-For': vu.ip, Cookie: vu.cookie ?? '' },
+      });
+      const body = res.ok ? await res.json() : null;
+      record('POST /auth/refresh', performance.now() - t0, res.ok, res.status);
+      takeCookie(vu, res);
+      if (body?.accessToken) vu.token = body.accessToken;
+      return !!body?.accessToken;
+    } catch (e) {
+      record('POST /auth/refresh', performance.now() - t0, false, e.cause?.code ?? 'network');
+      return false;
+    } finally {
+      vu.refreshing = null;
+    }
+  })();
+  return vu.refreshing;
+}
+
+const takeCookie = (vu, res) => {
+  const c = res.headers.getSetCookie().find((h) => h.startsWith('vp_refresh='));
+  if (c) vu.cookie = c.split(';')[0];
+};
+
+async function call(vu, op, path, init = {}, retry = true) {
   const t0 = performance.now();
   let status = 0;
   try {
@@ -55,6 +83,11 @@ async function call(vu, op, path, init = {}) {
       },
     });
     status = res.status;
+    if (status === 401 && retry && vu.cookie && !path.startsWith('/auth/')) {
+      await res.body?.cancel();
+      if (await refresh(vu)) return call(vu, op, path, init, false);
+    }
+    if (path === '/auth/login') takeCookie(vu, res);
     const body = status === 204 || status === 304 ? null : await res.text();
     const etag = res.headers.get('etag');
     if (etag && init.method === undefined) (vu.etags ??= {})[path] = etag; // браузер тоже кэширует по ETag
@@ -188,7 +221,7 @@ async function main() {
   const all = [...stats.values()].flatMap((s) => s.ms).sort((a, b) => a - b);
   const reads = rows.filter((r) => r.op.startsWith('GET')).flatMap((r) => stats.get(r.op).ms).sort((a, b) => a - b);
   // Запись — изменение данных: без входа, билета и подключения потока
-  const writes = rows.filter((r) => /^(POST|PUT|PATCH|DELETE) \/(?!auth\/login|events)/.test(r.op)).flatMap((r) => stats.get(r.op).ms).sort((a, b) => a - b);
+  const writes = rows.filter((r) => /^(POST|PUT|PATCH|DELETE) \/(?!auth\/|events)/.test(r.op)).flatMap((r) => stats.get(r.op).ms).sort((a, b) => a - b);
   const errors = rows.reduce((n, r) => n + r.errors, 0);
   const summary = {
     users: USERS, durationSec: Math.round(elapsed), requests: all.length, rps: Math.round(all.length / elapsed),

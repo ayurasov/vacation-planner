@@ -64,6 +64,47 @@ describe('график: версия данных и ETag', () => {
   });
 });
 
+describe('версия данных: при фиксации и один раз за транзакцию', () => {
+  const version = async () =>
+    Number((await t.prisma.$queryRaw<Array<{ v: bigint }>>`SELECT sum(version)::bigint AS v FROM data_version`)[0].v);
+
+  it('транзакция из нескольких изменений увеличивает версию на 1; оператор без изменённых строк — не меняет', async () => {
+    const before = await version();
+    await t.prisma.$transaction(async (tx) => {
+      await tx.department.create({ data: { name: 'Версия-1' } });
+      await tx.department.create({ data: { name: 'Версия-2' } });
+      await tx.department.updateMany({ where: { name: { startsWith: 'Версия-' } }, data: { managerId: null } });
+    });
+    expect(await version()).toBe(before + 1);
+    await t.prisma.department.updateMany({ where: { name: 'Такого отдела нет' }, data: { managerId: null } });
+    expect(await version()).toBe(before + 1);
+    await t.prisma.department.deleteMany({ where: { name: { startsWith: 'Версия-' } } });
+    expect(await version()).toBe(before + 2);
+  });
+
+  it('строки счётчика не заблокированы, пока транзакция открыта (иначе под нагрузкой — взаимная блокировка)', async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((r) => { release = r; });
+    let changed!: () => void;
+    const inside = new Promise<void>((r) => { changed = r; });
+    const tx = t.prisma.$transaction(async (db) => {
+      await db.department.create({ data: { name: 'Версия-блокировка' } });
+      changed();
+      await hold; // транзакция открыта, изменение сделано
+    }, { timeout: 10_000 });
+    await inside;
+    try {
+      // Другое соединение: NOWAIT упадёт (55P03), если хоть одна строка счётчика заблокирована
+      const rows = await t.prisma.$queryRaw<Array<{ shard: number }>>`SELECT shard FROM data_version FOR UPDATE NOWAIT`;
+      expect(rows).toHaveLength(16);
+    } finally {
+      release();
+      await tx;
+      await t.prisma.department.deleteMany({ where: { name: 'Версия-блокировка' } });
+    }
+  });
+});
+
 describe('конфликты отдела', () => {
   it('доля отсутствующих по дням считается счётчиком; ниже порога — не конфликт', () => {
     const staff = [{ id: 1, dept: 'А' }, { id: 2, dept: 'А' }, { id: 3, dept: 'А' }, { id: 4, dept: 'Б' }];
