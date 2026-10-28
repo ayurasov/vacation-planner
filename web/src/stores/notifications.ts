@@ -1,4 +1,5 @@
-// Уведомления пользователя: опрос раз в 30 секунд, счётчик непрочитанных.
+// Уведомления пользователя: обновляются по потоку событий сервера; опрос раз в 30 секунд —
+// только пока поток недоступен (5000 вкладок с опросом — ~170 запросов/с впустую).
 import { defineStore } from 'pinia';
 import { api, type Notification, type Page } from '@/api/client';
 
@@ -20,6 +21,11 @@ export const useNotificationsStore = defineStore('notifications', {
       if (this.timer) return;
       void this.load();
       this.timer = window.setInterval(() => void this.load(), 30000);
+    },
+    /** Поток событий работает — опрос не нужен; потерян — опрос возобновляется. */
+    live(on: boolean): void {
+      if (on && this.timer) { window.clearInterval(this.timer); this.timer = 0; }
+      if (!on && !this.timer) this.timer = window.setInterval(() => void this.load(), 30000);
     },
     stop(): void {
       if (this.timer) window.clearInterval(this.timer);

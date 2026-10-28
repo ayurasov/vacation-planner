@@ -77,6 +77,51 @@ async function download(path: string, retry = true): Promise<Blob> {
   return res.blob();
 }
 
+export interface LiveHandlers {
+  hello?: (data: { unread: number; version: string }) => void;
+  notifications?: (data: { unread: number }) => void;
+  data?: (data: { version: string }) => void;
+  /** Поток доступен (true) или потерян (false) — для резервного опроса. */
+  status?: (live: boolean) => void;
+}
+
+/**
+ * Поток событий сервера (SSE): билет на 60 секунд → EventSource. При обрыве — новый билет
+ * и переподключение с нарастающей паузой; пока потока нет, вызывающий опрашивает сам.
+ * Возвращает функцию отключения.
+ */
+export function subscribeLive(handlers: LiveHandlers): () => void {
+  let source: EventSource | null = null;
+  let stopped = false;
+  let attempt = 0;
+  let retry = 0;
+  const open = async () => {
+    if (stopped) return;
+    try {
+      const { ticket } = await request<{ ticket: string }>('/events/ticket', { method: 'POST' });
+      if (stopped) return;
+      source = new EventSource(`/api/v1/events?ticket=${encodeURIComponent(ticket)}`);
+      const on = <T>(name: string, fn?: (d: T) => void) =>
+        source!.addEventListener(name, (ev) => fn?.(JSON.parse((ev as MessageEvent).data) as T));
+      on('hello', (d: { unread: number; version: string }) => { attempt = 0; handlers.status?.(true); handlers.hello?.(d); });
+      on('notifications', handlers.notifications);
+      on('data', handlers.data);
+      // Билет одноразовый по смыслу (60 с): встроенный повтор EventSource с тем же адресом не годится
+      source.onerror = () => { source?.close(); source = null; handlers.status?.(false); schedule(); };
+    } catch {
+      handlers.status?.(false);
+      schedule();
+    }
+  };
+  const schedule = () => {
+    if (stopped) return;
+    attempt++;
+    retry = window.setTimeout(() => void open(), Math.min(60_000, 2000 * 2 ** Math.min(attempt, 5)));
+  };
+  void open();
+  return () => { stopped = true; window.clearTimeout(retry); source?.close(); };
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>

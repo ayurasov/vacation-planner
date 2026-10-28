@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
+import { useLiveStore } from '@/stores/live';
 import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import { useUiStore } from '@/stores/ui';
 import {
@@ -243,8 +244,9 @@ function scrollToToday(smooth = false): void {
   el.scrollTo({ left: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
 }
 
-async function reload(): Promise<void> {
-  loading.value = true;
+/** quiet — тихое обновление по событию «данные изменились»: без скелета и без прокрутки к сегодня. */
+async function reload(quiet = false): Promise<void> {
+  if (!quiet) loading.value = true;
   error.value = '';
   try {
     const q = dept.value ? `&dept=${encodeURIComponent(dept.value)}` : '';
@@ -262,9 +264,27 @@ async function reload(): Promise<void> {
   } finally {
     loading.value = false;
   }
+  if (quiet) return;
   await nextTick();
   scrollToToday();
 }
+
+// Живое обновление: не чаще раза в минуту и только в видимой вкладке — при 5000 сотрудниках
+// данные организации меняются постоянно; без изменений сервер отвечает 304 по ETag
+const live = useLiveStore();
+let lastLive = Date.now();
+let liveTimer = 0;
+watch(() => live.version, () => {
+  if (liveTimer) return;
+  const wait = Math.max(0, 60_000 - (Date.now() - lastLive));
+  liveTimer = window.setTimeout(() => {
+    liveTimer = 0;
+    if (document.visibilityState !== 'visible') return;
+    lastLive = Date.now();
+    void reload(true);
+  }, wait);
+});
+onBeforeUnmount(() => window.clearTimeout(liveTimer));
 
 async function exportXlsx(): Promise<void> {
   try {
@@ -286,7 +306,7 @@ watch(zoom, async (z) => {
   await nextTick();
   scrollToToday();
 });
-watch([year, dept], reload);
+watch([year, dept], () => void reload());
 
 onMounted(async () => {
   void reload();

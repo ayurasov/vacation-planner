@@ -72,6 +72,16 @@ describe('POST /api/v1/auth/refresh', () => {
 });
 
 describe('смена пароля', () => {
+  it('увольнение сразу закрывает доступ по выданному токену', async () => {
+    const adm = await login(t, t.admin);
+    const created = await t.http().post('/api/v1/employees').set('Authorization', `Bearer ${adm}`)
+      .send({ name: 'Уходящий Иван Иванович', login: 'leaving.ii', password: 'leaving-pass-123' });
+    const token = await login(t, { login: 'leaving.ii', password: 'leaving-pass-123' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`)).status).toBe(200);
+    await t.http().delete(`/api/v1/employees/${created.body.employee.id}`).set('Authorization', `Bearer ${adm}`);
+    expect((await t.http().get('/api/v1/schedule?from=2027-01-01&to=2027-01-31').set('Authorization', `Bearer ${token}`)).status).toBe(401);
+  });
+
   it('смена убивает старые токены и требует новый пароль', async () => {
     const oldToken = await login(t, t.employee);
     const res = await t.http().put(`/api/v1/employees/${t.employee.id}/password`)
@@ -79,7 +89,11 @@ describe('смена пароля', () => {
       .send({ oldPassword: t.employee.password, newPassword: 'brand-new-pass-9' });
     expect(res.status).toBe(204);
 
-    // access-токен живёт до 15 минут, но версия пароля инвалидирует refresh
+    // старый access-токен перестаёт действовать сразу (до v0.5.0 — ещё до 15 минут)
+    const stale = await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${oldToken}`);
+    expect(stale.status).toBe(401);
+    expect(stale.body.type).toMatch(/auth\/token-expired$/);
+
     const refreshRes = await t.http().post('/api/v1/auth/login')
       .send({ login: t.employee.login, password: t.employee.password });
     expect(refreshRes.status).toBe(401);

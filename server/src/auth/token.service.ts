@@ -41,14 +41,17 @@ export class TokenService {
     }
   }
 
-  /** Короткоживущий подписанный контейнер (состояние входа OIDC в cookie): 10 минут, своя аудитория. */
-  signTransient(payload: object): string {
-    return jwt.sign(payload, this.secret, { expiresIn: '10m', audience: 'vp-oidc-state' });
+  /**
+   * Короткоживущий подписанный контейнер со своей аудиторией: состояние входа OIDC в cookie
+   * (10 минут), билет потока событий (60 секунд). Аудитория не даёт подставить один вместо другого.
+   */
+  signTransient(payload: object, audience = 'vp-oidc-state', expiresIn: jwt.SignOptions['expiresIn'] = '10m'): string {
+    return jwt.sign(payload, this.secret, { expiresIn, audience });
   }
 
-  verifyTransient<T>(token: string): T | null {
+  verifyTransient<T>(token: string, audience = 'vp-oidc-state'): T | null {
     try {
-      return jwt.verify(token, this.secret, { audience: 'vp-oidc-state' }) as T;
+      return jwt.verify(token, this.secret, { audience }) as T;
     } catch {
       return null;
     }

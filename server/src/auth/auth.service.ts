@@ -5,6 +5,7 @@ import { ProblemException } from '../infra/problems';
 import { hashPassword, verifyPassword } from './passwords';
 import { TokenService } from './token.service';
 import { oidcConfig } from './oidc';
+import { invalidateSession } from './guards';
 import { AuditService } from '../audit/audit.service';
 
 export interface LoginResult {
@@ -99,6 +100,7 @@ export class AuthService {
       });
       // Смена пароля отзывает все refresh-токены
       await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+      invalidateSession(userId);
       if (resetBy !== undefined) {
         await this.audit.record(tx, {
           actorId: resetBy, action: 'employee.password_reset', entity: 'employee', entityId: userId,

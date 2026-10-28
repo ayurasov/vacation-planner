@@ -6,6 +6,19 @@ import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { AccessClaims } from './token.service';
 import { TokenService } from './token.service';
+import { PrismaService } from '../infra/prisma.service';
+
+/**
+ * Сеанс действителен, пока не сменился пароль (pw_version) и сотрудник не уволен. Раньше проверялась
+ * только подпись access-токена: после смены пароля или увольнения токен работал ещё до 15 минут.
+ * Кэш на процесс — 10 секунд; в процессе, где сменили пароль или уволили, запись сбрасывается сразу.
+ */
+const SESSION_TTL_MS = 10_000;
+const sessions = new Map<number, { pwv: number; active: boolean; at: number }>();
+
+export function invalidateSession(userId: number): void {
+  sessions.delete(userId);
+}
 
 export interface AuthedRequest extends Request {
   user?: AccessClaims;
@@ -20,9 +33,10 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly tokens: TokenService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  canActivate(ctx: ExecutionContext): boolean {
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       ctx.getHandler(), ctx.getClass(),
     ]);
@@ -33,7 +47,17 @@ export class JwtAuthGuard implements CanActivate {
     if (!header?.startsWith('Bearer ')) {
       throw new UnauthorizedException({ code: 'auth/invalid-credentials' });
     }
-    req.user = this.tokens.verifyAccess(header.slice(7));
+    const claims = this.tokens.verifyAccess(header.slice(7));
+    const now = Date.now();
+    let s = sessions.get(claims.sub);
+    if (!s || now - s.at > SESSION_TTL_MS) {
+      const e = await this.prisma.employee.findUnique({ where: { id: claims.sub }, select: { pwVersion: true, isActive: true } });
+      s = { pwv: e?.pwVersion ?? -1, active: !!e?.isActive, at: now };
+      if (sessions.size > 50_000) sessions.clear(); // защита от роста
+      sessions.set(claims.sub, s);
+    }
+    if (!s.active || s.pwv !== claims.pwv) throw new UnauthorizedException({ code: 'auth/token-expired' });
+    req.user = claims;
     return true;
   }
 }

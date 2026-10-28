@@ -5,6 +5,7 @@ import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/passwords';
 import type { StaffActor } from '../auth/access';
+import { invalidateSession } from '../auth/guards';
 import { randomBytes } from 'node:crypto';
 
 export function translitLogin(name: string): string {
@@ -184,6 +185,7 @@ export class EmployeesService {
     await this.prisma.$transaction(async (tx) => {
       // soft delete: увольнение сохраняет историю
       await tx.employee.update({ where: { id }, data: { isActive: false } });
+      invalidateSession(id);
       await this.audit.record(tx, {
         actorId, action: 'employee.deactivated', entity: 'employee', entityId: id,
         before: toPublic(e), after: { isActive: false },

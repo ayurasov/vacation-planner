@@ -102,9 +102,14 @@ export class ProblemFilter implements ExceptionFilter {
         });
         return;
       }
-      const code = status === 401 ? 'auth/invalid-credentials'
-        : status === 403 ? 'auth/forbidden'
-          : status === 404 ? 'not-found' : 'internal';
+      // Код из каталога, переданный исключением ({ code }), сохраняется: так клиент отличает
+      // истёкший сеанс (auth/token-expired) от неверных данных входа. До v0.5.0 любой 401
+      // превращался в auth/invalid-credentials.
+      const given = (exception.getResponse() as { code?: unknown })?.code;
+      const code = typeof given === 'string' && given in CODE_TITLES ? given
+        : status === 401 ? 'auth/invalid-credentials'
+          : status === 403 ? 'auth/forbidden'
+            : status === 404 ? 'not-found' : 'internal';
       res.status(status).contentType('application/problem+json').json({
         type: `${PROBLEM_BASE}/${code}`,
         title: CODE_TITLES[code] ?? 'Ошибка',

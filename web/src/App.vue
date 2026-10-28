@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useApprovalsStore } from '@/stores/approvals';
+import { useLiveStore } from '@/stores/live';
+import { subscribeLive } from '@/api/client';
 import AppSidebar from '@/components/layout/AppSidebar.vue';
 import AppTopBar from '@/components/layout/AppTopBar.vue';
 import ToastHost from '@/components/common/ToastHost.vue';
@@ -12,6 +14,7 @@ import ConfirmHost from '@/components/common/ConfirmHost.vue';
 const auth = useAuthStore();
 const notifications = useNotificationsStore();
 const approvals = useApprovalsStore();
+const live = useLiveStore();
 const router = useRouter();
 const route = useRoute();
 
@@ -34,13 +37,27 @@ async function logout(): Promise<void> {
   router.push('/login');
 }
 
-// Фоновые данные каркаса живут, пока пользователь вошёл
-watch(() => auth.isLoggedIn, (loggedIn) => {
+// Фоновые данные каркаса живут, пока пользователь вошёл. Обновления приходят потоком событий
+// сервера; пока он недоступен — опрос (уведомления раз в 30 с, счётчик заявок раз в минуту).
+let unsubscribe: (() => void) | null = null;
+function pollApprovals(on: boolean): void {
   window.clearInterval(approvalsTimer);
+  if (on) approvalsTimer = window.setInterval(() => void approvals.refresh(auth.isAdmin), 60000);
+}
+watch(() => auth.isLoggedIn, (loggedIn) => {
+  unsubscribe?.();
+  unsubscribe = null;
+  pollApprovals(false);
   if (loggedIn) {
     notifications.start();
     void approvals.refresh(auth.isAdmin);
-    approvalsTimer = window.setInterval(() => void approvals.refresh(auth.isAdmin), 60000);
+    pollApprovals(true);
+    unsubscribe = subscribeLive({
+      status: (on) => { notifications.live(on); pollApprovals(!on); },
+      notifications: () => { void notifications.load(); void approvals.refresh(auth.isAdmin); },
+      data: (d) => { live.version = d.version; },
+      hello: (d) => { live.version = d.version; },
+    });
   } else {
     notifications.stop();
     approvals.pending = 0;
@@ -48,7 +65,7 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
 }, { immediate: true });
 
 watch(() => route.fullPath, () => { mobileOpen.value = false; });
-onBeforeUnmount(() => window.clearInterval(approvalsTimer));
+onBeforeUnmount(() => { window.clearInterval(approvalsTimer); unsubscribe?.(); });
 </script>
 
 <template>
