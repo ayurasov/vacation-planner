@@ -610,6 +610,14 @@ onMounted(reload);
   border-left: 1px solid var(--color-border);
   padding-left: 4px;
   text-transform: capitalize;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .year-months span:nth-child(even) {
+    color: transparent;
+  }
 }
 
 .year-track {

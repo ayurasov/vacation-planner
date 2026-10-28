@@ -130,10 +130,10 @@ onMounted(() => {
         </div>
         <div
           class="load"
-          :title="`Максимум отдела в отпуске: ${Math.round(s.maxRatio * 100)}%`"
+          :title="`Наибольшая доля отдела в отпуске в эти дни, включая вас: ${Math.round(s.maxRatio * 100)}%`"
         >
           <span class="load-bar"><span :style="{ width: `${Math.round(s.maxRatio * 100)}%` }" /></span>
-          <span class="soft small">{{ Math.round(s.maxRatio * 100) }}% отдела</span>
+          <span class="soft small">{{ Math.round(s.maxRatio * 100) }}% отдела с вами</span>
         </div>
         <span class="pick">Выбрать <AppIcon
           name="arrowRight"
