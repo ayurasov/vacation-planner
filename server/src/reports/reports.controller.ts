@@ -5,6 +5,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsISO8601 } from 'class-validator';
 import type { Response } from 'express';
 import ExcelJS from 'exceljs';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
@@ -44,15 +45,24 @@ export class ReportsController {
       include: { dept: true, subordinates: { select: { id: true } } },
     });
     if (!me) throw new ProblemException('not-found');
-    // Руководитель отдела выгружает свой отдел; администратор — всю организацию
-    let deptFilter: string | undefined;
+    // Администратор — вся организация; руководитель отдела — свой отдел;
+    // руководитель без отдела в подчинении — только прямые подчинённые и он сам.
+    // (До v0.3.0 последний случай получал выгрузку всей организации.)
+    let scope: Prisma.VacationRequestWhereInput = {};
+    let scopeLabel = 'organization';
     if (!me.isAdmin) {
       const isDeptManager = me.dept?.managerId === me.id;
       const hasSubordinates = me.subordinates.length > 0;
       if (!isDeptManager && !hasSubordinates) {
         throw new ProblemException('auth/forbidden', 'Выгрузка доступна руководителям и администраторам');
       }
-      if (isDeptManager && me.dept) deptFilter = me.dept.name;
+      if (isDeptManager && me.dept) {
+        scope = { employee: { dept: { name: me.dept.name } } };
+        scopeLabel = me.dept.name;
+      } else {
+        scope = { employeeId: { in: [me.id, ...me.subordinates.map((s) => s.id)] } };
+        scopeLabel = 'subordinates';
+      }
     }
 
     const rows = await this.prisma.vacationRequest.findMany({
@@ -60,7 +70,7 @@ export class ReportsController {
         startDate: { lte: to },
         endDate: { gte: from },
         status: { in: ['approved', 'pending'] },
-        ...(deptFilter ? { employee: { dept: { name: deptFilter } } } : {}),
+        ...scope,
       },
       orderBy: [{ startDate: 'asc' }],
       include: { employee: { include: { dept: { select: { name: true } } } } },
@@ -101,7 +111,7 @@ export class ReportsController {
 
     await this.audit.record(this.prisma, {
       actorId: user.sub, action: 'report.exported', entity: 'report', entityId: 'vacations',
-      after: { from: q.from, to: q.to, rows: rows.length, scope: deptFilter ?? 'organization' },
+      after: { from: q.from, to: q.to, rows: rows.length, scope: scopeLabel },
     });
 
     const buffer = await wb.xlsx.writeBuffer();

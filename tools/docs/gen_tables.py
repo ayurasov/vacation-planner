@@ -159,10 +159,10 @@ def main(check):
         text = md.read_text(encoding="utf-8")
         new = text
         for name, fn in BLOCKS.items():
-            pattern = re.compile(rf"(<!-- BEGIN:{name} -->\n).*?(\n<!-- END:{name} -->)", re.S)
+            pattern = re.compile(rf"(<!-- BEGIN:{name} -->\n)(?:.*?\n)?(<!-- END:{name} -->)", re.S)
             if pattern.search(new):
                 body = cache.setdefault(name, fn())
-                new = pattern.sub(lambda m: m.group(1) + body + m.group(2), new)
+                new = pattern.sub(lambda m: m.group(1) + body + "\n" + m.group(2), new)
         if new != text:
             stale.append(md.relative_to(ROOT))
             if not check:

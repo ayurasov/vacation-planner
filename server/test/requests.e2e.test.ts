@@ -1,6 +1,8 @@
 // E2E: жизненный цикл заявок — конечный автомат, пересечения, лимиты, права, аудит
 // (критерии E03-xx, E04-xx, E05-xx; таблица состояний — docs/specs/01-architecture.md раздел 8).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import ExcelJS from 'exceljs';
+import { hashPassword } from '../src/auth/passwords';
 import { createTestApp, destroyTestApp, login, NEXT_YEAR, type TestApp } from './helpers';
 
 let t: TestApp;
@@ -197,6 +199,37 @@ describe('XLSX-выгрузка отпусков', () => {
     const forbidden = await t.http().get(`/api/v1/reports/vacations?from=${Y}-01-01&to=${Y}-12-31`)
       .set('Authorization', `Bearer ${emp}`);
     expect(forbidden.status).toBe(403);
+  });
+
+  it('руководитель без отдела в подчинении выгружает только своих подчинённых', async () => {
+    const Y = NEXT_YEAR;
+    const dept = await t.prisma.department.create({ data: { name: 'Отдел без руководителя' } });
+    const mgrB = { login: 'mgr.b', password: 'manager-b-pass-123' };
+    const boss = await t.prisma.employee.create({
+      data: { login: mgrB.login, passwordHash: hashPassword(mgrB.password), name: 'Начальников Бэ', role: 'manager', deptId: dept.id },
+    });
+    const sub = await t.prisma.employee.create({
+      data: { login: 'sub.b', passwordHash: hashPassword('sub-b-pass-1234'), name: 'Подчинённый Бэ', deptId: dept.id, managerId: boss.id },
+    });
+    const outsider = await t.prisma.employee.create({
+      data: { login: 'out.b', passwordHash: hashPassword('out-b-pass-1234'), name: 'Посторонний Бэ', deptId: dept.id },
+    });
+    for (const id of [sub.id, outsider.id]) {
+      await t.http().post('/api/v1/vacation-requests').set('Authorization', `Bearer ${adm}`)
+        .send({ employee: id, start: `${Y}-10-05`, end: `${Y}-10-09` });
+    }
+    const token = await login(t, mgrB);
+    const res = await t.http().get(`/api/v1/reports/vacations?from=${Y}-01-01&to=${Y}-12-31`)
+      .set('Authorization', `Bearer ${token}`).buffer(true)
+      .parse((r, cb) => { const chunks: Buffer[] = []; r.on('data', (c: Buffer) => chunks.push(c)); r.on('end', () => cb(null, Buffer.concat(chunks))); });
+    expect(res.status).toBe(200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.body as Buffer);
+    const names: string[] = [];
+    wb.worksheets[0].eachRow((row, i) => { if (i > 1) names.push(String(row.getCell(1).value)); });
+    expect(names).toContain('Подчинённый Бэ');
+    expect(names).not.toContain('Посторонний Бэ');
+    expect(names).not.toContain('Сотрудников Тест');
   });
 
   it('from > to → 400 bad-date-range', async () => {
