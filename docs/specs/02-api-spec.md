@@ -113,7 +113,7 @@
 # Каталог операций
 
 <!-- BEGIN:api-catalog -->
-Всего операций: **55** в 40 путях; формат — JSON, ошибки — `application/problem+json`.
+Всего операций: **57** в 42 путях; формат — JSON, ошибки — `application/problem+json`.
 
 **Вход и сессии** (9)
 
@@ -220,6 +220,13 @@
 | POST | `/api/v1/imports/employees` | Импорт сотрудников и остатков — предпросмотр или применение | `importEmployees` |
 | GET | `/api/v1/imports/employees/template` | Шаблон XLSX для импорта сотрудников | `getImportTemplate` |
 
+**events** (2)
+
+| Метод | Путь | Назначение | Операция |
+|---|---|---|---|
+| POST | `/api/v1/events/ticket` | Билет на поток событий (60 секунд) | `getEventsTicket` |
+| GET | `/api/v1/events` | Поток событий (text/event-stream) | `streamEvents` |
+
 **Отчёты** (1)
 
 | Метод | Путь | Назначение | Операция |
@@ -256,6 +263,7 @@
 | `department-not-empty` | 409 | В отделе ещё есть сотрудники |
 | `rate-limited` | 429 | Слишком много запросов. Повторите позже. |
 | `calendar-missing` | 400 | Для этого года не загружен производственный календарь |
+| `service-unavailable` | 503 | Сервис перегружен. Повторите через несколько секунд. |
 <!-- END:error-catalog -->
 
 # Матрица прав

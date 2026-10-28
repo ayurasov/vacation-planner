@@ -1,10 +1,10 @@
 # Планировщик отпусков
 
-Корпоративное веб-приложение для планирования и согласования ежегодных отпусков (масштаб 1000 → 5000 пользователей): график отпусков организации, заявки с согласованием руководителем, балансы дней по ТК РФ (праздники не входят в отпуск), аналитика пересечений в отделах и подбор лучших дат, график работы офис/удалёнка, импорт сотрудников, письма и единый вход, справочники, выгрузки и неизменяемый журнал аудита.
+Корпоративное веб-приложение для планирования и согласования ежегодных отпусков (масштаб 1000 → 5000 пользователей): график отпусков организации, заявки с согласованием руководителем, балансы дней по ТК РФ (праздники не входят в отпуск), аналитика пересечений в отделах и подбор лучших дат, график работы офис/удалёнка, импорт сотрудников, письма и единый вход, справочники, выгрузки и неизменяемый журнал аудита. Проверен нагрузкой на 5000 пользователей; живые обновления без перезагрузки страницы, метрики Prometheus, реплика PostgreSQL и архив WAL.
 
 Стек: **NestJS 11 + TypeScript strict + Prisma 6 + PostgreSQL 17**, клиент **Vue 3 + Vite + Pinia** без компонентных библиотек, поставка в **Docker**.
 
-**Версия:** v0.4.0. Ветки и теги `v0.x.y`; `main` — только принятые версии. История и авторство — [docs/versions.md](docs/versions.md), технический журнал — [CHANGELOG.md](CHANGELOG.md).
+**Версия:** v0.5.0. Ветки и теги `v0.x.y`; `main` — только принятые версии. История и авторство — [docs/versions.md](docs/versions.md), технический журнал — [CHANGELOG.md](CHANGELOG.md).
 
 ![График отпусков](docs/images/ui-schedule.png)
 
@@ -17,7 +17,7 @@ make server-dev  # API → http://localhost:8080 (Swagger: /api/docs)
 make web-dev     # интерфейс → http://localhost:5173
 ```
 
-Полный стенд в контейнерах: `make compose-full` → http://localhost (нужен `JWT_SECRET` в `.env`). Установка на сервер организации — [руководство по развёртыванию](docs/manuals/deployment-guide.md).
+Полный стенд в контейнерах: `make compose-full` → http://localhost (нужен `JWT_SECRET` в `.env`). С метриками — `docker compose --profile full --profile monitoring up -d`, с репликой и архивом WAL — `docker compose -f docker-compose.yml -f docker-compose.replica.yml --profile full up -d`. Установка на сервер организации — [руководство по развёртыванию](docs/manuals/deployment-guide.md).
 
 Демо-вход: администратор `yurasov.av` / `j2ENXpPi`, кадровая служба `balashova.av` / `zp5Gg57M`.
 
@@ -31,8 +31,9 @@ make web-dev     # интерфейс → http://localhost:5173
 | `make lint` | ESLint сервера и клиента |
 | `make sbom` | SBOM CycloneDX и отчёт лицензий (copyleft и неизвестные — блокер) |
 | `make docs` | Комплект документов в PDF и DOCX |
+| `node tools/load/run.mjs` | Нагрузочный прогон (БД наполняется `npm run db:seed:load`) — [отчёт v0.5.0](docs/progress/load-v0.5.0.md) |
 
-CI — GitHub Actions и Gitea Actions с одинаковым набором: сервер (Node 20 и 22), клиент, e2e интерфейса, SBOM, сборка образов и дымовой прогон стенда; в Gitea — развёртывание стенда после всех проверок.
+CI — GitHub Actions и Gitea Actions с одинаковым набором: сервер (Node 20 и 22), клиент, e2e интерфейса, SBOM, сборка образов и дымовой прогон стенда; в GitHub — ещё репликация и переключение на реплику, в Gitea — развёртывание стенда после всех проверок.
 
 ## Структура
 
@@ -42,7 +43,9 @@ web/         SPA: src/views, src/components, src/stores, src/api/client.ts, e2e/
 contracts/   OpenAPI-контракт v1 (меняется через ревью владельца)
 docs/        specs/ — спецификации, manuals/ — руководства, pdf/ и docx/ — сборки,
              diagrams/ — исходники схем, images/ — схемы и снимки экранов
+deploy/      monitoring/ — Prometheus, оповещения, панель Grafana; postgres/ — реплика и копии
 tools/docs/  Конвейер документов: pandoc → PDF (Chromium) и DOCX; рендер схем
+tools/load/  Нагрузочный генератор без зависимостей
 scripts/     Отчёт лицензий
 ```
 
@@ -64,6 +67,8 @@ scripts/     Отчёт лицензий
 | [08 Техническое задание](docs/specs/08-tz.md) | Требования и приёмка |
 | [10 Промпты итераций](docs/specs/10-prompts.md) | Шаблоны задач для ассистентов |
 | [11 SBOM и лицензии](docs/specs/11-sbom-licenses.md) | Состав компонентов для реестра ПО |
+
+Решения с альтернативами — [docs/adr](docs/adr/README.md); журнал решений и зависимостей — [docs/decisions.md](docs/decisions.md).
 
 PDF и DOCX всех документов — в [docs/pdf](docs/pdf) и [docs/docx](docs/docx). Правила для ИИ-ассистентов — [AGENTS.md](AGENTS.md).
 

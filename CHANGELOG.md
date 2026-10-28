@@ -2,6 +2,40 @@
 
 Формат: Keep a Changelog. Версии — `v0.x.y` до релиза (см. docs/versions.md). PDF-версия комплекта документов — docs/pdf/.
 
+## [0.5.0] — 2026-10-30
+
+Ветка `v0.5.0`, автор ayurasov.
+
+### Добавлено
+
+- **Кластер процессов** (`main.ts`, `infra/concurrency.ts`): `WEB_CONCURRENCY` (`auto` — по ядрам), перезапуск упавших процессов, останов при частых падениях; пул соединений на процесс min(10, 40 / процессов), `DB_POOL_SIZE`.
+- **Кэш графика**: таблица `data_version` (16 строк, триггеры на таблицах графика), `ScheduleService` на простом SQL, кэш ответов в памяти по версии, `ETag` и `304 Not Modified`.
+- **Поток событий** (`server/src/events`): `POST /events/ticket`, `GET /events` (SSE: `hello`, `notifications`, `data`, heartbeat); клиент `subscribeLive` с откатом на опрос; nginx без буферизации, `worker_connections 16384`.
+- **Метрики** (`infra/metrics.ts`, `GET /metrics`): HTTP по шаблонам маршрутов, цикл событий, процессор и память, SSE, соединения БД, очередь писем, фоновые задачи, реплики и архив WAL; сложение процессов кластера по IPC; `METRICS_TOKEN`. `deploy/monitoring`: Prometheus (профиль `monitoring`), 15 правил оповещений, панель Grafana.
+- **Реплика и архив WAL** (`docker-compose.replica.yml`, `deploy/postgres`): горячий резерв по слоту, архив WAL (`archive_timeout` 300 с), ежедневные физические копии с очисткой архива; `DB_HOST` для переключения.
+- **Нагрузка**: `prisma/load-seed.ts` (`npm run db:seed:load`, 5000 сотрудников), генератор `tools/load/run.mjs` (режимы опроса и `--sse`); отчёт `docs/progress/load-v0.5.0.md`.
+- Код ошибки `service-unavailable` (503, `Retry-After: 5`) для P2024, P2028, P1001, P1002, P1017; счётчик `vp_db_errors_total`.
+- CI: задание «Реплика PostgreSQL, архив WAL и переключение»; дымовой прогон проверяет `/metrics` и поток событий через nginx.
+- ADR-012, ADR-013, ADR-014.
+- Тесты: passwords.unit, schedule.e2e, events.e2e, metrics.e2e, concurrency.unit; лимит входа на двух экземплярах; virtualWindow, absentPerDay.
+
+### Изменено
+
+- Хеширование паролей — асинхронный scrypt в пуле потоков; для неизвестного логина проверяется подставной хеш.
+- Лимит входа — в PostgreSQL (`login_attempts`, нежурналируемая), скользящая оценка по двум минутным окнам.
+- График отпусков в браузере — виртуальный список; нагрузка по дням — разностный массив.
+- Выгрузка XLSX — потоковая запись (`WorkbookWriter`) с уступкой процессора каждые 100 строк.
+- nginx — шаблон конфигурации (`NGINX_RESOLVER`, `API_UPSTREAM`), адрес `server` разрешается каждые 10 с.
+
+### Исправлено
+
+- Смена пароля и увольнение не отзывали выданные access-токены (проверка `pw_version` и активности теперь в `JwtAuthGuard`, кэш 10 с).
+- Фильтр ошибок превращал любой `401` в `auth/invalid-credentials`.
+- `429 rate-limited` не нёс заголовок `Retry-After`.
+- После пересоздания контейнера `server` nginx отвечал `502`.
+- Команда создания первого администратора в руководстве по развёртыванию печатала `Promise` вместо хеша.
+- Дубли строк в журнале зависимостей `docs/decisions.md`.
+
 ## [0.4.0] — 2026-10-29
 
 Ветка `v0.4.0`, автор ayurasov.
