@@ -73,10 +73,34 @@ jobs:
       - run: npm run lint
         working-directory: web
 
+  sbom:
+    name: 'SBOM и лицензии (реестр ОП)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 'Сервер: зависимости + SBOM'
+        run: |
+          npm ci
+          npm run sbom
+        working-directory: server
+      - name: 'Клиент: зависимости + SBOM'
+        run: |
+          npm ci
+          npm run sbom
+        working-directory: web
+      - name: 'Отчёт по лицензиям (падает при copyleft/unknown)'
+        run: node scripts/license-report.mjs
+      - name: Артефакты SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom-cyclonedx
+          path: sbom/*.cdx.json
+          retention-days: 30
+
   deploy:
     name: 'Deploy прод-стенда + smoke'
     runs-on: deploy
-    needs: [server, web]
+    needs: [server, web, sbom]
     steps:
       - name: Docker CLI и compose
         run: apk add --no-cache docker-cli docker-cli-compose curl
