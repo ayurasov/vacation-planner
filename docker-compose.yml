@@ -40,5 +40,33 @@ services:
     depends_on:
       - server
 
+  # Резервные копии: pg_dump раз в BACKUP_INTERVAL секунд (по умолчанию сутки), хранение BACKUP_KEEP_DAYS дней.
+  # Восстановление — docs/manuals/deployment-guide.md, раздел «Резервное копирование».
+  backup:
+    profiles: ["full"]
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: vacation
+      PGPASSWORD: vacation
+      PGDATABASE: vacation
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/vacation-$$(date +%Y%m%d-%H%M%S).dump
+          if pg_dump -Fc -f "$$f.tmp"; then mv "$$f.tmp" "$$f"; echo "backup: $$f"; else rm -f "$$f.tmp"; echo "backup: ОШИБКА"; fi
+          find /backups -name 'vacation-*.dump' -mtime +$$BACKUP_KEEP_DAYS -delete
+          sleep "$$BACKUP_INTERVAL"
+        done
+    volumes:
+      - db-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   db-data:
+  db-backups:
