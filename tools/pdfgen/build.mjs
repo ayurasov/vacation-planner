@@ -39,17 +39,16 @@ footer-pdf { display: none; }
 
 const DIAGRAMS_DIR = join(root, 'docs', 'specs', 'diagrams');
 
-// Встраиваем SVG-схемы прямо в HTML (setContent не резолвит относительные пути)
+// Схемы встраиваем как base64 PNG (setContent не резолвит относительные пути,
+// а PNG рендерится одинаково во всех просмотрщиках и при печати)
 function inlineDiagrams(html) {
-  return html.replace(/<img([^>]*)src="diagrams\/([a-z0-9-]+\.svg)"([^>]*)>/gi, (_m, pre, file) => {
+  return html.replace(/<img([^>]*)src="diagrams\/([a-z0-9-]+\.(?:svg|png))"([^>]*)>/gi, (_m, _pre, file) => {
     try {
-      const svg = readFileSync(join(DIAGRAMS_DIR, file), 'utf-8');
-      const body = svg.replace(/<\?xml[^>]*\?>/, '').replace(/<!DOCTYPE[^>]*>/, '');
-      const widthMatch = /width="([\d.]+)"/.exec(body);
-      const heightMatch = /height="([\d.]+)"/.exec(body);
-      const w = widthMatch ? Math.min(680, Number(widthMatch[1])) : 680;
-      const h = heightMatch ? undefined : undefined;
-      return `<div class="diagram"><svg viewBox="${/viewBox=\"([^\"]+)\"/.exec(body)?.[1] ?? '0 0 900 600'}" width="${w}"${h ? ` height="${h}"` : ''} xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto">${body.replace(/<svg[^>]*>/, '').replace(/<\/svg>$/, '')}</svg></div>`;
+      const isPng = file.endsWith('.png');
+      const data = readFileSync(join(DIAGRAMS_DIR, file));
+      const b64 = data.toString('base64');
+      const mime = isPng ? 'image/png' : 'image/svg+xml';
+      return `<div class="diagram"><img src="data:${mime};base64,${b64}" alt="Схема ${file}" /></div>`;
     } catch {
       return `<p><em>Схема ${file} недоступна</em></p>`;
     }

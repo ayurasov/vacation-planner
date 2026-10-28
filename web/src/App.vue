@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { api, type Notification } from '@/api/client';
@@ -8,7 +8,11 @@ import AppIcon from '@/components/common/AppIcon.vue';
 const auth = useAuthStore();
 const router = useRouter();
 const sidebarOpen = ref(false);
+const collapsed = ref(false);
 const isDark = ref(false);
+
+const pageTitle = computed(() => (router.currentRoute.value.meta.title as string) ?? '');
+const today = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
 const notifications = ref<Notification[]>([]);
 
 interface NavItem {
@@ -98,24 +102,49 @@ onMounted(() => {
       @click="sidebarOpen = false"
     />
 
+    <button
+      class="collapse-btn"
+      type="button"
+      :title="collapsed ? 'Развернуть меню' : 'Свернуть меню'"
+      @click="collapsed = !collapsed"
+    >
+      <AppIcon
+        :name="collapsed ? 'chevronRight' : 'chevronLeft'"
+        :size="15"
+      />
+    </button>
+
     <aside
       class="sidebar scroll-thin"
-      :class="{ 'mobile-open': sidebarOpen }"
+      :class="{ 'mobile-open': sidebarOpen, collapsed }"
     >
-      <div class="sidebar-logo">
+      <div
+        class="sidebar-logo"
+        title="Планировщик отпусков"
+      >
         <span class="logo-mark"><AppIcon
           name="brandMark"
           :size="20"
         /></span>
-        <span class="logo-text">Планировщик<br>отпусков</span>
+        <span
+          v-if="!collapsed"
+          class="logo-text"
+        >Планировщик<br>отпусков</span>
       </div>
       <template
         v-for="section in navSections"
         :key="section.title"
       >
-        <div class="nav-section">
+        <div
+          v-if="!collapsed"
+          class="nav-section"
+        >
           {{ section.title }}
         </div>
+        <div
+          v-else
+          class="nav-section nav-section-dot"
+        />
         <router-link
           v-for="item in visibleItems(section.items)"
           :key="item.path"
@@ -128,7 +157,10 @@ onMounted(() => {
             :name="item.icon"
             :size="16"
           />
-          <span>{{ item.label }}</span>
+          <span
+            v-if="!collapsed"
+            class="nav-label"
+          >{{ item.label }}</span>
           <span
             v-if="item.path === '/approvals' && unreadCount()"
             class="nav-badge"
@@ -145,7 +177,10 @@ onMounted(() => {
           name="logout"
           :size="16"
         />
-        <span>Выйти</span>
+        <span
+          v-if="!collapsed"
+          class="nav-label"
+        >Выйти</span>
       </button>
     </aside>
 
@@ -161,12 +196,17 @@ onMounted(() => {
             :size="18"
           />
         </button>
+        <div class="topbar-title">
+          <strong class="page-title">{{ pageTitle }}</strong>
+          <span class="topbar-date">{{ today }}</span>
+        </div>
+        <span class="topbar-spacer" />
         <div class="topbar-user">
-          <strong>{{ auth.displayName }}</strong>
+          <span class="user-name">{{ auth.displayName }}</span>
           <span
             v-if="auth.isAdmin"
             class="badge badge-info"
-          >администратор</span>
+          >админ</span>
         </div>
         <span class="topbar-spacer" />
         <button
@@ -204,6 +244,85 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 44px;
+  margin: 0 4px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.collapse-btn:hover {
+  background: var(--color-hover);
+}
+
+.topbar-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.page-title {
+  font-size: 15px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-date {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-name {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sidebar.collapsed {
+  width: 60px;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.sidebar.collapsed .sidebar-logo {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.nav-section-dot {
+  padding: 14px 0 6px;
+  text-align: center;
+}
+
+.nav-section-dot::after {
+  content: '·';
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 900px) {
+  .collapse-btn {
+    display: none;
+  }
+}
+
 .anon-area {
   min-height: 100dvh;
   display: flex;

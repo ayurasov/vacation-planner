@@ -79,19 +79,19 @@
 
 ## 6. Архитектура в нотации C4
 
-Схемы рендерятся из исходников `tools/diagrams/src/*.mmd` (`cd tools/diagrams && npm run build`); актуальные SVG/PNG — в `docs/specs/diagrams/`.
+Схемы рендерятся из исходников `tools/diagrams/src/*.mmd` (`cd tools/diagrams && npm run build`); актуальные PNG (и SVG) — в `docs/specs/diagrams/`; в документах используются PNG — единый вид в Gitea/GitHub и при печати.
 
 ### C1. Системный контекст
 
-![C1. Системный контекст](diagrams/01-c1-context.svg)
+![C1. Системный контекст](diagrams/01-c1-context.png)
 
 ### C2. Контейнеры
 
-![C2. Контейнеры](diagrams/02-c2-containers.svg)
+![C2. Контейнеры](diagrams/02-c2-containers.png)
 
 ### C3. Компоненты сервера
 
-![C3. Компоненты](diagrams/03-c3-components.svg)
+![C3. Компоненты](diagrams/03-c3-components.png)
 
 Три контейнера стенда (`web` — Nginx со статикой и прокси `/api`; `server` — NestJS на 8080; `postgres` — том `db-data`); health: `/healthz` (процесс), `/readyz` (БД). Каталоги доменов `server/src/`:
 
@@ -114,7 +114,7 @@ infra/       PrismaService, ProblemException (RFC 9457)
 
 ## 8. Состояния заявки — без изменений: `pending ⇄ approved`, переносы через `changeFrom`, удаления через `pendingDeletion`; инварианты (даты, пересечения 409, лимит, права) проверяет сервер. Диаграмма состояний и инвариантов:
 
-![Состояния заявки](diagrams/06-state-request.svg)
+![Состояния заявки](diagrams/06-state-request.png)
 
 Реализовано в v0.1.0, покрыто тест-таблицей `server/test/requests.e2e.test.ts`.
 

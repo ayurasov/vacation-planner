@@ -101,9 +101,14 @@ h1, h2, h3 {
 }
 
 .nav-item.active {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-dark);
+  background: #e6ecff;
+  color: #3860e0;
   font-weight: 600;
+}
+
+[data-theme='dark'] .nav-item.active {
+  background: #1d2f4e;
+  color: #6ea1ff;
 }
 
 .nav-item .nav-badge {

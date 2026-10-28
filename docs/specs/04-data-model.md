@@ -13,7 +13,7 @@
 
 ## 2. ER-диаграмма
 
-![ER-модель данных](diagrams/04-er-model.svg)
+![ER-модель данных](diagrams/04-er-model.png)
 
 ## 3. Сущности
 

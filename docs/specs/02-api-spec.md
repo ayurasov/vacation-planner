@@ -75,11 +75,11 @@
 
 ## 5а. Сценарии взаимодействия (sequence)
 
-![Вход и обновление токенов](diagrams/seq-02-login.svg)
+![Вход и обновление токенов](diagrams/seq-02-login.png)
 
-![Жизненный цикл заявки](diagrams/seq-01-request-flow.svg)
+![Жизненный цикл заявки](diagrams/seq-01-request-flow.png)
 
-![График отпусков](diagrams/seq-03-schedule.svg)
+![График отпусков](diagrams/seq-03-schedule.png)
 
 ## 6. Жизненный цикл заявки через API
 

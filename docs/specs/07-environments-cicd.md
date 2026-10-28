@@ -33,7 +33,7 @@ make compose-full# полный стенд: nginx :80 → api → postgres
 
 ## 3. Развёртывание
 
-![Развёртывание стенда](diagrams/05-deployment.svg)
+![Развёртывание стенда](diagrams/05-deployment.png)
 
 ## 4. Контейнеры
 

@@ -4,14 +4,6 @@ import { api, daysBetween, fmtRange, type Department, type Schedule, type Schedu
 
 const YEAR = new Date().getFullYear();
 
-interface Cell {
-  key: string;
-  date: string;
-  vacation?: { status: string; type: string };
-  work?: string;
-  weekend?: boolean;
-}
-
 const schedule = ref<Schedule | null>(null);
 const departments = ref<Department[]>([]);
 const deptFilter = ref('');
@@ -20,31 +12,20 @@ const loading = ref(true);
 const error = ref('');
 const selected = ref<ScheduleEmployee | null>(null);
 
-// Период: год, разбитый на месяцы (31×12 ячеек максимум на строку — читаемо и быстро)
 const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+const monthFull = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
 const daysInMonth = (m: number) => new Date(YEAR, m + 1, 0).getDate();
-const totalDays = computed(() => Array.from({ length: 12 }, (_, m) => daysInMonth(m)).reduce((a, b) => a + b, 0));
+const dayOfYear = (date: string) => {
+  const [y, m, d] = date.split('-').map(Number);
+  return Math.round((Date.parse(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T00:00:00Z`)
+    - Date.parse(`${YEAR}-01-01T00:00:00Z`)) / 86400000);
+};
+const TOTAL_DAYS = dayOfYear(`${YEAR}-12-31`) + 1;
+const todayIso = new Date().toISOString().slice(0, 10);
+const todayIndex = todayIso.startsWith(String(YEAR)) ? dayOfYear(todayIso) : -1;
 
-function cellFor(e: ScheduleEmployee, month: number, day: number): Cell {
-  const date = `${YEAR}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const wd = new Date(YEAR, month, day).getDay();
-  const cell: Cell = { key: `${e.id}-${date}`, date, weekend: wd === 0 || wd === 6 };
-  for (const v of e.vacations) {
-    if (date >= v.start && date <= v.end) {
-      cell.vacation = { status: v.status, type: v.type };
-      break;
-    }
-  }
-  if (!cell.vacation && e.workOverrides.length) {
-    const o = e.workOverrides.find((w) => w.date === date);
-    if (o) cell.work = o.mode;
-    else if (e.workPattern[String(wd)]) cell.work = e.workPattern[String(wd)];
-  } else if (!cell.vacation && e.workPattern[String(wd)]) {
-    cell.work = e.workPattern[String(wd)];
-  }
-  return cell;
-}
+const CELL = 13; // px на день
 
 const filtered = computed(() => {
   if (!schedule.value) return [];
@@ -58,20 +39,84 @@ const filtered = computed(() => {
 });
 
 const conflictDates = computed(() => new Set((schedule.value?.conflicts ?? []).map((c) => c.date)));
-const hasConflicts = computed(() => conflictDates.value.size > 0);
+const conflictToday = computed(() =>
+  schedule.value?.conflicts.filter((c) => c.date === todayIso).length ?? 0);
+const onVacationToday = computed(() => {
+  if (!schedule.value || todayIndex < 0) return 0;
+  return schedule.value.employees.filter((e) =>
+    e.vacations.some((v) => v.status === 'approved' && v.start <= todayIso && todayIso <= v.end)).length;
+});
+const pendingCount = computed(() =>
+  schedule.value?.employees.reduce((acc, e) => acc + e.vacations.filter((v) => v.status === 'pending').length, 0) ?? 0);
 
-function isConflict(date: string): boolean {
-  return conflictDates.value.has(date);
+interface Bar {
+  key: string;
+  left: number;
+  width: number;
+  status: string;
+  type: string;
+  title: string;
+}
+
+/** Полосы отпусков строки — одна полоса на период (а не клетка на день). */
+function bars(e: ScheduleEmployee): Bar[] {
+  return e.vacations
+    .map((v) => {
+      const start = Math.max(0, dayOfYear(v.start));
+      const end = Math.min(TOTAL_DAYS - 1, dayOfYear(v.end));
+      if (end < start) return null;
+      return {
+        key: `${e.id}-${v.requestId}`,
+        left: start * CELL,
+        width: (end - start + 1) * CELL - 2,
+        status: v.status,
+        type: v.type,
+        title: `${fmtRange(v.start, v.end)} · ${daysBetween(v.start, v.end)} к.д. · ${v.status === 'approved' ? 'согласован' : 'на согласовании'}`,
+      } satisfies Bar;
+    })
+    .filter((b): b is Bar => b !== null);
+}
+
+/** Конфликтные даты строки — красная штриховка фона (сегменты подряд). */
+function conflictSegments(e: ScheduleEmployee): Array<{ left: number; width: number }> {
+  const days = e.vacations
+    .filter((v) => v.status === 'approved')
+    .flatMap((v) => {
+      const out: string[] = [];
+      const n = daysBetween(v.start, v.end);
+      for (let i = 0; i < n; i++) {
+        const d = new Date(Date.parse(`${v.start}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10);
+        if (conflictDates.value.has(d) && d.startsWith(String(YEAR))) out.push(d);
+      }
+      return out;
+    });
+  if (!days.length) return [];
+  days.sort();
+  const segs: Array<{ left: number; width: number }> = [];
+  let startD = days[0];
+  let prev = days[0];
+  const push = (a: string, b: string) => segs.push({
+    left: dayOfYear(a) * CELL,
+    width: (dayOfYear(b) - dayOfYear(a) + 1) * CELL,
+  });
+  for (const d of days.slice(1)) {
+    const next = new Date(Date.parse(`${prev}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+    if (d !== next) {
+      push(startD, prev);
+      startD = d;
+    }
+    prev = d;
+  }
+  push(startD, prev);
+  return segs;
 }
 
 async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const from = `${YEAR}-01-01`;
-    const to = `${YEAR}-12-31`;
     const query = deptFilter.value ? `&dept=${encodeURIComponent(deptFilter.value)}` : '';
-    schedule.value = await api.get<Schedule>(`/schedule?from=${from}&to=${to}${query}`);
+    schedule.value = await api.get<Schedule>(`/schedule?from=${YEAR}-01-01&to=${YEAR}-12-31${query}`);
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -132,21 +177,56 @@ onMounted(async () => {
       {{ error }}
     </div>
 
-    <div
-      v-if="hasConflicts"
-      class="warn-banner"
-    >
-      Дни с превышением порога отсутствия в отделе: {{ [...conflictDates].slice(0, 6).join(', ') }}
-      {{ conflictDates.size > 6 ? `… всего ${conflictDates.size}` : '' }}
+    <div class="kpi-row">
+      <div class="card kpi">
+        <div class="kpi-value">
+          {{ filtered.length }}
+        </div>
+        <div class="kpi-label">
+          сотрудников в выборке
+        </div>
+      </div>
+      <div
+        class="card kpi"
+        :class="{ 'kpi-warn': onVacationToday > 0 }"
+      >
+        <div class="kpi-value">
+          {{ onVacationToday }}
+        </div>
+        <div class="kpi-label">
+          в отпуске сегодня
+        </div>
+      </div>
+      <div
+        class="card kpi"
+        :class="{ 'kpi-warn': pendingCount > 0 }"
+      >
+        <div class="kpi-value">
+          {{ pendingCount }}
+        </div>
+        <div class="kpi-label">
+          заявок на согласовании
+        </div>
+      </div>
+      <div
+        class="card kpi"
+        :class="{ 'kpi-danger': conflictToday > 0 }"
+      >
+        <div class="kpi-value">
+          {{ conflictToday }}
+        </div>
+        <div class="kpi-label">
+          конфликтов отдела сегодня
+        </div>
+      </div>
     </div>
 
     <div class="legend">
       <span class="legend-item"><span class="sw sw-approved" /> согласован</span>
       <span class="legend-item"><span class="sw sw-pending" /> на согласовании</span>
       <span class="legend-item"><span class="sw sw-maternity" /> декрет</span>
-      <span class="legend-item"><span class="sw sw-remote" /> удалёнка</span>
-      <span class="legend-item"><span class="sw sw-off" /> выходной</span>
       <span class="legend-item"><span class="sw sw-conflict" /> конфликт отдела</span>
+      <span class="legend-item"><span class="sw sw-today" /> сегодня</span>
     </div>
 
     <div
@@ -158,69 +238,75 @@ onMounted(async () => {
 
     <div
       v-else
-      class="card schedule-card scroll-thin"
+      class="card schedule-card"
     >
-      <div class="schedule-grid">
-        <!-- Шапка: имя + 12 месяцев -->
-        <div
-          class="grid-head schedule-row head-row"
-          :style="{ gridTemplateColumns: `220px repeat(${totalDays}, 10px)` }"
-        >
-          <div>Сотрудник</div>
-          <template
-            v-for="(m, mi) in monthNames"
-            :key="m"
+      <div class="schedule-scroll scroll-thin">
+        <div class="schedule-grid">
+          <div
+            class="grid-head schedule-row head-row"
+            :style="{ gridTemplateColumns: `240px ${TOTAL_DAYS * CELL}px` }"
           >
-            <div
-              class="month-label"
-              :style="{ gridColumn: `span ${daysInMonth(mi)}` }"
-            >
-              {{ m }}
+            <div class="emp-head">
+              Сотрудник
             </div>
-          </template>
-        </div>
-
-        <div
-          v-for="e in filtered"
-          :key="e.id"
-          class="grid-row schedule-row"
-          :style="{ gridTemplateColumns: `220px repeat(${totalDays}, 10px)` }"
-          @click="selected = e"
-        >
-          <div class="emp-cell">
-            <div class="emp-name">
-              {{ e.name }}
-            </div>
-            <div class="emp-dept">
-              {{ e.dept ?? 'Без отдела' }}
+            <div class="months-strip">
+              <div
+                v-for="(m, mi) in monthNames"
+                :key="m"
+                class="month-label"
+                :style="{ width: daysInMonth(mi) * CELL + 'px' }"
+                :title="monthFull[mi]"
+              >
+                {{ m }}
+              </div>
             </div>
           </div>
-          <template
-            v-for="mi in 12"
-            :key="mi"
+
+          <div
+            v-for="e in filtered"
+            :key="e.id"
+            class="grid-row schedule-row body-row"
+            :style="{ gridTemplateColumns: `240px ${TOTAL_DAYS * CELL}px` }"
+            @click="selected = e"
           >
-            <template
-              v-for="d in daysInMonth(mi - 1)"
-              :key="`${mi}-${d}`"
+            <div class="emp-cell">
+              <div class="emp-name">
+                {{ e.name }}
+              </div>
+              <div class="emp-dept">
+                {{ e.dept ?? 'Без отдела' }}
+              </div>
+            </div>
+            <div
+              class="lane"
+              :style="{ width: TOTAL_DAYS * CELL + 'px' }"
             >
+              <div class="lane-bg" />
               <div
-                class="day-cell"
-                :class="[
-                  cellFor(e, mi - 1, d).weekend ? 'weekend' : '',
-                  cellFor(e, mi - 1, d).vacation ? `vac-${cellFor(e, mi - 1, d).vacation!.status} ${cellFor(e, mi - 1, d).vacation!.type === 'maternity' ? 'vac-maternity' : ''}` : '',
-                  cellFor(e, mi - 1, d).work === 'remote' ? 'work-remote' : '',
-                  cellFor(e, mi - 1, d).work === 'off' ? 'work-off' : '',
-                  isConflict(cellFor(e, mi - 1, d).date) ? 'conflict' : '',
-                ]"
-                :title="`${e.name} · ${cellFor(e, mi - 1, d).date}`"
+                v-for="(seg, si) in conflictSegments(e)"
+                :key="'c' + si"
+                class="conflict-zone"
+                :style="{ left: seg.left + 'px', width: seg.width + 'px' }"
               />
-            </template>
-          </template>
+              <div
+                v-if="todayIndex >= 0"
+                class="today-line"
+                :style="{ left: todayIndex * CELL + CELL / 2 + 'px' }"
+              />
+              <div
+                v-for="b in bars(e)"
+                :key="b.key"
+                class="vac-bar"
+                :class="[b.status === 'approved' ? 'bar-approved' : 'bar-pending', { 'bar-maternity': b.type === 'maternity' }]"
+                :style="{ left: b.left + 'px', width: b.width + 'px' }"
+                :title="`${e.name} · ${b.title}`"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Карточка сотрудника -->
     <div
       v-if="selected"
       class="modal-overlay"
@@ -250,9 +336,7 @@ onMounted(async () => {
           <span
             class="badge"
             :class="v.status === 'approved' ? 'badge-success' : 'badge-info'"
-          >
-            {{ v.status === 'approved' ? 'согласован' : 'на согласовании' }}
-          </span>
+          >{{ v.status === 'approved' ? 'согласован' : 'на согласовании' }}</span>
           {{ fmtRange(v.start, v.end) }} · {{ daysBetween(v.start, v.end) }} к.д.
           <span
             v-if="v.type === 'maternity'"
@@ -295,21 +379,42 @@ onMounted(async () => {
 }
 
 .sw {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 10px;
   border-radius: 3px;
   display: inline-block;
 }
 
-.sw-approved { background: var(--color-primary); }
-.sw-pending { background: var(--color-warning); }
-.sw-maternity { background: #b98ae0; }
-.sw-remote { background: var(--color-primary-soft); }
-.sw-off { background: var(--color-neutral-soft); }
-.sw-conflict { background: var(--color-danger); }
+.sw-approved {
+  background: var(--color-primary);
+}
+
+.sw-pending {
+  background: repeating-linear-gradient(45deg, var(--color-warning) 0 4px, #f3cd8a 4px 8px);
+}
+
+.sw-maternity {
+  background: #8e6fc1;
+}
+
+.sw-conflict {
+  background: repeating-linear-gradient(90deg, transparent 0 3px, var(--color-danger) 3px 5px);
+}
+
+.sw-today {
+  background: var(--color-danger);
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+}
 
 .schedule-card {
-  overflow-x: auto;
+  overflow: hidden;
+}
+
+.schedule-scroll {
+  overflow: auto;
+  max-height: calc(100dvh - 340px);
 }
 
 .schedule-grid {
@@ -317,24 +422,59 @@ onMounted(async () => {
 }
 
 .schedule-row {
-  padding: 3px 10px;
+  padding: 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .head-row {
   position: sticky;
   top: 0;
   background: var(--color-surface);
+  z-index: 3;
+}
+
+.emp-head {
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  position: sticky;
+  left: 0;
+  background: var(--color-surface);
   z-index: 2;
 }
 
+.months-strip {
+  display: flex;
+}
+
 .month-label {
-  font-size: 10.5px;
+  font-size: 11px;
+  color: var(--color-text-muted);
   text-align: center;
+  padding: 8px 0;
+  border-left: 1px solid var(--color-border);
   overflow: hidden;
+  white-space: nowrap;
+}
+
+.body-row {
+  cursor: pointer;
+}
+
+.body-row:hover {
+  background: var(--color-row-hover);
 }
 
 .emp-cell {
+  padding: 6px 12px;
+  position: sticky;
+  left: 0;
+  background: var(--color-surface);
+  z-index: 2;
   min-width: 0;
+  border-right: 1px solid var(--color-border);
 }
 
 .emp-name {
@@ -352,25 +492,64 @@ onMounted(async () => {
   text-overflow: ellipsis;
 }
 
-.day-cell {
-  width: 10px;
-  height: 18px;
-  border-radius: 2px;
-  background: transparent;
+.lane {
+  position: relative;
+  height: 30px;
 }
 
-.day-cell.weekend:not(.vac-approved):not(.vac-pending):not(.work-remote):not(.work-off) {
-  background: var(--color-neutral-soft);
+.lane-bg {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 12px, var(--color-neutral-soft) 12px 13px);
   opacity: 0.5;
 }
 
-.vac-approved { background: var(--color-primary); }
-.vac-approved.vac-maternity { background: #b98ae0; }
-.vac-pending { background: var(--color-warning); }
-.vac-pending.vac-maternity { background: #d9bdf0; }
-.work-remote { background: var(--color-primary-soft); }
-.work-off { background: var(--color-neutral-soft); }
-.day-cell.conflict { outline: 1px solid var(--color-danger); }
+.conflict-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 3px, var(--color-danger) 3px 5px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-danger);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.vac-bar {
+  position: absolute;
+  top: 7px;
+  height: 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.bar-approved {
+  background: var(--color-primary);
+}
+
+.bar-approved:hover {
+  background: var(--color-primary-dark);
+}
+
+.bar-pending {
+  background: repeating-linear-gradient(45deg, var(--color-warning) 0 4px, #f3cd8a 4px 8px);
+}
+
+.bar-maternity {
+  background: #8e6fc1;
+}
+
+.bar-maternity:hover {
+  background: #7a5cb0;
+}
 
 .vac-line {
   display: flex;
@@ -381,6 +560,12 @@ onMounted(async () => {
   border-bottom: 1px solid var(--color-border);
 }
 
-.vac-line:last-child { border-bottom: none; }
-.muted { color: var(--color-text-muted); font-size: 12.5px; }
+.vac-line:last-child {
+  border-bottom: none;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
 </style>
