@@ -4,6 +4,8 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { hashPassword, verifyPassword } from './passwords';
 import { TokenService } from './token.service';
+import { oidcConfig } from './oidc';
+import { AuditService } from '../audit/audit.service';
 
 export interface LoginResult {
   accessToken: string;
@@ -17,6 +19,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
+    private readonly audit: AuditService,
   ) {}
 
   async login(login: string, password: string): Promise<LoginResult> {
@@ -27,6 +30,11 @@ export class AuthService {
     // Единая ошибка: не раскрываем, что именно неверно
     if (!employee || !verifyPassword(password, employee.passwordHash)) {
       throw new ProblemException('auth/invalid-credentials');
+    }
+    // С единым входом пароль можно отключить; администраторам он остаётся — аварийный доступ
+    const sso = oidcConfig();
+    if (sso.enabled && !sso.localLogin && !employee.isAdmin) {
+      throw new ProblemException('auth/forbidden', 'Вход по паролю отключён — войдите через корпоративную учётную запись');
     }
     const pwv = employee.pwVersion;
     const access = this.tokens.signAccess({
@@ -42,6 +50,14 @@ export class AuthService {
       refreshToken: refresh.token,
       user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
     };
+  }
+
+  /** Вход через единый вход: сотрудник найден по логину из утверждений провайдера. */
+  async loginByLogin(login: string): Promise<LoginResult | null> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { login: { equals: login, mode: 'insensitive' }, isActive: true }, select: { id: true },
+    });
+    return employee ? this.issueFor(employee.id) : null;
   }
 
   /** Ротация refresh: старый отзывается, выдаётся новая пара. */
@@ -71,15 +87,34 @@ export class AuthService {
     await this.setPassword(userId, newPassword);
   }
 
-  async setPassword(userId: number, newPassword: string): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.employee.update({
+  /** Смена пароля; `resetBy` — кто сбросил чужой пароль (попадает в аудит, сам пароль — нет). */
+  async setPassword(userId: number, newPassword: string, resetBy?: number): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.employee.update({
         where: { id: userId },
         data: { passwordHash: hashPassword(newPassword), pwVersion: { increment: 1 } },
-      }),
+      });
       // Смена пароля отзывает все refresh-токены
-      this.prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
-    ]);
+      await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+      if (resetBy !== undefined) {
+        await this.audit.record(tx, {
+          actorId: resetBy, action: 'employee.password_reset', entity: 'employee', entityId: userId,
+        });
+      }
+    });
+  }
+
+  async setPreferences(userId: number, emailNotifications: boolean): Promise<Employee & { subordinates: number[] }> {
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.employee.findUniqueOrThrow({ where: { id: userId } });
+      if (before.emailNotifications === emailNotifications) return;
+      await tx.employee.update({ where: { id: userId }, data: { emailNotifications } });
+      await this.audit.record(tx, {
+        actorId: userId, action: 'employee.preferences_updated', entity: 'employee', entityId: userId,
+        before: { emailNotifications: before.emailNotifications }, after: { emailNotifications },
+      });
+    });
+    return this.me(userId);
   }
 
   async me(userId: number): Promise<Employee & { subordinates: number[] }> {

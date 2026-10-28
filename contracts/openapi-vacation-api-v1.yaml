@@ -46,6 +46,8 @@ tags:
     description: Журнал изменений (только чтение)
   - name: reports
     description: Выгрузки и отчёты
+  - name: imports
+    description: Импорт сотрудников и остатков (кадровая служба, администратор)
 
 paths:
   /auth/login:
@@ -135,6 +137,72 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [auth]
+      operationId: updateMyPreferences
+      summary: Личные настройки — письма о заявках
+      description: Отписка действует и на письма о заявках, и на еженедельную сводку; изменение пишется в аудит.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emailNotifications]
+              properties:
+                emailNotifications: { type: boolean }
+      responses:
+        '200':
+          description: Обновлённый профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/Problem' }
+
+  /auth/oidc/config:
+    get:
+      tags: [auth]
+      operationId: getSsoConfig
+      summary: Единый вход — включён ли, подпись кнопки, разрешён ли вход по паролю
+      security: []
+      responses:
+        '200':
+          description: Настройки экрана входа
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  label: { type: string, description: 'Подпись: «Войти через …»' }
+                  localLogin: { type: boolean, description: 'false — пароль только у администраторов (LOCAL_LOGIN=false)' }
+
+  /auth/oidc/start:
+    get:
+      tags: [auth]
+      operationId: startSso
+      summary: Начать вход через провайдер OpenID Connect
+      description: Authorization code + PKCE (S256); state, nonce и verifier — в подписанной httpOnly-cookie на 10 минут.
+      security: []
+      responses:
+        '302': { description: 'Перенаправление на страницу входа провайдера или на /login?sso=disabled|unavailable' }
+
+  /auth/oidc/callback:
+    get:
+      tags: [auth]
+      operationId: ssoCallback
+      summary: Возврат от провайдера
+      description: |
+        Код меняется на токены, id_token проверяется (подпись по JWKS, issuer, audience, срок, nonce),
+        сотрудник ищется по логину из утверждения OIDC_LOGIN_CLAIM. Успех — refresh-cookie и 302 на /schedule;
+        отказ — 302 на /login?sso=cancelled|expired|invalid|unknown.
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302': { description: В приложение или на экран входа с кодом причины }
 
   /employees:
     get:
@@ -768,6 +836,26 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+
+  /settings/test-email:
+    post:
+      tags: [settings]
+      operationId: sendTestEmail
+      summary: Проверочное письмо администратору (проверка SMTP после развёртывания)
+      description: Письмо ставится в очередь и сразу отправляется на email администратора; ответ сообщает результат.
+      responses:
+        '200':
+          description: Результат отправки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  to: { type: string, format: email }
+                  sent: { type: boolean }
+                  error: { type: [string, 'null'], description: Ответ SMTP-сервера при неудаче }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
   /calendar/holidays/{year}:
     get:
       tags: [calendar]
@@ -783,6 +871,39 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ProductionCalendar' }
         '400': { $ref: '#/components/responses/Problem' }
+    put:
+      tags: [calendar]
+      operationId: setHolidays
+      summary: Загрузить или изменить календарь года (кадровая служба, администратор)
+      description: Даты сортируются, повторы убираются; праздники — только этого года. Изменение пишется в аудит (calendar.created / calendar.updated).
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer, minimum: 2024, maximum: 2100 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [holidays, transfers]
+              properties:
+                holidays: { type: array, maxItems: 60, items: { type: string, format: date } }
+                transfers:
+                  type: array
+                  maxItems: 30
+                  items:
+                    type: object
+                    required: [from, to]
+                    properties:
+                      from: { type: string, format: date, description: Выходной, который становится рабочим }
+                      to: { type: string, format: date, description: Рабочий день, который становится выходным }
+      responses:
+        '200':
+          description: Сохранённый календарь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionCalendar' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
 
   /notifications:
     get:
@@ -830,6 +951,60 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuditEventPage' }
         '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /imports/employees:
+    post:
+      tags: [imports]
+      operationId: importEmployees
+      summary: Импорт сотрудников и остатков — предпросмотр или применение
+      description: |
+        Файл XLSX/CSV (multipart, поле `file`, до 2 МБ) или JSON `{ rows }` для синхронизации с кадровой системой.
+        Строка сопоставляется с сотрудником по логину, без логина — по ФИО; новый сотрудник получает логин транслитом.
+        Пустая ячейка значение не меняет; повторная загрузка того же файла ничего не меняет.
+        `dryRun=true` (по умолчанию) — только план; `dryRun=false` — применение одной транзакцией с аудитом,
+        только если в плане нет ошибок. Пароли созданных возвращаются один раз.
+      parameters:
+        - { name: dryRun, in: query, schema: { type: boolean, default: true } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+          application/json:
+            schema:
+              type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  maxItems: 5000
+                  items: { $ref: '#/components/schemas/ImportRowInput' }
+      responses:
+        '200':
+          description: План импорта; при dryRun=false — применённый
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /imports/employees/template:
+    get:
+      tags: [imports]
+      operationId: getImportTemplate
+      summary: Шаблон XLSX для импорта сотрудников
+      responses:
+        '200':
+          description: Книга XLSX с листами «Сотрудники» и «Пояснения»
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
         '403': { $ref: '#/components/responses/Problem' }
 
   /reports/vacations:
@@ -1084,35 +1259,45 @@ components:
           properties:
             approveSubordinates: { type: array, items: { type: integer }, description: Идентификаторы подчинённых }
             isAdmin: { type: boolean }
+            isHr: { type: boolean, description: Кадровая служба }
+            manageStaff: { type: boolean, description: 'Сотрудники, импорт, календарь, выгрузки, аудит (администратор или кадровая служба)' }
             manageDirectories: { type: boolean }
+            manageSettings: { type: boolean, description: Настройки организации — только администратор }
 
     Employee:
       type: object
       properties:
         id: { type: integer }
         name: { type: string }
-        position: { type: string }
-        dept: { type: string }
+        email: { type: [string, 'null'], format: email }
+        emailNotifications: { type: boolean, description: 'Письма о заявках и сводки (в ответе /auth/me)' }
+        position: { type: [string, 'null'] }
+        deptId: { type: [integer, 'null'] }
+        deptName: { type: [string, 'null'] }
         role: { type: string, enum: [employee, manager] }
         isAdmin: { type: boolean }
+        isHr: { type: boolean, description: Кадровая служба }
         empType: { type: string, enum: [staff, ipsz], description: 'ipsz — ИП/самозанятый, отпуск не предусмотрен' }
-        manager: { type: [integer, 'null'] }
+        managerId: { type: [integer, 'null'] }
         projectId: { type: [integer, 'null'] }
         login: { type: string }
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
+        isActive: { type: boolean }
 
     EmployeeCreate:
       type: object
       required: [name]
       properties:
         name: { type: string, minLength: 3, maxLength: 128 }
+        email: { type: string, format: email }
         position: { type: string, maxLength: 128 }
-        dept: { type: string, maxLength: 128 }
+        deptId: { type: integer }
         role: { type: string, enum: [employee, manager], default: employee }
-        isAdmin: { type: boolean, default: false }
+        isAdmin: { type: boolean, default: false, description: Выдаёт только администратор }
+        isHr: { type: boolean, default: false, description: Выдаёт только администратор }
         empType: { type: string, enum: [staff, ipsz], default: staff }
-        manager: { type: [integer, 'null'] }
+        managerId: { type: integer }
         projectId: { type: [integer, 'null'] }
         login: { type: string, maxLength: 64, description: 'Не задан — генерируется транслитом ФИО' }
         password: { type: string, minLength: 8, description: 'Не задан — генерируется, возвращается один раз' }
@@ -1124,12 +1309,14 @@ components:
       minProperties: 1
       properties:
         name: { type: string, minLength: 3, maxLength: 128 }
+        email: { type: string, format: email }
         position: { type: string, maxLength: 128 }
-        dept: { type: string, maxLength: 128 }
+        deptId: { type: [integer, 'null'] }
         role: { type: string, enum: [employee, manager] }
-        isAdmin: { type: boolean }
+        isAdmin: { type: boolean, description: Меняет только администратор }
+        isHr: { type: boolean, description: Меняет только администратор }
         empType: { type: string, enum: [staff, ipsz] }
-        manager: { type: [integer, 'null'] }
+        managerId: { type: [integer, 'null'] }
         projectId: { type: [integer, 'null'] }
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
@@ -1272,6 +1459,7 @@ components:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80, description: 'Порог доли отсутствующих в отделе для конфликта, %' }
         timezone: { type: string, default: 'Europe/Moscow' }
         defaultPlannedDays: { type: integer, default: 28 }
+        mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
       type: object
@@ -1280,6 +1468,54 @@ components:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80 }
         timezone: { type: string }
         defaultPlannedDays: { type: integer, minimum: 20, maximum: 60 }
+
+    ImportRowInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: ФИО }
+        login: { type: string }
+        position: { type: string }
+        dept: { type: string, description: Название отдела; новый создаётся }
+        manager: { type: string, description: Логин или ФИО руководителя }
+        plannedDays: { type: [number, string] }
+        carryOver: { type: [number, string] }
+        empType: { type: string, description: '«штат» или «ИП/самозанятый»' }
+        email: { type: string, format: email }
+
+    ImportResult:
+      type: object
+      properties:
+        applied: { type: boolean }
+        summary:
+          type: object
+          properties:
+            create: { type: integer }
+            update: { type: integer }
+            unchanged: { type: integer }
+            error: { type: integer }
+        newDepartments: { type: array, items: { type: string } }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              line: { type: integer, description: Номер строки файла }
+              action: { type: string, enum: [create, update, unchanged, error] }
+              name: { type: string }
+              login: { type: string }
+              employeeId: { type: integer }
+              changes: { type: object, additionalProperties: { type: object, properties: { before: {}, after: {} } } }
+              errors: { type: array, items: { type: string } }
+        credentials:
+          type: array
+          description: Логины и одноразовые пароли созданных сотрудников — только в ответе применения
+          items:
+            type: object
+            properties:
+              login: { type: string }
+              name: { type: string }
+              password: { type: string }
 
     ProductionCalendar:
       type: object

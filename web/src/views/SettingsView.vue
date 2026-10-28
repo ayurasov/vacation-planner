@@ -20,6 +20,34 @@ const oldPassword = ref('');
 const newPassword = ref('');
 const newPassword2 = ref('');
 const savingPw = ref(false);
+const savingMail = ref(false);
+const testingMail = ref(false);
+
+async function toggleLetters(ev: Event): Promise<void> {
+  const on = (ev.target as HTMLInputElement).checked;
+  savingMail.value = true;
+  try {
+    auth.me = await api.patch('/auth/me', { emailNotifications: on });
+    ui.toast(on ? 'Письма о заявках включены' : 'Письма о заявках отключены');
+  } catch (e) {
+    ui.error(e);
+  } finally {
+    savingMail.value = false;
+  }
+}
+
+async function testEmail(): Promise<void> {
+  testingMail.value = true;
+  try {
+    const r = await api.post<{ to: string; sent: boolean; error: string | null }>('/settings/test-email');
+    if (r.sent) ui.toast(`Проверочное письмо отправлено на ${r.to}`);
+    else ui.toast(`Письмо не отправлено: ${r.error ?? 'неизвестная ошибка'}. Повтор — автоматически.`, 'error');
+  } catch (e) {
+    ui.error(e);
+  } finally {
+    testingMail.value = false;
+  }
+}
 
 const THEMES: Array<{ key: ThemeChoice; label: string; icon: string }> = [
   { key: 'system', label: 'Как в системе', icon: 'monitor' },
@@ -200,6 +228,58 @@ onMounted(async () => {
       </form>
     </div>
 
+    <section class="card">
+      <div class="card-header">
+        <span class="section-title"><AppIcon
+          name="mail"
+          :size="16"
+        /> Письма о заявках</span>
+        <span
+          v-if="settings && !settings.mailEnabled"
+          class="soft small"
+        >почта на сервере не настроена</span>
+      </div>
+      <div class="card-body mail">
+        <label class="checkbox">
+          <input
+            type="checkbox"
+            :checked="auth.me?.employee.emailNotifications"
+            :disabled="savingMail || !auth.me?.employee.email"
+            @change="toggleLetters"
+          >
+          <span>
+            Присылать письма: новые заявки подчинённых, решения по моим заявкам<template v-if="auth.isApprover">, сводка по пятницам об отпусках команды на следующей неделе</template>
+          </span>
+        </label>
+        <div class="field-hint">
+          <template v-if="auth.me?.employee.email">
+            Адрес: <span class="mono">{{ auth.me.employee.email }}</span>. Уведомления в колокольчике приходят в любом случае.
+          </template>
+          <template v-else>
+            Адрес почты не указан — его вносит кадровая служба в карточке сотрудника.
+          </template>
+        </div>
+        <div
+          v-if="auth.isAdmin"
+          class="mail-admin"
+        >
+          <button
+            class="btn btn-sm"
+            type="button"
+            :disabled="testingMail || !settings?.mailEnabled || !auth.me?.employee.email"
+            :title="!settings?.mailEnabled ? 'Задайте SMTP_HOST и параметры SMTP в окружении сервера' : ''"
+            @click="testEmail"
+          >
+            <AppIcon
+              name="mail"
+              :size="14"
+            /> Проверочное письмо себе
+          </button>
+          <span class="soft small">проверка SMTP после развёртывания</span>
+        </div>
+      </div>
+    </section>
+
     <form
       v-if="auth.isAdmin && settings"
       class="card"
@@ -301,6 +381,19 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 14px;
+}
+
+.mail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mail-admin {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
 }
 
 .grid-2 .card + .card {

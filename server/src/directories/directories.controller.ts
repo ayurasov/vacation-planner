@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
+import { assertStaff } from '../auth/access';
 import { CurrentUser } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
 
@@ -52,10 +53,9 @@ export class GroupDto {
     members?: number[];
 }
 
+/** Оргструктуру ведут администратор и кадровая служба. */
 async function adminOr(user: AccessClaims, prisma: PrismaService): Promise<number> {
-  const me = await prisma.employee.findUnique({ where: { id: user.sub } });
-  if (!me?.isAdmin) throw new ProblemException('auth/forbidden');
-  return me.id;
+  return (await assertStaff(prisma, user, 'hr')).id;
 }
 
 @ApiTags('directories')

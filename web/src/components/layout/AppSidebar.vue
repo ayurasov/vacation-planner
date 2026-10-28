@@ -38,9 +38,9 @@ const sections = computed(() => {
       items: [{ path: '/approvals', label: 'Заявки', icon: 'approvals', badge: approvals.pending }],
     });
   }
-  if (auth.isAdmin) {
+  if (auth.isStaff) {
     out.push({
-      title: 'Администрирование',
+      title: auth.isAdmin ? 'Администрирование' : 'Кадровая служба',
       items: [
         { path: '/employees', label: 'Сотрудники', icon: 'user' },
         { path: '/directories', label: 'Справочники', icon: 'building' },

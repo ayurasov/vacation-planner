@@ -33,7 +33,7 @@
 | `make docs-diagrams` / `make docs` | Схемы в PNG / комплект документов в PDF и DOCX |
 | `make compose-full` | Полный стенд в контейнерах на `:80` |
 
-Секреты — только в `server/.env` (образец `.env.example`): `DATABASE_URL`, `JWT_SECRET` не короче 32 символов. В git их нет.
+Секреты — только в `.env` (образец `.env.example`): `DATABASE_URL`, `JWT_SECRET` не короче 32 символов, с v0.4.0 — `SMTP_PASSWORD` и `OIDC_CLIENT_SECRET`. В git их нет. Почта и единый вход необязательны: без `SMTP_HOST` и `OIDC_ISSUER` стенд работает с уведомлениями в интерфейсе и входом по паролю.
 
 # Конвейеры непрерывной интеграции
 

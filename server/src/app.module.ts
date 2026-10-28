@@ -17,6 +17,8 @@ import { AuditApiModule } from './audit/audit.api.module';
 import { HealthModule } from './health/health.module';
 import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ImportsModule } from './imports/imports.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -30,11 +32,13 @@ import { AnalyticsModule } from './analytics/analytics.module';
     ScheduleModule,
     CalendarModule,
     SettingsModule,
+    MailModule,
     NotificationsModule,
     AuditApiModule,
     HealthModule,
     ReportsModule,
     AnalyticsModule,
+    ImportsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },

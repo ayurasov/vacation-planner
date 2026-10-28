@@ -2,6 +2,31 @@
 
 Формат: Keep a Changelog. Версии — `v0.x.y` до релиза (см. docs/versions.md). PDF-версия комплекта документов — docs/pdf/.
 
+## [0.4.0] — 2026-10-29
+
+Ветка `v0.4.0`, автор ayurasov.
+
+### Добавлено
+
+- **Роль кадровой службы** (`employees.is_hr`, `auth/access.ts`): сотрудники, импорт, оргструктура, календарь, выгрузки и аналитика организации, аудит; права читаются из БД на каждый запрос.
+- **Импорт сотрудников** (`server/src/imports`): `POST /imports/employees` (XLSX/CSV или JSON, `dryRun`), шаблон XLSX; план — чистая функция `plan.ts`; применение одной транзакцией с аудитом.
+- **Производственный календарь**: `PUT /calendar/holidays/{year}`; редактор в «Справочниках», разбор xmlcalendar.ru и CSV (`web/src/lib/calendar.ts`).
+- **Письма** (`server/src/mail`): `email_outbox`, `job_runs`, отправка через SMTP (nodemailer) с арендой и повторами, пятничная сводка руководителям, `PATCH /auth/me`, `POST /settings/test-email`.
+- **Единый вход OIDC** (`auth/oidc.ts`, `oidc.controller.ts`): `GET /auth/oidc/config|start|callback`, PKCE, проверка id_token по JWKS, `LOCAL_LOGIN`.
+- `employees.email` (уникален без учёта регистра), `employees.email_notifications`.
+- Тесты: staff.e2e, import.unit, import.e2e, mail.e2e, oidc.e2e, calendar.spec; Playwright staff.spec.
+
+### Изменено
+
+- Календарь различает праздники ст. 112 и переносы: `WorkCalendar` в аналитике, фон графиков на клиенте.
+- Тексты уведомлений с датами по-русски; отказ в переносе и удалении называет, что остаётся в силе.
+- `overrides`: multer 2.5.0, js-yaml 5.5.0; классификатор лицензий: MIT-0, PSF-2.0.
+
+### Исправлено
+
+- Демо-календари 2026–2027: миграция `calendar_holidays_by_law`.
+- Аудит сброса пароля; 413 и P2002 — коды каталога вместо 500; схема `Employee` в контракте.
+
 ## [0.3.0] — 2026-10-28
 
 Ветка `v0.3.0`, автор ayurasov (исполнение — ИИ-ассистент Claude Code).

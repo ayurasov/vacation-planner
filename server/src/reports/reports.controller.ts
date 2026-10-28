@@ -46,12 +46,12 @@ export class ReportsController {
       include: { dept: true, subordinates: { select: { id: true } } },
     });
     if (!me) throw new ProblemException('not-found');
-    // Администратор — вся организация; руководитель отдела — свой отдел;
+    // Администратор и кадровая служба — вся организация; руководитель отдела — свой отдел;
     // руководитель без отдела в подчинении — только прямые подчинённые и он сам.
     // (До v0.3.0 последний случай получал выгрузку всей организации.)
     let scope: Prisma.VacationRequestWhereInput = {};
     let scopeLabel = 'organization';
-    if (!me.isAdmin) {
+    if (!me.isAdmin && !me.isHr) {
       const isDeptManager = me.dept?.managerId === me.id;
       const hasSubordinates = me.subordinates.length > 0;
       if (!isDeptManager && !hasSubordinates) {

@@ -31,6 +31,14 @@ const shot = async (page, name, opts = {}) => {
 }
 const go = async (page, path) => { await page.goto(`${base}${path}`); await page.waitForLoadState('networkidle'); await page.waitForTimeout(600) }
 
+// ── Экран входа с единым входом: ответ настроек подменяется, провайдер не нужен
+const sso = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.5, locale: 'ru-RU', colorScheme: 'light' })
+await sso.route('**/api/v1/auth/oidc/config', (r) => r.fulfill({ json: { enabled: true, label: 'корпоративную учётную запись', localLogin: true } }))
+await sso.goto(`${base}/login`)
+await sso.waitForSelector('text=Войти через')
+await shot(sso, 'login-sso')
+await sso.close()
+
 // ── Светлая тема, рабочий стол
 const page = await session({ colorScheme: 'light' })
 await shot(page, 'login')
@@ -68,10 +76,29 @@ await go(page, '/work-schedule')
 await shot(page, 'work-schedule')
 await go(page, '/employees')
 await shot(page, 'employees')
+// Импорт: предпросмотр файла с изменением, новым сотрудником и ошибкой — без применения
+await page.getByRole('button', { name: 'Импорт' }).click()
+await page.locator('.dropzone input[type=file]').setInputFiles({
+  name: 'sotrudniki.csv', mimeType: 'text/csv',
+  buffer: Buffer.from([
+    'ФИО;Логин;Должность;Отдел;Руководитель;Норма дней;Перенос;Тип занятости;Email',
+    'Балашова Анастасия Владимировна;balashova.av;;;;;5;;balashova@example.ru',
+    'Новикова Ольга Игоревна;;Аналитик;Служба персонала;balashova.av;28;0;штат;novikova@example.ru',
+    'Петров;;;;;много;;;',
+  ].join('\n')),
+})
+await page.waitForSelector('.summary')
+await page.waitForTimeout(300)
+await shot(page, 'import')
+await page.getByRole('button', { name: 'Отмена' }).click()
 await go(page, '/directories')
 await page.getByRole('button', { name: 'Производственный календарь' }).click()
 await page.waitForTimeout(400)
 await shot(page, 'calendar')
+await page.getByRole('button', { name: 'Изменить' }).click()
+await page.waitForTimeout(300)
+await shot(page, 'calendar-edit')
+await page.getByRole('button', { name: 'Отмена' }).click()
 await go(page, '/settings')
 await shot(page, 'settings')
 await go(page, '/audit')

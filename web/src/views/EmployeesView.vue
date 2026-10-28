@@ -2,13 +2,18 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, type Department, type Employee, type Page } from '@/api/client';
 import { useUiStore } from '@/stores/ui';
+import { useAuthStore } from '@/stores/auth';
 import { fmtNumber } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import VacationForm from '@/components/VacationForm.vue';
+import ImportDialog from '@/components/ImportDialog.vue';
 
 const ui = useUiStore();
+const auth = useAuthStore();
+/** Кадровая служба не меняет учётные записи администраторов и коллег по службе — сервер проверяет то же. */
+const canTouch = (e: Employee) => auth.isAdmin || (!e.isAdmin && (!e.isHr || e.id === auth.me?.employee.id));
 const PER_PAGE = 50;
 
 const employees = ref<Employee[]>([]);
@@ -29,12 +34,13 @@ const busy = ref(false);
 const formError = ref('');
 const managers = ref<Employee[]>([]);
 const emptyForm = () => ({
-  name: '', position: '', deptId: null as number | null, managerId: null as number | null,
-  role: 'employee', empType: 'staff', isAdmin: false, plannedDays: 28, carryOver: 0, login: '', password: '',
+  name: '', email: '', position: '', deptId: null as number | null, managerId: null as number | null,
+  role: 'employee', empType: 'staff', isAdmin: false, isHr: false, plannedDays: 28, carryOver: 0, login: '', password: '',
 });
 const form = ref(emptyForm());
 const secret = ref<{ title: string; login: string; password: string } | null>(null);
 const vacationFor = ref<Employee | null>(null);
+const importOpen = ref(false);
 
 async function reload(): Promise<void> {
   loading.value = true;
@@ -82,8 +88,8 @@ function openCreate(): void {
 function openEdit(e: Employee): void {
   editing.value = e;
   form.value = {
-    name: e.name, position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
-    role: e.role, empType: e.empType, isAdmin: e.isAdmin, plannedDays: e.plannedDays, carryOver: e.carryOver,
+    name: e.name, email: e.email ?? '', position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
+    role: e.role, empType: e.empType, isAdmin: e.isAdmin, isHr: e.isHr, plannedDays: e.plannedDays, carryOver: e.carryOver,
     login: e.login, password: '',
   };
   formError.value = '';
@@ -96,8 +102,10 @@ async function save(): Promise<void> {
   formError.value = '';
   const f = form.value;
   const payload = {
-    name: f.name.trim(), position: f.position.trim() || undefined, deptId: f.deptId, managerId: f.managerId,
-    role: f.role, empType: f.empType, isAdmin: f.isAdmin,
+    name: f.name.trim(), email: f.email.trim() || (editing.value ? null : undefined), position: f.position.trim() || undefined, deptId: f.deptId, managerId: f.managerId,
+    role: f.role, empType: f.empType,
+    // служебные права выдаёт только администратор
+    ...(auth.isAdmin ? { isAdmin: f.isAdmin, isHr: f.isHr } : {}),
     plannedDays: Math.round(Number(f.plannedDays)), carryOver: Math.round(Number(f.carryOver)),
   };
   try {
@@ -229,6 +237,17 @@ onMounted(async () => {
           >
         </div>
         <button
+          class="btn"
+          type="button"
+          title="Импорт сотрудников и остатков из XLSX или CSV"
+          @click="importOpen = true"
+        >
+          <AppIcon
+            name="upload"
+            :size="15"
+          /> Импорт
+        </button>
+        <button
           class="btn btn-primary"
           type="button"
           @click="openCreate"
@@ -313,6 +332,10 @@ onMounted(async () => {
                     class="badge badge-violet"
                   >администратор</span>
                   <span
+                    v-if="e.isHr"
+                    class="badge badge-success"
+                  >кадровая служба</span>
+                  <span
                     v-if="e.role === 'manager'"
                     class="badge badge-info"
                   >руководитель</span>
@@ -321,7 +344,7 @@ onMounted(async () => {
                     class="badge badge-warning"
                   >ИП / самозанятый</span>
                   <span
-                    v-if="!e.isAdmin && e.role !== 'manager' && e.empType !== 'ipsz'"
+                    v-if="!e.isAdmin && !e.isHr && e.role !== 'manager' && e.empType !== 'ipsz'"
                     class="soft small"
                   >сотрудник</span>
                 </div>
@@ -334,7 +357,24 @@ onMounted(async () => {
               </td>
               <td><span class="mono muted">{{ e.login }}</span></td>
               <td class="actions">
-                <div class="row-actions">
+                <div
+                  v-if="!canTouch(e)"
+                  class="row-actions"
+                >
+                  <span
+                    class="soft small"
+                    title="Учётные записи администраторов и кадровой службы меняет администратор"
+                  >
+                    <AppIcon
+                      name="shield"
+                      :size="15"
+                    />
+                  </span>
+                </div>
+                <div
+                  v-else
+                  class="row-actions"
+                >
                   <button
                     class="btn btn-icon btn-sm btn-ghost"
                     type="button"
@@ -347,7 +387,7 @@ onMounted(async () => {
                     />
                   </button>
                   <button
-                    v-if="e.empType !== 'ipsz'"
+                    v-if="e.empType !== 'ipsz' && auth.isAdmin"
                     class="btn btn-icon btn-sm btn-ghost"
                     type="button"
                     title="Оформить отпуск"
@@ -473,6 +513,17 @@ onMounted(async () => {
               placeholder="Иванов Иван Иванович"
             >
           </div>
+          <div class="field">
+            <label for="e-email">Email <span class="soft">(для писем о заявках)</span></label>
+            <input
+              id="e-email"
+              v-model="form.email"
+              class="input"
+              type="email"
+              autocomplete="off"
+              placeholder="ivanov@company.ru"
+            >
+          </div>
           <div class="field-row">
             <div class="field">
               <label for="e-pos">Должность</label>
@@ -572,7 +623,19 @@ onMounted(async () => {
                 false-value="employee"
               > Руководитель
             </label>
-            <label class="checkbox">
+            <label
+              v-if="auth.isAdmin"
+              class="checkbox"
+            >
+              <input
+                v-model="form.isHr"
+                type="checkbox"
+              > Кадровая служба
+            </label>
+            <label
+              v-if="auth.isAdmin"
+              class="checkbox"
+            >
               <input
                 v-model="form.isAdmin"
                 type="checkbox"
@@ -626,6 +689,12 @@ onMounted(async () => {
         </div>
       </form>
     </div>
+
+    <ImportDialog
+      v-if="importOpen"
+      @close="importOpen = false"
+      @done="reload"
+    />
 
     <VacationForm
       v-if="vacationFor"

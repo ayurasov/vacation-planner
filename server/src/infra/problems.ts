@@ -75,8 +75,20 @@ export class ProblemFilter implements ExceptionFilter {
         .json(exception.toProblem(req.originalUrl));
       return;
     }
+    // Нарушение уникальности при гонке (два импорта, два создания с одним логином) —
+    // данные изменились параллельно: 409 из каталога, а не 500
+    if ((exception as { code?: unknown })?.code === 'P2002') {
+      const p = new ProblemException('stale-state', 'Запись с такими данными только что создана другим запросом — обновите страницу и повторите');
+      res.status(p.getStatus()).contentType('application/problem+json').json(p.toProblem(req.originalUrl));
+      return;
+    }
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
+      if (status === 413) {
+        const p = new ProblemException('validation/invalid-field', 'Файл слишком большой: не больше 2 МБ');
+        res.status(p.getStatus()).contentType('application/problem+json').json(p.toProblem(req.originalUrl));
+        return;
+      }
       if (status === 400) {
         // Ошибки валидации пайплайна — единый код каталога
         const body = exception.getResponse();
