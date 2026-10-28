@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import { api, type Department, type Schedule, type ScheduleEmployee } from '@/api/client';
+import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
 import { useUiStore } from '@/stores/ui';
@@ -31,6 +31,9 @@ const error = ref('');
 const selected = ref<ScheduleEmployee | null>(null);
 const collapsedDepts = ref<Set<string>>(new Set());
 const scroller = ref<HTMLElement | null>(null);
+const threshold = ref(0.5);
+const showWorkMode = ref(false);
+const picked = ref<Set<number>>(new Set());
 
 type Zoom = 'year' | 'quarter' | 'month';
 const ZOOM: Record<Zoom, { day: number; label: string }> = {
@@ -108,6 +111,51 @@ const stats = computed(() => {
   };
 });
 
+/** Нагрузка выборки по дням: доля в согласованном отпуске (рабочие дни), для полосы над графиком. */
+const dailyLoad = computed(() => {
+  const list = filtered.value;
+  const n = list.length || 1;
+  return days.value.map((d) => {
+    if (d.weekend || d.holiday) return { i: d.i, ratio: -1, absent: 0 };
+    const absent = list.filter((e) => isAbsent(e.vacations, d.iso)).length;
+    return { i: d.i, ratio: absent / n, absent };
+  });
+});
+
+function loadColor(ratio: number): string {
+  if (ratio < 0) return 'transparent';
+  if (ratio >= threshold.value && ratio > 0) return 'var(--color-danger)';
+  if (ratio === 0) return 'var(--color-neutral-soft)';
+  const k = Math.min(1, ratio / threshold.value);
+  return `color-mix(in srgb, var(--chart-approved) ${Math.round(18 + k * 72)}%, var(--color-surface))`;
+}
+
+/** Удалённые дни сотрудника (шаблон + исключения, без выходных, праздников и отпуска). */
+function remoteSegs(e: ScheduleEmployee) {
+  const overrides = new Map(e.workOverrides.map((o) => [o.date, o.mode]));
+  const remote = days.value.filter((d) => {
+    const mode = overrides.get(d.iso) ?? (d.weekend || d.holiday ? 'off' : e.workPattern[String(d.wd)] ?? 'office');
+    return mode === 'remote' && !isAbsent(e.vacations, d.iso);
+  }).map((d) => d.iso);
+  return segments(year.value, remote);
+}
+
+// ── Сравнение выбранных: дни, когда отсутствуют двое и больше
+function togglePick(id: number): void {
+  const next = new Set(picked.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  picked.value = next;
+}
+const pickedPeople = computed(() => (schedule.value?.employees ?? []).filter((e) => picked.value.has(e.id)));
+const pickedOverlap = computed(() => {
+  if (pickedPeople.value.length < 2) return [] as Array<{ first: number; days: number; names: string[] }>;
+  const dates = days.value.map((d) => d.iso).filter((iso) => pickedPeople.value.filter((e) => isAbsent(e.vacations, iso)).length >= 2);
+  return segments(year.value, dates).map((seg) => {
+    const iso = days.value[seg.first].iso;
+    return { ...seg, names: pickedPeople.value.filter((e) => isAbsent(e.vacations, iso)).map((e) => shortName(e.name)) };
+  });
+});
+
 function barsOf(e: ScheduleEmployee): Bar[] {
   return barsForYear(year.value, e.vacations);
 }
@@ -156,10 +204,12 @@ async function reload(): Promise<void> {
   error.value = '';
   try {
     const q = dept.value ? `&dept=${encodeURIComponent(dept.value)}` : '';
-    const [s, h] = await Promise.all([
+    const [s, h, st] = await Promise.all([
       api.get<Schedule>(`/schedule?from=${year.value}-01-01&to=${year.value}-12-31${q}`),
       calendar.holidays(year.value),
+      api.get<OrgSettings>('/settings').catch(() => null),
     ]);
+    if (st) threshold.value = st.conflictThreshold / 100;
     schedule.value = s;
     holidays.value = h;
   } catch (e) {
@@ -266,6 +316,19 @@ const selectedDays = computed(() => selected.value
         <button
           class="btn"
           type="button"
+          :class="{ 'btn-toggled': showWorkMode }"
+          :aria-pressed="showWorkMode"
+          title="Показать дни удалённой работы на полосах"
+          @click="showWorkMode = !showWorkMode"
+        >
+          <AppIcon
+            name="monitor"
+            :size="15"
+          /> <span class="hide-mobile">Удалёнка</span>
+        </button>
+        <button
+          class="btn"
+          type="button"
           @click="isCurrentYear ? scrollToToday(true) : (year = Number(today.slice(0, 4)))"
         >
           <AppIcon
@@ -323,6 +386,7 @@ const selectedDays = computed(() => selected.value
         <span><i class="sw sw-maternity" />по уходу за ребёнком</span>
         <span><i class="sw sw-conflict" />конфликт отдела</span>
         <span><i class="sw sw-off" />выходные и праздники</span>
+        <span v-if="showWorkMode"><i class="sw sw-remote" />удалённо</span>
       </div>
     </div>
 
@@ -334,6 +398,55 @@ const selectedDays = computed(() => selected.value
         name="warning"
         :size="15"
       /> {{ error }}
+    </div>
+
+    <div
+      v-if="picked.size"
+      class="card compare"
+    >
+      <div class="compare-head">
+        <span class="section-title"><AppIcon
+          name="layers"
+          :size="15"
+        /> Сравнение: {{ pickedPeople.map((e) => shortName(e.name)).join(', ') }}</span>
+        <button
+          class="btn btn-sm btn-ghost"
+          type="button"
+          @click="picked = new Set()"
+        >
+          <AppIcon
+            name="close"
+            :size="13"
+          /> Сбросить
+        </button>
+      </div>
+      <p
+        v-if="picked.size < 2"
+        class="soft small compare-body"
+      >
+        Отметьте ещё хотя бы одного сотрудника (значок слева от фамилии), чтобы увидеть общие дни отсутствия.
+      </p>
+      <p
+        v-else-if="!pickedOverlap.length"
+        class="compare-body ok-text"
+      >
+        <AppIcon
+          name="check"
+          :size="14"
+        /> В {{ year }} году выбранные сотрудники не отсутствуют одновременно — можно замещать друг друга.
+      </p>
+      <ul
+        v-else
+        class="compare-body overlap-list"
+      >
+        <li
+          v-for="o in pickedOverlap"
+          :key="o.first"
+        >
+          <strong>{{ fmtRange(days[o.first].iso, days[o.first + o.days - 1].iso) }}</strong>
+          <span class="muted">одновременно отсутствуют: {{ o.names.join(', ') }}</span>
+        </li>
+      </ul>
     </div>
 
     <div class="stats">
@@ -442,7 +555,8 @@ const selectedDays = computed(() => selected.value
           <!-- шапка: месяцы и дни -->
           <div class="g-head">
             <div class="g-corner">
-              Сотрудник
+              <span>Сотрудник</span>
+              <span class="g-corner-load">нагрузка</span>
             </div>
             <div class="g-scale">
               <div class="g-months">
@@ -455,6 +569,18 @@ const selectedDays = computed(() => selected.value
                 >
                   {{ zoom === 'year' ? m.short : m.name }}
                 </div>
+              </div>
+              <div
+                class="g-load"
+                :title="'Доля выборки в отпуске по рабочим дням'"
+              >
+                <span
+                  v-for="d in dailyLoad"
+                  :key="d.i"
+                  class="g-load-cell"
+                  :style="{ background: loadColor(d.ratio) }"
+                  :title="d.ratio < 0 ? undefined : `${fmtDate(days[d.i].iso)}: в отпуске ${d.absent} (${Math.round(d.ratio * 100)}%)`"
+                />
               </div>
               <div
                 v-if="zoom !== 'year'"
@@ -491,6 +617,12 @@ const selectedDays = computed(() => selected.value
                 :key="`m${m.index}`"
                 class="g-month-line"
                 :style="{ left: `${m.offset * DAY}px` }"
+              />
+              <div
+                v-for="o in pickedOverlap"
+                :key="`p${o.first}`"
+                class="g-pick-overlap"
+                :style="{ left: `${o.first * DAY}px`, width: `${o.days * DAY}px` }"
               />
               <div
                 v-if="isCurrentYear"
@@ -533,8 +665,23 @@ const selectedDays = computed(() => selected.value
                   v-for="e in g.employees"
                   :key="e.id"
                   class="g-row"
+                  :class="{ picked: picked.has(e.id) }"
                   :style="{ height: `${ROW_H}px` }"
                 >
+                  <button
+                    type="button"
+                    class="g-pick"
+                    :class="{ on: picked.has(e.id) }"
+                    :aria-pressed="picked.has(e.id)"
+                    :title="picked.has(e.id) ? 'Убрать из сравнения' : 'Добавить в сравнение пересечений'"
+                    @click="togglePick(e.id)"
+                  >
+                    <AppIcon
+                      :name="picked.has(e.id) ? 'check' : 'plus'"
+                      :size="11"
+                      :stroke="2.2"
+                    />
+                  </button>
                   <button
                     type="button"
                     class="g-name"
@@ -558,6 +705,14 @@ const selectedDays = computed(() => selected.value
                     class="g-lane"
                     :style="{ width: `${laneWidth}px` }"
                   >
+                    <template v-if="showWorkMode">
+                      <div
+                        v-for="(r, ri) in remoteSegs(e)"
+                        :key="`r${ri}`"
+                        class="g-remote"
+                        :style="{ left: `${r.first * DAY}px`, width: `${r.days * DAY}px` }"
+                      />
+                    </template>
                     <div
                       v-for="(c, ci) in conflictSegs(e)"
                       :key="`c${ci}`"
@@ -751,6 +906,10 @@ const selectedDays = computed(() => selected.value
 }
 
 .g-corner {
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start !important;
+  gap: 4px;
   position: sticky;
   left: 0;
   z-index: 7;
@@ -997,6 +1156,135 @@ const selectedDays = computed(() => selected.value
   gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.g-corner-load {
+  font-size: 9.5px;
+  color: var(--color-text-soft);
+  letter-spacing: 0.04em;
+}
+
+.g-load {
+  display: flex;
+  height: 8px;
+  border-top: 1px solid var(--color-border);
+  padding: 1px 0;
+  box-sizing: content-box;
+}
+
+.g-load-cell {
+  flex: 0 0 var(--day);
+  height: 100%;
+  border-right: 1px solid var(--color-surface);
+}
+
+.g-remote {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--status-remote) 22%, transparent);
+}
+
+.sw-remote { background: color-mix(in srgb, var(--status-remote) 40%, transparent); }
+
+.btn-toggled {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary-dark);
+}
+
+.g-pick-overlap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--color-warning) 55%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--color-warning) 55%, transparent);
+}
+
+.g-pick {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  width: 0;
+  flex: 0 0 0;
+  overflow: visible;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.g-pick .app-icon {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  padding: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.g-row:hover .g-pick .app-icon,
+.g-pick.on .app-icon,
+.g-pick:focus-visible .app-icon {
+  opacity: 1;
+}
+
+.g-pick.on .app-icon {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+  color: #fff;
+}
+
+.g-row.picked .g-name {
+  background: color-mix(in srgb, var(--color-warning-soft) 70%, var(--color-surface));
+}
+
+.compare {
+  margin-bottom: 14px;
+  border-left: 3px solid var(--color-warning);
+}
+
+.compare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 0;
+}
+
+.compare-body {
+  margin: 0;
+  padding: 8px 14px 12px;
+}
+
+.ok-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-success-dark);
+  font-size: 13px;
+}
+
+.overlap-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.overlap-list li {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* ── Карточка сотрудника ── */

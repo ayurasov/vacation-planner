@@ -9,6 +9,8 @@ const EmployeesView = () => import('@/views/EmployeesView.vue');
 const DirectoriesView = () => import('@/views/DirectoriesView.vue');
 const SettingsView = () => import('@/views/SettingsView.vue');
 const AuditView = () => import('@/views/AuditView.vue');
+const TeamView = () => import('@/views/TeamView.vue');
+const WorkScheduleView = () => import('@/views/WorkScheduleView.vue');
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -17,6 +19,8 @@ export const router = createRouter({
     { path: '/', redirect: '/schedule' },
     { path: '/schedule', component: ScheduleView, meta: { title: 'График отпусков' } },
     { path: '/my', component: MyVacationView, meta: { title: 'Мой отпуск' } },
+    { path: '/team', component: TeamView, meta: { title: 'Команда' } },
+    { path: '/work-schedule', component: WorkScheduleView, meta: { title: 'График работы' } },
     { path: '/approvals', component: ApprovalsView, meta: { title: 'Заявки на согласование' } },
     { path: '/employees', component: EmployeesView, meta: { admin: true, title: 'Сотрудники' } },
     { path: '/directories', component: DirectoriesView, meta: { admin: true, title: 'Справочники' } },

@@ -37,6 +37,14 @@
   --color-weekend: #f3f5fa;
   --color-holiday: #fdeeee;
   --color-scrollbar: #d3d8e4;
+  /* Графики: палитра проверена валидатором dataviz (CVD, контраст, светлота) */
+  --chart-approved: #4f7cff;
+  --chart-pending: #e8a13a;
+  --chart-grid: #e8ebf2;
+  --status-office: #4f7cff;
+  --status-remote: #14a3a3;
+  --status-vacation: #2fa96b;
+  --status-off: #a3abbd;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -85,6 +93,13 @@
   --color-weekend: #141820;
   --color-holiday: #2a1b20;
   --color-scrollbar: #3a4252;
+  --chart-approved: #5b87ff;
+  --chart-pending: #c2852a;
+  --chart-grid: #232937;
+  --status-office: #5b87ff;
+  --status-remote: #2bb8b8;
+  --status-vacation: #3cc282;
+  --status-off: #5d6678;
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.45);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5);
   --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6);

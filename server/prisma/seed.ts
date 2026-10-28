@@ -153,6 +153,11 @@ async function main() {
       const status = (['pending', 'approved', 'rejected', 'cancelled'] as const)
         .includes(r.status as never) ? r.status as RequestStatus : 'approved';
       const type = r.type === 'maternity' ? RequestType.maternity : RequestType.vacation;
+      // Идемпотентность: повторный seed не дублирует заявки (данные не удаляются — seed безопасен для рабочей БД)
+      const exists = await prisma.vacationRequest.findFirst({
+        where: { employeeId, startDate: new Date(r.start), endDate: new Date(r.end), type },
+      });
+      if (exists) continue;
       await prisma.vacationRequest.create({
         data: {
           employeeId,
@@ -172,6 +177,35 @@ async function main() {
         },
       });
     }
+  }
+
+  // Демо: несколько заявок на согласовании от «сегодня», чтобы очередь руководителей не была пустой.
+  // В данных прототипа все заявки уже решены. Отключается переменной SEED_DEMO=0.
+  if (process.env.SEED_DEMO !== '0') {
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const base = new Date();
+    base.setUTCHours(0, 0, 0, 0);
+    const withManager = await prisma.employee.findMany({
+      where: { managerId: { not: null }, empType: 'staff', isActive: true }, orderBy: { name: 'asc' }, take: 8,
+    });
+    let created = 0;
+    for (const [i, e] of withManager.entries()) {
+      const start = new Date(base.getTime() + (21 + i * 11) * 86400000);
+      const end = new Date(start.getTime() + ((i % 2 ? 13 : 6) * 86400000));
+      const clash = await prisma.vacationRequest.findFirst({
+        where: { employeeId: e.id, status: { in: ['pending', 'approved'] }, startDate: { lte: end }, endDate: { gte: start } },
+      });
+      if (clash) continue;
+      await prisma.vacationRequest.create({
+        data: {
+          employeeId: e.id, startDate: start, endDate: end, status: 'pending', createdBy: e.id,
+          comment: i % 3 === 0 ? 'Семейная поездка, билеты куплены' : null,
+          events: { create: { actorId: e.id, action: 'created', comment: `Демо-заявка (${iso(start)})` } },
+        },
+      });
+      created++;
+    }
+    console.log(`Демо-заявок на согласовании: ${created}`);
   }
 
   const stats = await prisma.$transaction([

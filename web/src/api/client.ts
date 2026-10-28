@@ -156,3 +156,40 @@ export interface AuditEvent {
   action: string; entity: string; entityId: string;
   before: Record<string, unknown> | null; after: Record<string, unknown> | null;
 }
+
+// ── Аналитика (с v0.3.0) ──
+export interface Insight { severity: 'danger' | 'warning' | 'info' | 'success'; title: string; text: string }
+
+export interface DepartmentOverview {
+  dept: string; year: number; threshold: number; headcount: number;
+  months: Array<{ month: number; avgRatio: number; planRatio: number; peakRatio: number; peakDate: string | null }>;
+  conflicts: Array<{ start: string; end: string; peakRatio: number; peakAbsent: number; names: string[] }>;
+  planning: Array<{ id: number; name: string; available: number; planned: number; hasStretch: boolean }>;
+  insights: Insight[];
+}
+
+export type DayStatus = 'vacation' | 'office' | 'remote' | 'off';
+
+export interface TeamSnapshot {
+  date: string; threshold: number; headcount: number; absentRatio: number; overThreshold: boolean;
+  counts: Record<DayStatus | 'pending', number>;
+  members: Array<{
+    id: number; name: string; dept: string | null; empType: string; status: DayStatus; until: string | null;
+    next: { start: string; end: string } | null; available: number; hasStretch: boolean; pending: number;
+  }>;
+}
+
+export interface Suggestion {
+  start: string; end: string; vacationDays: number; calendarDays: number; holidays: number;
+  maxRatio: number; avgRatio: number; overlapWith: string[]; score: number; reasons: string[];
+}
+
+export interface Suggestions {
+  employee: number; length: number; available: number; hasStretch: boolean; threshold: number; items: Suggestion[];
+}
+
+export interface WorkSchedule {
+  employee: number;
+  pattern: Record<string, 'office' | 'remote' | 'off'>;
+  overrides: Array<{ date: string; mode: 'office' | 'remote' | 'off' }>;
+}

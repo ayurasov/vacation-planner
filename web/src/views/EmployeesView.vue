@@ -6,6 +6,7 @@ import { fmtNumber } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import VacationForm from '@/components/VacationForm.vue';
 
 const ui = useUiStore();
 const PER_PAGE = 50;
@@ -33,6 +34,7 @@ const emptyForm = () => ({
 });
 const form = ref(emptyForm());
 const secret = ref<{ title: string; login: string; password: string } | null>(null);
+const vacationFor = ref<Employee | null>(null);
 
 async function reload(): Promise<void> {
   loading.value = true;
@@ -345,6 +347,18 @@ onMounted(async () => {
                     />
                   </button>
                   <button
+                    v-if="e.empType !== 'ipsz'"
+                    class="btn btn-icon btn-sm btn-ghost"
+                    type="button"
+                    title="Оформить отпуск"
+                    @click="vacationFor = e"
+                  >
+                    <AppIcon
+                      name="vacation"
+                      :size="15"
+                    />
+                  </button>
+                  <button
                     class="btn btn-icon btn-sm btn-ghost"
                     type="button"
                     title="Сбросить пароль"
@@ -612,6 +626,13 @@ onMounted(async () => {
         </div>
       </form>
     </div>
+
+    <VacationForm
+      v-if="vacationFor"
+      :employees="[vacationFor]"
+      @close="vacationFor = null"
+      @saved="vacationFor = null; ui.toast('Отпуск оформлен и согласован')"
+    />
 
     <!-- одноразовый пароль -->
     <div

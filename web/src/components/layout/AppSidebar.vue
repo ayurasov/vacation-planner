@@ -24,6 +24,13 @@ const sections = computed(() => {
         { path: '/my', label: 'Мой отпуск', icon: 'vacation' },
       ],
     },
+    {
+      title: 'Работа',
+      items: [
+        { path: '/team', label: 'Команда', icon: 'team' },
+        { path: '/work-schedule', label: 'График работы', icon: 'layers' },
+      ],
+    },
   ];
   if (auth.isApprover || auth.isAdmin) {
     out.push({
@@ -35,7 +42,7 @@ const sections = computed(() => {
     out.push({
       title: 'Администрирование',
       items: [
-        { path: '/employees', label: 'Сотрудники', icon: 'team' },
+        { path: '/employees', label: 'Сотрудники', icon: 'user' },
         { path: '/directories', label: 'Справочники', icon: 'building' },
         { path: '/audit', label: 'Журнал аудита', icon: 'shield' },
       ],

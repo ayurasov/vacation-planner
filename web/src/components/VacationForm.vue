@@ -4,6 +4,7 @@ import { api, type Balance, type Employee, type OrgSettings, type VacationReques
 import { useCalendarStore } from '@/stores/calendar';
 import { addDays, calendarDays, fmtDate, fmtNumber, holidaysIn, localIso, plural, vacationDays } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
+import SuggestPanel from '@/components/SuggestPanel.vue';
 
 /**
  * Диалог заявки. Режимы:
@@ -23,11 +24,18 @@ const today = localIso(new Date());
 const start = ref(props.editing?.start ?? '');
 const end = ref(props.editing?.end ?? '');
 const comment = ref(props.editing?.comment ?? '');
-const employeeId = ref<number | null>(null);
+const employeeId = ref<number | null>(props.employees?.length === 1 ? props.employees[0].id : null);
 const holidays = ref<Set<string>>(new Set());
 const settings = ref<OrgSettings | null>(null);
 const busy = ref(false);
 const error = ref('');
+const suggestOpen = ref(false);
+
+function pickSuggestion(s: string, e: string): void {
+  start.value = s;
+  end.value = e;
+  suggestOpen.value = false;
+}
 
 const forSubordinate = computed(() => !!props.employees?.length);
 const isMove = computed(() => !!props.editing);
@@ -93,7 +101,7 @@ async function submit(): Promise<void> {
     @keydown.esc="emit('close')"
   >
     <form
-      class="modal"
+      class="modal modal-wide"
       role="dialog"
       aria-modal="true"
       @submit.prevent="submit"
@@ -166,6 +174,28 @@ async function submit(): Promise<void> {
             </option>
           </select>
         </div>
+
+        <div class="suggest-toggle">
+          <button
+            type="button"
+            class="btn btn-sm"
+            :class="{ 'btn-primary': suggestOpen }"
+            :disabled="forSubordinate && !employeeId"
+            @click="suggestOpen = !suggestOpen"
+          >
+            <AppIcon
+              name="vacation"
+              :size="14"
+            /> {{ suggestOpen ? 'Скрыть подбор' : 'Подобрать лучшие даты' }}
+          </button>
+          <span class="soft small">с учётом отпусков коллег и праздников</span>
+        </div>
+        <SuggestPanel
+          v-if="suggestOpen"
+          :employee-id="forSubordinate ? employeeId : null"
+          :initial-days="balance && !balance.hasFourteenDayStretch ? 14 : 7"
+          @pick="pickSuggestion"
+        />
 
         <div class="field-row">
           <div class="field">
@@ -293,6 +323,13 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
+.suggest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .presets {
   display: flex;
   align-items: center;
