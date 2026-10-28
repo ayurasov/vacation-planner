@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AuditApiModule } from './audit/audit.api.module';
 import { HealthModule } from './health/health.module';
 import { ReportsModule } from './reports/reports.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ReportsModule } from './reports/reports.module';
     AuditApiModule,
     HealthModule,
     ReportsModule,
+    AnalyticsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },

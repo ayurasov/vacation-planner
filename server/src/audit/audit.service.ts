@@ -25,8 +25,8 @@ export class AuditService {
         action: data.action,
         entity: data.entity,
         entityId: String(data.entityId),
-        before: data.before === undefined ? undefined : (data.before as Prisma.InputJsonValue),
-        after: data.after === undefined ? undefined : (data.after as Prisma.InputJsonValue),
+        before: data.before == null ? undefined : (data.before as Prisma.InputJsonValue),
+        after: data.after == null ? undefined : (data.after as Prisma.InputJsonValue),
       },
     });
   }

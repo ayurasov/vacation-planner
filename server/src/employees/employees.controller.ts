@@ -11,6 +11,8 @@ import { CurrentUser, Roles } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
 import { AuthService } from '../auth/auth.service';
 import { RequestsService } from '../requests/requests.service';
+import { AuditService } from '../audit/audit.service';
+import { calendarDays, toIso } from '../requests/balance';
 import { EmployeesService } from './employees.service';
 
 export class EmployeeCreateDto {
@@ -163,6 +165,7 @@ export class EmployeesController {
     private readonly auth: AuthService,
     private readonly requests: RequestsService,
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get()
@@ -221,6 +224,33 @@ export class EmployeesController {
     return this.requests.balance(id, y);
   }
 
+  @Get(':id/work-schedule')
+  @ApiOperation({ operationId: 'getWorkSchedule', summary: 'График работы: недельный шаблон и исключения за период' })
+  async getWorkSchedule(
+    @CurrentUser() user: AccessClaims,
+      @Param('id', ParseIntPipe) id: number,
+      @Query('from') from?: string,
+      @Query('to') to?: string,
+  ) {
+    await assertCanManage(user, id, this.prisma);
+    const year = new Date().getFullYear();
+    const f = from ?? `${year}-01-01`;
+    const t = to ?? `${year}-12-31`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t) || f > t) {
+      throw new ProblemException('validation/bad-date-range');
+    }
+    if (calendarDays(f, t) > 400) throw new ProblemException('validation/invalid-field', 'Период не длиннее 400 дней');
+    const [patterns, overrides] = await Promise.all([
+      this.prisma.workPattern.findMany({ where: { employeeId: id } }),
+      this.prisma.workOverride.findMany({ where: { employeeId: id, date: { gte: new Date(f), lte: new Date(t) } }, orderBy: { date: 'asc' } }),
+    ]);
+    return {
+      employee: id,
+      pattern: Object.fromEntries(patterns.map((p) => [p.weekday, p.mode])),
+      overrides: overrides.map((o) => ({ date: toIso(o.date), mode: o.mode })),
+    };
+  }
+
   @Put(':id/work-pattern')
   @HttpCode(204)
   @ApiOperation({ operationId: 'setWorkPattern', summary: 'Недельный шаблон офис/удалёнка (свой или подчинённый)' })
@@ -231,11 +261,17 @@ export class EmployeesController {
   ) {
     await assertCanManage(user, id, this.prisma);
     await this.prisma.$transaction(async (tx) => {
+      const before = await tx.workPattern.findMany({ where: { employeeId: id } });
       await tx.workPattern.deleteMany({ where: { employeeId: id } });
       const rows = Object.entries(dto)
         .map(([weekday, mode]) => ({ employeeId: id, weekday: Number(weekday), mode: mode as 'office' | 'remote' | 'off' }))
         .filter((r) => r.weekday >= 0 && r.weekday <= 6 && r.mode);
       if (rows.length) await tx.workPattern.createMany({ data: rows });
+      await this.audit.record(tx, {
+        actorId: user.sub, action: 'employee.work_pattern_updated', entity: 'employee', entityId: id,
+        before: Object.fromEntries(before.map((p) => [p.weekday, p.mode])),
+        after: Object.fromEntries(rows.map((r) => [r.weekday, r.mode])),
+      });
     });
   }
 
@@ -248,10 +284,40 @@ export class EmployeesController {
       @Body() dto: WorkOverrideDto,
   ) {
     await assertCanManage(user, id, this.prisma);
-    await this.prisma.workOverride.upsert({
-      where: { employeeId_date: { employeeId: id, date: new Date(dto.date) } },
-      update: { mode: dto.mode },
-      create: { employeeId: id, date: new Date(dto.date), mode: dto.mode },
+    await this.prisma.$transaction(async (tx) => {
+      const key = { employeeId_date: { employeeId: id, date: new Date(dto.date) } };
+      const before = await tx.workOverride.findUnique({ where: key });
+      await tx.workOverride.upsert({
+        where: key,
+        update: { mode: dto.mode },
+        create: { employeeId: id, date: new Date(dto.date), mode: dto.mode },
+      });
+      await this.audit.record(tx, {
+        actorId: user.sub, action: 'employee.work_override_set', entity: 'employee', entityId: id,
+        before: before ? { date: dto.date, mode: before.mode } : null, after: { date: dto.date, mode: dto.mode },
+      });
+    });
+  }
+
+  @Delete(':id/work-overrides/:date')
+  @HttpCode(204)
+  @ApiOperation({ operationId: 'deleteWorkOverride', summary: 'Снять исключение — на дату снова действует недельный шаблон' })
+  async deleteWorkOverride(
+    @CurrentUser() user: AccessClaims,
+      @Param('id', ParseIntPipe) id: number,
+      @Param('date') date: string,
+  ) {
+    await assertCanManage(user, id, this.prisma);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ProblemException('validation/invalid-field', 'Дата в формате YYYY-MM-DD');
+    await this.prisma.$transaction(async (tx) => {
+      const key = { employeeId_date: { employeeId: id, date: new Date(date) } };
+      const before = await tx.workOverride.findUnique({ where: key });
+      if (!before) throw new ProblemException('not-found');
+      await tx.workOverride.delete({ where: key });
+      await this.audit.record(tx, {
+        actorId: user.sub, action: 'employee.work_override_removed', entity: 'employee', entityId: id,
+        before: { date, mode: before.mode }, after: null,
+      });
     });
   }
 

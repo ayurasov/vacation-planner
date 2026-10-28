@@ -268,6 +268,49 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+  /employees/{id}/work-schedule:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [schedule]
+      operationId: getWorkSchedule
+      summary: График работы — недельный шаблон и исключения за период (с v0.3.0)
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Шаблон по дням недели (0 — вс) и исключения по датам
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  employee: { type: integer }
+                  pattern: { type: object, additionalProperties: { type: string, enum: [office, remote, off] } }
+                  overrides:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string, format: date }
+                        mode: { type: string, enum: [office, remote, off] }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/work-overrides/{date}:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+      - { name: date, in: path, required: true, schema: { type: string, format: date } }
+    delete:
+      tags: [schedule]
+      operationId: deleteWorkOverride
+      summary: Снять исключение — на дату снова действует недельный шаблон (с v0.3.0)
+      responses:
+        '204': { description: Исключение снято }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
   /vacation-requests:
     get:
       tags: [vacation-requests]
@@ -767,6 +810,74 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+  /analytics/departments:
+    get:
+      tags: [analytics]
+      operationId: listAnalyticsDepartments
+      summary: Отделы, доступные пользователю для аналитики (с v0.3.0)
+      responses:
+        '200':
+          description: Администратор — все, руководитель — свои, сотрудник — собственный
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { type: string } }
+                  own: { type: [string, 'null'] }
+
+  /analytics/overview:
+    get:
+      tags: [analytics]
+      operationId: getDepartmentOverview
+      summary: Нагрузка отдела по месяцам, периоды конфликтов, распределение дней, выводы (с v0.3.0)
+      parameters:
+        - { name: dept, in: query, schema: { type: string } }
+        - { name: year, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Аналитика года
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentOverview' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /analytics/team:
+    get:
+      tags: [analytics]
+      operationId: getTeamToday
+      summary: Состав отдела или проекта на дату — офис, удалёнка, отпуск, выходной (с v0.3.0)
+      parameters:
+        - { name: dept, in: query, schema: { type: string } }
+        - { name: project, in: query, schema: { type: integer } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Сводка и участники со статусом на дату
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeamSnapshot' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /analytics/suggestions:
+    get:
+      tags: [analytics]
+      operationId: suggestVacationDates
+      summary: Лучшие окна для отпуска с учётом нагрузки отдела и праздников (с v0.3.0)
+      parameters:
+        - { name: days, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 60 } }
+        - { name: employee, in: query, schema: { type: integer } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: До 5 непересекающихся окон, лучшие первыми
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Suggestions' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -805,6 +916,109 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    DepartmentOverview:
+      type: object
+      properties:
+        dept: { type: string }
+        year: { type: integer }
+        threshold: { type: number }
+        headcount: { type: integer }
+        months:
+          type: array
+          items:
+            type: object
+            properties:
+              month: { type: integer }
+              avgRatio: { type: number, description: 'Средняя доля в согласованном отпуске по рабочим дням' }
+              planRatio: { type: number, description: 'То же с учётом заявок на согласовании' }
+              peakRatio: { type: number }
+              peakDate: { type: [string, 'null'], format: date }
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              start: { type: string, format: date }
+              end: { type: string, format: date }
+              peakRatio: { type: number }
+              peakAbsent: { type: integer }
+              names: { type: array, items: { type: string } }
+        planning:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              available: { type: number }
+              planned: { type: number }
+              hasStretch: { type: boolean }
+        insights:
+          type: array
+          items: { $ref: '#/components/schemas/Insight' }
+
+    Insight:
+      type: object
+      properties:
+        severity: { type: string, enum: [danger, warning, info, success] }
+        title: { type: string }
+        text: { type: string }
+
+    TeamSnapshot:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        threshold: { type: number }
+        headcount: { type: integer }
+        absentRatio: { type: number }
+        overThreshold: { type: boolean }
+        counts:
+          type: object
+          properties:
+            office: { type: integer }
+            remote: { type: integer }
+            vacation: { type: integer }
+            off: { type: integer }
+            pending: { type: integer }
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              dept: { type: [string, 'null'] }
+              status: { type: string, enum: [vacation, office, remote, off] }
+              until: { type: [string, 'null'], format: date }
+              next: { type: [object, 'null'] }
+              available: { type: number }
+              hasStretch: { type: boolean }
+              pending: { type: integer }
+
+    Suggestions:
+      type: object
+      properties:
+        employee: { type: integer }
+        length: { type: integer }
+        available: { type: number }
+        hasStretch: { type: boolean }
+        threshold: { type: number }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              start: { type: string, format: date }
+              end: { type: string, format: date }
+              vacationDays: { type: integer }
+              calendarDays: { type: integer }
+              holidays: { type: integer }
+              maxRatio: { type: number }
+              avgRatio: { type: number }
+              overlapWith: { type: array, items: { type: string } }
+              score: { type: number }
+              reasons: { type: array, items: { type: string } }
+
     Problem:
       type: object
       required: [type, title, status]
