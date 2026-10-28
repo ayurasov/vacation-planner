@@ -90,6 +90,19 @@ export class AuthService {
     });
   }
 
+  async setPreferences(userId: number, emailNotifications: boolean): Promise<Employee & { subordinates: number[] }> {
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.employee.findUniqueOrThrow({ where: { id: userId } });
+      if (before.emailNotifications === emailNotifications) return;
+      await tx.employee.update({ where: { id: userId }, data: { emailNotifications } });
+      await this.audit.record(tx, {
+        actorId: userId, action: 'employee.preferences_updated', entity: 'employee', entityId: userId,
+        before: { emailNotifications: before.emailNotifications }, after: { emailNotifications },
+      });
+    });
+    return this.me(userId);
+  }
+
   async me(userId: number): Promise<Employee & { subordinates: number[] }> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: userId },

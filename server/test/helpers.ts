@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/infra/prisma.service';
 import { hashPassword } from '../src/auth/passwords';
+import { MAIL_TRANSPORT, type MailTransport } from '../src/mail/mail.service';
 
 export const NEXT_YEAR = new Date().getFullYear() + 1;
 
@@ -22,8 +23,11 @@ export interface TestApp {
   hr: { id: number; login: string; password: string };
 }
 
-export async function createTestApp(): Promise<TestApp> {
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+/** mail — подмена SMTP-транспорта: письма складываются в массив теста. */
+export async function createTestApp(opts: { mail?: MailTransport } = {}): Promise<TestApp> {
+  let builder = Test.createTestingModule({ imports: [AppModule] });
+  if (opts.mail) builder = builder.overrideProvider(MAIL_TRANSPORT).useValue(opts.mail);
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   configureApp(app);
   await app.init();
@@ -79,6 +83,8 @@ async function resetDb(prisma: PrismaService): Promise<void> {
   // Порядок важен из-за внешних ключей
   await prisma.$transaction([
     prisma.auditEvent.deleteMany(),
+    prisma.emailOutbox.deleteMany(),
+    prisma.jobRun.deleteMany(),
     prisma.notification.deleteMany(),
     prisma.requestEvent.deleteMany(),
     prisma.vacationRequest.deleteMany(),

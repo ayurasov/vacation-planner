@@ -13,6 +13,7 @@ export default defineConfig({
       DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://vacation:vacation@localhost:5432/vacation_test',
       JWT_SECRET: process.env.JWT_SECRET ?? 'test-secret-test-secret-test-32ch',
       PORT: '0',
+      MAIL_POLL_SECONDS: '0', // фоновая отправка в тестах не нужна: очередь разбирается вызовом flush()
     },
   },
 });

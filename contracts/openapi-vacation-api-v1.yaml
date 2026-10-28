@@ -137,6 +137,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [auth]
+      operationId: updateMyPreferences
+      summary: Личные настройки — письма о заявках
+      description: Отписка действует и на письма о заявках, и на еженедельную сводку; изменение пишется в аудит.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emailNotifications]
+              properties:
+                emailNotifications: { type: boolean }
+      responses:
+        '200':
+          description: Обновлённый профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/Problem' }
 
   /employees:
     get:
@@ -770,6 +791,26 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+
+  /settings/test-email:
+    post:
+      tags: [settings]
+      operationId: sendTestEmail
+      summary: Проверочное письмо администратору (проверка SMTP после развёртывания)
+      description: Письмо ставится в очередь и сразу отправляется на email администратора; ответ сообщает результат.
+      responses:
+        '200':
+          description: Результат отправки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  to: { type: string, format: email }
+                  sent: { type: boolean }
+                  error: { type: [string, 'null'], description: Ответ SMTP-сервера при неудаче }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
   /calendar/holidays/{year}:
     get:
       tags: [calendar]
@@ -1184,6 +1225,7 @@ components:
         id: { type: integer }
         name: { type: string }
         email: { type: [string, 'null'], format: email }
+        emailNotifications: { type: boolean, description: 'Письма о заявках и сводки (в ответе /auth/me)' }
         position: { type: [string, 'null'] }
         deptId: { type: [integer, 'null'] }
         deptName: { type: [string, 'null'] }
@@ -1372,6 +1414,7 @@ components:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80, description: 'Порог доли отсутствующих в отделе для конфликта, %' }
         timezone: { type: string, default: 'Europe/Moscow' }
         defaultPlannedDays: { type: integer, default: 28 }
+        mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
       type: object

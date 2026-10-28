@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 import type { Request, Response } from 'express';
 import { CurrentUser, Public } from './guards';
 import { LoginRateLimitGuard } from './rate-limit';
@@ -12,6 +12,11 @@ export class LoginDto {
 
   @IsString() @IsNotEmpty() @MaxLength(128)
     password!: string;
+}
+
+export class PreferencesDto {
+  @IsBoolean()
+    emailNotifications!: boolean;
 }
 
 export class ChangePasswordDto {
@@ -80,6 +85,12 @@ export class AuthController {
     return this.toMe(me);
   }
 
+  @Patch('me')
+  @ApiOperation({ operationId: 'updateMyPreferences', summary: 'Личные настройки: письма о заявках' })
+  async updateMe(@CurrentUser() user: { sub: number }, @Body() dto: PreferencesDto) {
+    return this.toMe(await this.auth.setPreferences(user.sub, dto.emailNotifications));
+  }
+
   @Post('password')
   @HttpCode(204)
   @ApiOperation({ operationId: 'changeOwnPassword', summary: 'Смена своего пароля' })
@@ -92,10 +103,11 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
   }
 
-  private toMe(e: { id: number; name: string; login: string; position: string | null; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; subordinates: number[] }) {
+  private toMe(e: { id: number; name: string; login: string; position: string | null; email: string | null; emailNotifications: boolean; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; subordinates: number[] }) {
     return {
       employee: {
-        id: e.id, name: e.name, login: e.login, position: e.position, deptId: e.deptId,
+        id: e.id, name: e.name, login: e.login, email: e.email, emailNotifications: e.emailNotifications,
+        position: e.position, deptId: e.deptId,
         projectId: e.projectId, managerId: e.managerId, role: e.role, isAdmin: e.isAdmin, isHr: e.isHr,
         empType: e.empType, plannedDays: e.plannedDays, carryOver: e.carryOver,
       },

@@ -96,7 +96,7 @@ export const api = {
 // ── Типы ответов (по contracts/openapi-vacation-api-v1.yaml) ──
 export interface Me {
   employee: {
-    id: number; name: string; login: string; position: string | null;
+    id: number; name: string; login: string; email: string | null; emailNotifications: boolean; position: string | null;
     deptId: number | null; projectId: number | null; managerId: number | null;
     role: string; isAdmin: boolean; isHr: boolean; empType: string;
     plannedDays: number; carryOver: number;
@@ -172,6 +172,8 @@ export interface Department {
 export interface OrgSettings {
   conflictThreshold: number; timezone: string;
   limitPolicy: 'hard' | 'soft'; defaultPlannedDays: number;
+  /** Почта настроена на сервере (SMTP_HOST). */
+  mailEnabled?: boolean;
 }
 
 export interface Notification {

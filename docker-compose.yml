@@ -27,6 +27,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-dev-only-secret-32ch}
       PORT: 8080
       NODE_ENV: production
+      # Почта (необязательно): без SMTP_HOST письма не отправляются, уведомления — только в интерфейсе
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-Планировщик отпусков <noreply@localhost>}
+      APP_URL: ${APP_URL:-http://localhost}
     depends_on:
       postgres:
         condition: service_healthy
