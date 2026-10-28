@@ -22,6 +22,8 @@ const LICENSE_CLASS = {
   'CC0-1.0': { kind: 'permissive', risk: 'low', note: 'Общественное достояние: ограничений нет' },
   Unlicense: { kind: 'permissive', risk: 'low', note: 'Общественное достояние: ограничений нет' },
   'Python-2.0': { kind: 'permissive', risk: 'low', note: 'Разрешительная (PSF): допускается' },
+  'PSF-2.0': { kind: 'permissive', risk: 'low', note: 'Разрешительная (Python Software Foundation License 2.0, то же, что Python-2.0): допускается' },
+  'MIT-0': { kind: 'permissive', risk: 'low', note: 'Разрешительная: MIT без требования сохранять уведомление — допускается' },
   'PostgreSQL': { kind: 'permissive', risk: 'low', note: 'Разрешительная: допускается' },
   'BSD-3-Clause-Clear': { kind: 'permissive', risk: 'low', note: 'Разрешительная: допускается' },
   'BlueOak-1.0.0': { kind: 'permissive', risk: 'low', note: 'Разрешительная (Blue Oak Model 1): допускается' },

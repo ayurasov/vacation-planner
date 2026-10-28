@@ -18,6 +18,7 @@ import { HealthModule } from './health/health.module';
 import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ImportsModule } from './imports/imports.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ImportsModule } from './imports/imports.module';
     ScheduleModule,
     CalendarModule,
     SettingsModule,
+    MailModule,
     NotificationsModule,
     AuditApiModule,
     HealthModule,

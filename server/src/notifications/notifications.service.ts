@@ -2,21 +2,28 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailService,
+  ) {}
 
-  notify(
+  /** Уведомление в интерфейсе и письмо — в одной транзакции с событием. */
+  async notify(
     tx: Prisma.TransactionClient,
     employeeId: number,
     kind: string,
     text: string,
     payload?: Record<string, unknown>,
   ) {
-    return tx.notification.create({
+    const n = await tx.notification.create({
       data: { employeeId, kind, text, payload: payload as Prisma.InputJsonValue | undefined },
     });
+    await this.mail.enqueueFor(tx, employeeId, kind, text);
+    return n;
   }
 
   list(userId: number, params: { page: number; perPage: number; unread?: boolean }) {

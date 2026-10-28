@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma, VacationRequest } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
+import { fmtRange } from '../mail/letters';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { calendarDays, computeBalance, overlaps, toIso, vacationDays } from './balance';
@@ -80,7 +81,7 @@ export class RequestsService {
         after: { employeeId, start: input.start, end: input.end, status: created.status },
       });
       if (!autoApprove) {
-        await this.notifyApprover(tx, employeeId, `Новая заявка на отпуск ${input.start} — ${input.end} (${calendarDays(input.start, input.end)} к.д.)`);
+        await this.notifyApprover(tx, employeeId, `Новая заявка на отпуск ${fmtRange(input.start, input.end)} (${calendarDays(input.start, input.end)} к. д.)`);
       }
       return created;
     });
@@ -172,7 +173,7 @@ export class RequestsService {
             before: { start: isoDate(r.startDate), end: isoDate(r.endDate), status: r.status },
             after: { start, end, status: 'pending', changeFrom: true },
           });
-          await this.notifyApprover(tx, r.employeeId, `Запрос переноса отпуска на ${start} — ${end}`);
+          await this.notifyApprover(tx, r.employeeId, `Запрос переноса отпуска на ${fmtRange(start, end)}`);
         }
         return updated;
       });
@@ -205,7 +206,7 @@ export class RequestsService {
           actorId: actor.id, action: 'request.deletion_requested', entity: 'vacation_request', entityId: id,
           before: { status: 'approved' }, after: { status: 'pending', pendingDeletion: true },
         });
-        await this.notifyApprover(tx, r.employeeId, 'Запрос на удаление одобренного отпуска');
+        await this.notifyApprover(tx, r.employeeId, `Запрос на удаление согласованного отпуска ${fmtRange(isoDate(r.startDate), isoDate(r.endDate))}`);
         return upd;
       }
       throw new ProblemException('stale-state', 'Заявку в этом статусе отменить нельзя');
@@ -229,7 +230,7 @@ export class RequestsService {
           actorId: actor.id, action: 'request.deleted', entity: 'vacation_request', entityId: id,
           before: { period: `${isoDate(r.startDate)} — ${isoDate(r.endDate)}` }, after: { deleted: true },
         });
-        await this.notifyEmployee(tx, r.employeeId, 'request_cancelled', 'Отпуск удалён по согласованию с руководителем');
+        await this.notifyEmployee(tx, r.employeeId, 'request_cancelled', `Отпуск ${fmtRange(isoDate(r.startDate), isoDate(r.endDate))} удалён по согласованию с руководителем`);
         await tx.vacationRequest.delete({ where: { id } });
         return { deleted: true as const };
       }
@@ -243,7 +244,7 @@ export class RequestsService {
         actorId: actor.id, action: 'request.approved', entity: 'vacation_request', entityId: id,
         before: { status: 'pending' }, after: { status: 'approved' },
       });
-      await this.notifyEmployee(tx, r.employeeId, 'request_approved', `Отпуск ${isoDate(r.startDate)} — ${isoDate(r.endDate)} согласован`);
+      await this.notifyEmployee(tx, r.employeeId, 'request_approved', `Отпуск ${fmtRange(isoDate(r.startDate), isoDate(r.endDate))} согласован`);
       return upd;
     });
   }
@@ -272,7 +273,7 @@ export class RequestsService {
         before: { status: 'pending' },
         after: { status: upd.status, datesRestored: restoreDates || r.pendingDeletion },
       });
-      await this.notifyEmployee(tx, r.employeeId, 'request_rejected', `Заявка отклонена. Причина: ${comment}`);
+      await this.notifyEmployee(tx, r.employeeId, 'request_rejected', rejectionText(r, comment));
       return upd;
     });
   }
@@ -453,4 +454,14 @@ export class RequestsService {
     });
     return upd;
   }
+}
+
+/** Текст отказа по виду заявки: новый отпуск, перенос (остаются прежние даты) или удаление. */
+function rejectionText(r: VacationRequest, comment: string): string {
+  const range = fmtRange(isoDate(r.startDate), isoDate(r.endDate));
+  if (r.pendingDeletion) return `Запрос на удаление отпуска ${range} отклонён — отпуск остаётся. Причина: ${comment}`;
+  if (r.changeFromStart && r.changeFromEnd) {
+    return `Перенос отпуска на ${range} отклонён, остаются прежние даты ${fmtRange(isoDate(r.changeFromStart), isoDate(r.changeFromEnd))}. Причина: ${comment}`;
+  }
+  return `Заявка на отпуск ${range} отклонена. Причина: ${comment}`;
 }
