@@ -51,7 +51,8 @@ async function toError(res: Response): Promise<ApiError> {
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    // FormData: тип с границей частей выставляет браузер
+    ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(init.headers as Record<string, string> | undefined),
   };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -82,6 +83,12 @@ export const api = {
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+  /** Загрузка файла (multipart/form-data, поле file). */
+  upload: <T>(path: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<T>(path, { method: 'POST', body: form });
+  },
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   download,
 };
@@ -105,9 +112,23 @@ export interface Me {
 
 export interface Employee {
   id: number; login: string; name: string; position: string | null;
-  deptId: number | null; deptName?: string | null; role: string; isAdmin: boolean; isHr: boolean;
+  email: string | null; deptId: number | null; deptName?: string | null; role: string; isAdmin: boolean; isHr: boolean;
   empType: string; managerId: number | null; projectId: number | null;
   plannedDays: number; carryOver: number; isActive: boolean;
+}
+
+export type ImportAction = 'create' | 'update' | 'unchanged' | 'error';
+
+export interface ImportResult {
+  applied: boolean;
+  summary: Record<ImportAction, number>;
+  newDepartments: string[];
+  rows: Array<{
+    line: number; action: ImportAction; name: string; login: string; employeeId?: number;
+    changes: Record<string, { before: unknown; after: unknown }>; errors: string[];
+  }>;
+  /** Одноразовые пароли созданных сотрудников — только в ответе применения. */
+  credentials: Array<{ login: string; name: string; password: string }>;
 }
 
 export interface Page<T> {

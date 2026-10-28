@@ -77,6 +77,15 @@ describe('кадровая служба', () => {
     expect(xlsx.status).toBe(200);
   });
 
+  it('email: задаётся, уникален без учёта регистра и очищается', async () => {
+    const set = await t.http().patch(`/api/v1/employees/${t.employee.id}`).set(auth(hr)).send({ email: 'Employee@Corp.test' });
+    expect(set.body.email).toBe('employee@corp.test');
+    const dup = await t.http().patch(`/api/v1/employees/${t.manager.id}`).set(auth(hr)).send({ email: 'EMPLOYEE@corp.test' });
+    expect(dup.status).toBe(400);
+    const clear = await t.http().patch(`/api/v1/employees/${t.employee.id}`).set(auth(hr)).send({ email: null });
+    expect(clear.body.email).toBeNull();
+  });
+
   it('администратор назначает кадровую службу', async () => {
     const res = await t.http().patch(`/api/v1/employees/${t.employee.id}`).set(auth(adm)).send({ isHr: true });
     expect(res.status).toBe(200);

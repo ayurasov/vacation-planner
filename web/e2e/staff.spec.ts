@@ -53,3 +53,22 @@ test('производственный календарь: отметить пр
   await toggle();
   await expect(title.locator('.count')).toHaveText(String(before));
 });
+
+test('импорт: предпросмотр показывает новых, изменения и ошибки по строкам; с ошибками не применяется', async () => {
+  await page.goto('/employees');
+  await page.getByRole('button', { name: 'Импорт' }).click();
+  const csv = [
+    'ФИО;Логин;Должность;Отдел;Руководитель;Норма дней',
+    `${HR.name};${HR.login};Руководитель службы персонала;;;`,
+    'Тестовая Евгения Импортовна;;Аналитик;Служба персонала;balashova.av;28',
+    'Ошибкин Олег;;;;;много',
+  ].join('\n');
+  await page.locator('.dropzone input[type=file]').setInputFiles({ name: 'staff.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const dialog = page.getByRole('dialog', { name: 'Импорт сотрудников и остатков' });
+  await expect(dialog.locator('.summary')).toContainText('1 новый');
+  await expect(dialog.locator('.summary')).toContainText('1 ошибка');
+  await expect(dialog.getByText('Норма дней: «много» — нужно число от 0 до 365')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /Применить/ })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Отмена' }).click();
+  await expect(dialog).toHaveCount(0);
+});

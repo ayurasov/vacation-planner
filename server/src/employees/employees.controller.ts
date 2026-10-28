@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
-  IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, Min, MinLength, MaxLength,
+  IsBoolean, IsEmail, IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, Min, MinLength, MaxLength,
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
@@ -22,6 +22,9 @@ export class EmployeeCreateDto {
 
   @IsOptional() @IsString() @MaxLength(128)
     position?: string;
+
+  @IsOptional() @IsEmail() @MaxLength(254)
+    email?: string;
 
   @IsOptional() @IsInt()
     deptId?: number;
@@ -63,6 +66,9 @@ export class EmployeeUpdateDto {
 
   @IsOptional() @IsString() @MaxLength(128)
     position?: string;
+
+  @IsOptional() @IsEmail() @MaxLength(254)
+    email?: string | null;
 
   @IsOptional() @IsInt()
     deptId?: number | null;

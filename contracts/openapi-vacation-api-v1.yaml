@@ -46,6 +46,8 @@ tags:
     description: Журнал изменений (только чтение)
   - name: reports
     description: Выгрузки и отчёты
+  - name: imports
+    description: Импорт сотрудников и остатков (кадровая служба, администратор)
 
 paths:
   /auth/login:
@@ -865,6 +867,60 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+  /imports/employees:
+    post:
+      tags: [imports]
+      operationId: importEmployees
+      summary: Импорт сотрудников и остатков — предпросмотр или применение
+      description: |
+        Файл XLSX/CSV (multipart, поле `file`, до 2 МБ) или JSON `{ rows }` для синхронизации с кадровой системой.
+        Строка сопоставляется с сотрудником по логину, без логина — по ФИО; новый сотрудник получает логин транслитом.
+        Пустая ячейка значение не меняет; повторная загрузка того же файла ничего не меняет.
+        `dryRun=true` (по умолчанию) — только план; `dryRun=false` — применение одной транзакцией с аудитом,
+        только если в плане нет ошибок. Пароли созданных возвращаются один раз.
+      parameters:
+        - { name: dryRun, in: query, schema: { type: boolean, default: true } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+          application/json:
+            schema:
+              type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  maxItems: 5000
+                  items: { $ref: '#/components/schemas/ImportRowInput' }
+      responses:
+        '200':
+          description: План импорта; при dryRun=false — применённый
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /imports/employees/template:
+    get:
+      tags: [imports]
+      operationId: getImportTemplate
+      summary: Шаблон XLSX для импорта сотрудников
+      responses:
+        '200':
+          description: Книга XLSX с листами «Сотрудники» и «Пояснения»
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Problem' }
+
   /reports/vacations:
     get:
       tags: [reports]
@@ -1127,6 +1183,7 @@ components:
       properties:
         id: { type: integer }
         name: { type: string }
+        email: { type: [string, 'null'], format: email }
         position: { type: [string, 'null'] }
         deptId: { type: [integer, 'null'] }
         deptName: { type: [string, 'null'] }
@@ -1146,6 +1203,7 @@ components:
       required: [name]
       properties:
         name: { type: string, minLength: 3, maxLength: 128 }
+        email: { type: string, format: email }
         position: { type: string, maxLength: 128 }
         deptId: { type: integer }
         role: { type: string, enum: [employee, manager], default: employee }
@@ -1164,6 +1222,7 @@ components:
       minProperties: 1
       properties:
         name: { type: string, minLength: 3, maxLength: 128 }
+        email: { type: string, format: email }
         position: { type: string, maxLength: 128 }
         deptId: { type: [integer, 'null'] }
         role: { type: string, enum: [employee, manager] }
@@ -1321,6 +1380,54 @@ components:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80 }
         timezone: { type: string }
         defaultPlannedDays: { type: integer, minimum: 20, maximum: 60 }
+
+    ImportRowInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: ФИО }
+        login: { type: string }
+        position: { type: string }
+        dept: { type: string, description: Название отдела; новый создаётся }
+        manager: { type: string, description: Логин или ФИО руководителя }
+        plannedDays: { type: [number, string] }
+        carryOver: { type: [number, string] }
+        empType: { type: string, description: '«штат» или «ИП/самозанятый»' }
+        email: { type: string, format: email }
+
+    ImportResult:
+      type: object
+      properties:
+        applied: { type: boolean }
+        summary:
+          type: object
+          properties:
+            create: { type: integer }
+            update: { type: integer }
+            unchanged: { type: integer }
+            error: { type: integer }
+        newDepartments: { type: array, items: { type: string } }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              line: { type: integer, description: Номер строки файла }
+              action: { type: string, enum: [create, update, unchanged, error] }
+              name: { type: string }
+              login: { type: string }
+              employeeId: { type: integer }
+              changes: { type: object, additionalProperties: { type: object, properties: { before: {}, after: {} } } }
+              errors: { type: array, items: { type: string } }
+        credentials:
+          type: array
+          description: Логины и одноразовые пароли созданных сотрудников — только в ответе применения
+          items:
+            type: object
+            properties:
+              login: { type: string }
+              name: { type: string }
+              password: { type: string }
 
     ProductionCalendar:
       type: object

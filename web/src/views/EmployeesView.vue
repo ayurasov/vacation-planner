@@ -8,6 +8,7 @@ import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import VacationForm from '@/components/VacationForm.vue';
+import ImportDialog from '@/components/ImportDialog.vue';
 
 const ui = useUiStore();
 const auth = useAuthStore();
@@ -33,12 +34,13 @@ const busy = ref(false);
 const formError = ref('');
 const managers = ref<Employee[]>([]);
 const emptyForm = () => ({
-  name: '', position: '', deptId: null as number | null, managerId: null as number | null,
+  name: '', email: '', position: '', deptId: null as number | null, managerId: null as number | null,
   role: 'employee', empType: 'staff', isAdmin: false, isHr: false, plannedDays: 28, carryOver: 0, login: '', password: '',
 });
 const form = ref(emptyForm());
 const secret = ref<{ title: string; login: string; password: string } | null>(null);
 const vacationFor = ref<Employee | null>(null);
+const importOpen = ref(false);
 
 async function reload(): Promise<void> {
   loading.value = true;
@@ -86,7 +88,7 @@ function openCreate(): void {
 function openEdit(e: Employee): void {
   editing.value = e;
   form.value = {
-    name: e.name, position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
+    name: e.name, email: e.email ?? '', position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
     role: e.role, empType: e.empType, isAdmin: e.isAdmin, isHr: e.isHr, plannedDays: e.plannedDays, carryOver: e.carryOver,
     login: e.login, password: '',
   };
@@ -100,7 +102,7 @@ async function save(): Promise<void> {
   formError.value = '';
   const f = form.value;
   const payload = {
-    name: f.name.trim(), position: f.position.trim() || undefined, deptId: f.deptId, managerId: f.managerId,
+    name: f.name.trim(), email: f.email.trim() || (editing.value ? null : undefined), position: f.position.trim() || undefined, deptId: f.deptId, managerId: f.managerId,
     role: f.role, empType: f.empType,
     // служебные права выдаёт только администратор
     ...(auth.isAdmin ? { isAdmin: f.isAdmin, isHr: f.isHr } : {}),
@@ -234,6 +236,17 @@ onMounted(async () => {
             aria-label="Поиск"
           >
         </div>
+        <button
+          class="btn"
+          type="button"
+          title="Импорт сотрудников и остатков из XLSX или CSV"
+          @click="importOpen = true"
+        >
+          <AppIcon
+            name="upload"
+            :size="15"
+          /> Импорт
+        </button>
         <button
           class="btn btn-primary"
           type="button"
@@ -500,6 +513,17 @@ onMounted(async () => {
               placeholder="Иванов Иван Иванович"
             >
           </div>
+          <div class="field">
+            <label for="e-email">Email <span class="soft">(для писем о заявках)</span></label>
+            <input
+              id="e-email"
+              v-model="form.email"
+              class="input"
+              type="email"
+              autocomplete="off"
+              placeholder="ivanov@company.ru"
+            >
+          </div>
           <div class="field-row">
             <div class="field">
               <label for="e-pos">Должность</label>
@@ -665,6 +689,12 @@ onMounted(async () => {
         </div>
       </form>
     </div>
+
+    <ImportDialog
+      v-if="importOpen"
+      @close="importOpen = false"
+      @done="reload"
+    />
 
     <VacationForm
       v-if="vacationFor"

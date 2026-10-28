@@ -7,7 +7,7 @@ import { hashPassword } from '../auth/passwords';
 import type { StaffActor } from '../auth/access';
 import { randomBytes } from 'node:crypto';
 
-function translitLogin(name: string): string {
+export function translitLogin(name: string): string {
   const TRANSLIT: Record<string, string> = {
     а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'i',
     к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f',
@@ -21,17 +21,17 @@ function translitLogin(name: string): string {
   return `${last}.${initials.join('')}`;
 }
 
-function generatePassword(): string {
+export function generatePassword(): string {
   return randomBytes(6).toString('base64url');
 }
 
 export function toPublic(e: {
-  id: number; login: string; name: string; position: string | null; deptId: number | null;
+  id: number; login: string; name: string; email: string | null; position: string | null; deptId: number | null;
   role: string; isAdmin: boolean; isHr: boolean; empType: string; managerId: number | null; projectId: number | null;
   plannedDays: number; carryOver: number; isActive: boolean;
 }) {
   return {
-    id: e.id, login: e.login, name: e.name, position: e.position, deptId: e.deptId,
+    id: e.id, login: e.login, name: e.name, email: e.email, position: e.position, deptId: e.deptId,
     role: e.role, isAdmin: e.isAdmin, isHr: e.isHr, empType: e.empType, managerId: e.managerId,
     projectId: e.projectId, plannedDays: e.plannedDays, carryOver: e.carryOver,
     isActive: e.isActive,
@@ -98,7 +98,7 @@ export class EmployeesService {
   }
 
   async create(actor: StaffActor, input: {
-    name: string; position?: string; deptId?: number; role?: string; isAdmin?: boolean; isHr?: boolean;
+    name: string; email?: string; position?: string; deptId?: number; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number; projectId?: number; login?: string;
     password?: string; plannedDays?: number; carryOver?: number;
   }): Promise<{ employee: ReturnType<typeof toPublic>; generatedPassword?: string }> {
@@ -107,6 +107,7 @@ export class EmployeesService {
     const login = input.login?.trim() || `${translitLogin(input.name)}`;
     const dup = await this.prisma.employee.findFirst({ where: { login } });
     if (dup) throw new ProblemException('validation/invalid-field', `Логин «${login}» уже занят`);
+    await this.assertEmailFree(input.email);
     const generated = input.password ? undefined : generatePassword();
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -115,6 +116,7 @@ export class EmployeesService {
           login,
           passwordHash: hashPassword(input.password ?? generated!),
           name: input.name,
+          email: input.email?.toLowerCase() ?? null,
           position: input.position ?? null,
           deptId: input.deptId ?? null,
           role: input.role === 'manager' ? 'manager' : 'employee',
@@ -137,7 +139,7 @@ export class EmployeesService {
   }
 
   async update(actor: StaffActor, id: number, input: {
-    name?: string; position?: string; deptId?: number | null; role?: string; isAdmin?: boolean; isHr?: boolean;
+    name?: string; email?: string | null; position?: string; deptId?: number | null; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number | null; projectId?: number | null;
     plannedDays?: number; carryOver?: number;
   }) {
@@ -146,6 +148,7 @@ export class EmployeesService {
     if (!before) throw new ProblemException('not-found');
     assertCanTouch(actor, before);
     assertGrants(actor, input, before);
+    await this.assertEmailFree(input.email ?? undefined, id);
     if ((input.isAdmin === false) && before.isAdmin) {
       await this.assertNotLastAdmin(id);
     }
@@ -154,6 +157,7 @@ export class EmployeesService {
         where: { id },
         data: {
           name: input.name, position: input.position,
+          email: input.email === null ? null : input.email?.toLowerCase(), // null — очистить адрес
           deptId: input.deptId === undefined ? undefined : input.deptId,
           role: input.role, isAdmin: input.isAdmin, isHr: input.isHr,
           empType: input.empType, managerId: input.managerId === undefined ? undefined : input.managerId,
@@ -184,6 +188,14 @@ export class EmployeesService {
         before: toPublic(e), after: { isActive: false },
       });
     });
+  }
+
+  private async assertEmailFree(email: string | undefined, exceptId?: number): Promise<void> {
+    if (!email) return;
+    const other = await this.prisma.employee.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    });
+    if (other) throw new ProblemException('validation/invalid-field', `Адрес ${email} уже указан у другого сотрудника`);
   }
 
   private async assertNotLastAdmin(id: number): Promise<void> {

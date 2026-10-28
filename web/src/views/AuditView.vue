@@ -38,6 +38,7 @@ const ACTIONS: Record<string, { label: string; tone: string; icon: string }> = {
   'calendar.created': { label: 'Загружен календарь года', tone: 'info', icon: 'schedule' },
   'calendar.updated': { label: 'Изменён календарь года', tone: 'violet', icon: 'schedule' },
   'employee.password_reset': { label: 'Сброшен пароль', tone: 'warning', icon: 'key' },
+  'import.applied': { label: 'Импорт сотрудников', tone: 'info', icon: 'upload' },
   'report.exported': { label: 'Выгрузка в Excel', tone: 'muted', icon: 'spreadsheet' },
 };
 
@@ -49,12 +50,14 @@ const ENTITIES = [
   { key: 'project', label: 'Проекты' },
   { key: 'org_settings', label: 'Настройки' },
   { key: 'calendar', label: 'Календарь' },
+  { key: 'import', label: 'Импорт' },
   { key: 'report', label: 'Выгрузки' },
 ];
 
 const FIELD_LABELS: Record<string, string> = {
   status: 'статус', start: 'начало', end: 'окончание', name: 'название', managerId: 'руководитель',
   plannedDays: 'норма', carryOver: 'перенос', deptId: 'отдел', position: 'должность', role: 'роль',
+  email: 'email', create: 'новых', update: 'изменено', unchanged: 'без изменений', error: 'ошибок', newDepartments: 'новые отделы', source: 'источник',
   isAdmin: 'администратор', isHr: 'кадровая служба', holidays: 'праздники', transfers: 'переносы', empType: 'тип', conflictThreshold: 'порог', limitPolicy: 'лимит', period: 'период',
 };
 
