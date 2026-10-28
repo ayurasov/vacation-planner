@@ -72,3 +72,24 @@ test('импорт: предпросмотр показывает новых, и
   await dialog.getByRole('button', { name: 'Отмена' }).click();
   await expect(dialog).toHaveCount(0);
 });
+
+test('сброс пароля: открытая вкладка сотрудника сама уходит на экран входа', async ({ browser, request }) => {
+  const employee = { login: 'budylina.sb', password: 'iXAsTk8P' };
+  const ctx = await browser.newContext();
+  const tab = await ctx.newPage();
+  await login(tab, { ...employee, name: '' });
+  // Кадровая служба сбрасывает пароль — как кнопкой «Сбросить пароль», но по API: значение известно тесту
+  const hr = await (await request.post('/api/v1/auth/login', { data: { login: HR.login, password: HR.password } })).json();
+  const headers = { Authorization: `Bearer ${hr.accessToken}` };
+  const found = await (await request.get(`/api/v1/employees?search=${encodeURIComponent('Будылина')}`, { headers })).json();
+  const id = found.items[0].id;
+  expect((await request.put(`/api/v1/employees/${id}/password`, { headers, data: { newPassword: 'e2e-temp-password-1' } })).status()).toBe(204);
+  try {
+    // Вкладка ничего не делает: поток событий получает revoked (сервер сверяет сеансы раз в 10 с)
+    await expect(tab).toHaveURL(/\/login\?ended=1/, { timeout: 20000 });
+    await expect(tab.getByRole('alert')).toContainText('Сеанс завершён');
+  } finally {
+    await request.put(`/api/v1/employees/${id}/password`, { headers, data: { newPassword: employee.password } });
+    await ctx.close();
+  }
+});

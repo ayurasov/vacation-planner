@@ -463,6 +463,7 @@ onMounted(async () => {
 
 .range {
   width: 100%;
+  height: 24px; /* цель нажатия (WCAG 2.5.8); по умолчанию 16 px */
   accent-color: var(--color-primary);
 }
 

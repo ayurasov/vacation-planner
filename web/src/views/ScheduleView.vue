@@ -47,7 +47,13 @@ const ZOOM: Record<Zoom, { day: number; label: string }> = {
 };
 const zoom = ref<Zoom>(readZoom());
 const DAY = computed(() => ZOOM[zoom.value].day);
-const NAME_COL = 264;
+// Колонка имён: на телефоне уже — иначе на шкалу оставалось ~60 px из 330 (аудит v0.5.0)
+const phone = typeof window !== 'undefined' ? window.matchMedia('(max-width: 600px)') : null;
+const narrow = ref(phone?.matches ?? false);
+const onPhoneChange = (e: MediaQueryListEvent) => { narrow.value = e.matches; };
+phone?.addEventListener('change', onPhoneChange);
+onBeforeUnmount(() => phone?.removeEventListener('change', onPhoneChange));
+const NAME_COL = computed(() => (narrow.value ? 156 : 264));
 const ROW_H = 40;
 const GROUP_H = 36;
 
@@ -222,8 +228,10 @@ function barLabel(b: Bar): string {
   const width = b.days * DAY.value;
   if (width < 44) return '';
   const n = vacationDays(b.start, b.end, holidays.value);
-  if (width < 120) return `${n} д.`;
-  return `${fmtRange(b.start, b.end).replace(/ \d{4}$/, '')} · ${n} д.`;
+  const full = `${fmtRange(b.start, b.end).replace(/ \d{4}$/, '')} · ${n} д.`;
+  // ~6,3 px на знак (11 px, полужирный) + поля: даты через границу месяцев длиннее —
+  // на короткой полосе обрезанное «октября – 1 ноя…» хуже, чем просто «5 д.» (даты — в подсказке)
+  return full.length * 6.3 + 14 <= width ? full : `${n} д.`;
 }
 
 function barTitle(e: ScheduleEmployee, b: Bar): string {
@@ -241,7 +249,7 @@ function scrollToToday(smooth = false): void {
   const el = scroller.value;
   if (!el) return;
   const idx = isCurrentYear.value ? todayIdx.value : 0;
-  const target = NAME_COL + idx * DAY.value - (el.clientWidth - NAME_COL) / 3;
+  const target = NAME_COL.value + idx * DAY.value - (el.clientWidth - NAME_COL.value) / 3;
   el.scrollTo({ left: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
 }
 
@@ -802,7 +810,7 @@ const selectedDays = computed(() => selected.value
                       :title="barTitle(it.e, b)"
                       @click="selected = it.e"
                     >
-                      {{ barLabel(b) }}
+                      <span class="g-bar-label">{{ barLabel(b) }}</span>
                     </button>
                   </div>
                 </div>
@@ -952,9 +960,9 @@ const selectedDays = computed(() => selected.value
   display: inline-block;
 }
 
-.sw-approved { background: var(--color-primary); }
-.sw-pending { background: repeating-linear-gradient(135deg, var(--color-warning) 0 3px, color-mix(in srgb, var(--color-warning) 55%, var(--color-surface)) 3px 6px); }
-.sw-maternity { background: var(--color-violet); }
+.sw-approved { background: var(--color-primary-fill); }
+.sw-pending { background: repeating-linear-gradient(135deg, var(--chart-pending) 0 3px, color-mix(in srgb, var(--chart-pending) 55%, var(--color-surface)) 3px 6px); }
+.sw-maternity { background: var(--color-violet-fill); }
 .sw-conflict { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-danger) 55%, transparent) 0 2px, transparent 2px 4px); outline: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent); }
 .sw-off { background: var(--color-weekend); outline: 1px solid var(--color-border); }
 
@@ -1056,7 +1064,7 @@ const selectedDays = computed(() => selected.value
 }
 
 .g-day.today span {
-  background: var(--color-danger);
+  background: var(--color-danger-fill);
   color: #fff;
   border-radius: 4px;
   margin: 0 1px;
@@ -1194,8 +1202,8 @@ const selectedDays = computed(() => selected.value
 
 .g-bar {
   position: absolute;
-  top: 9px;
-  height: 22px;
+  top: 8px;
+  height: 24px; /* цель нажатия не ниже 24 px (WCAG 2.5.8) */
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -1204,8 +1212,8 @@ const selectedDays = computed(() => selected.value
   font-weight: 600;
   padding: 0 7px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* clip, а не hidden: hidden делает полосу прокручиваемым контейнером и ломает липкую подпись */
+  overflow: clip;
   text-align: left;
   cursor: pointer;
   z-index: 3;
@@ -1213,17 +1221,42 @@ const selectedDays = computed(() => selected.value
   transition: transform 0.12s, box-shadow 0.12s;
 }
 
+/* Подпись «едет» вдоль полосы: если начало отпуска прокручено под колонку имён, даты видны,
+   а не обрезанное «октября – 1 ноя…» */
+.g-bar-label {
+  position: sticky;
+  left: calc(var(--name-col) + 6px);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  line-height: 24px;
+}
+
+/* Сенсорный экран: полоса ещё выше */
+@media (pointer: coarse) {
+  .g-bar {
+    top: 6px;
+    height: 28px;
+  }
+
+  .g-bar-label {
+    line-height: 28px;
+  }
+}
+
 .g-bar:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 10px rgba(20, 25, 40, 0.2);
 }
 
-.bar-approved { background: var(--color-primary); }
+.bar-approved { background: var(--color-primary-fill); }
 .bar-pending {
-  background: repeating-linear-gradient(135deg, var(--color-warning) 0 6px, color-mix(in srgb, var(--color-warning) 75%, #fff) 6px 12px);
-  color: #5a3a06;
+  background: repeating-linear-gradient(135deg, var(--chart-pending) 0 6px, color-mix(in srgb, var(--chart-pending) 75%, #fff) 6px 12px);
+  color: var(--chart-pending-ink);
 }
-.bar-maternity { background: var(--color-violet); }
+.bar-maternity { background: var(--color-violet-fill); }
 .bar-past { opacity: 0.55; }
 
 .gantt-loading {
@@ -1316,8 +1349,8 @@ const selectedDays = computed(() => selected.value
 }
 
 .g-pick.on .app-icon {
-  background: var(--color-warning);
-  border-color: var(--color-warning);
+  background: var(--color-warning-fill);
+  border-color: var(--color-warning-fill);
   color: #fff;
 }
 

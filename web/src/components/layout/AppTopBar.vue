@@ -174,7 +174,7 @@ const roleLabel = computed(() => (auth.isAdmin ? 'Администратор' : 
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--color-danger);
+  background: var(--color-danger-fill);
   color: #fff;
   font-size: 9.5px;
   font-weight: 700;

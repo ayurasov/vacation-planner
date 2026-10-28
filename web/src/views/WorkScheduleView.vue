@@ -539,6 +539,12 @@ onMounted(async () => {
   background: var(--color-hover);
 }
 
+@media (pointer: coarse) {
+  .cal-cell {
+    aspect-ratio: 1;
+  }
+}
+
 @media (max-width: 900px) {
   .ws-grid {
     grid-template-columns: 1fr;

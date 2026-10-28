@@ -174,31 +174,26 @@ button {
 }
 
 .btn-primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
+  background: var(--color-primary-fill);
+  border-color: var(--color-primary-fill);
   color: #fff;
 }
 
 .btn-primary:hover {
-  background: var(--color-primary-dark);
-  border-color: var(--color-primary-dark);
-}
-
-[data-theme='dark'] .btn-primary:hover {
-  background: #4774f0;
-  border-color: #4774f0;
+  background: var(--color-primary-fill-hover);
+  border-color: var(--color-primary-fill-hover);
 }
 
 .btn-success {
-  background: var(--color-success);
-  border-color: var(--color-success);
+  background: var(--color-success-fill);
+  border-color: var(--color-success-fill);
   color: #fff;
 }
 
 .btn-success:hover {
   filter: brightness(0.95);
-  background: var(--color-success);
-  border-color: var(--color-success);
+  background: var(--color-success-fill);
+  border-color: var(--color-success-fill);
 }
 
 .btn-ghost {
@@ -798,6 +793,12 @@ tr:hover .row-actions,
 
   .stat-value {
     font-size: 18px;
+  }
+
+  /* Четыре вкладки с числами помещаются в 360 px без прокрутки */
+  .segmented button {
+    padding: 5px 8px;
+    font-size: 12px;
   }
 }
 

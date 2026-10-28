@@ -126,6 +126,9 @@ export function subscribeLive(handlers: LiveHandlers): () => void {
       on('hello', (d: { unread: number; version: string }) => { attempt = 0; handlers.status?.(true); handlers.hello?.(d); });
       on('notifications', handlers.notifications);
       on('data', handlers.data);
+      // Сервер раз в 10 с сверяет версию пароля и активность: сеанс отозван — сразу на вход,
+      // не дожидаясь повторного подключения и отказа в билете
+      on('revoked', () => { stopped = true; source?.close(); source = null; lost(); });
       // Билет одноразовый по смыслу (60 с): встроенный повтор EventSource с тем же адресом не годится
       source.onerror = () => { source?.close(); source = null; handlers.status?.(false); schedule(); };
     } catch {
