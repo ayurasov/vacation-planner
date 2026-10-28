@@ -11,7 +11,7 @@ flowchart TB
     RP["<b>Обратный прокси с TLS</b><br/><small>nginx / Caddy организации · :443 → web:80</small>"]:::ext
     subgraph NET["docker#nbsp;compose:#nbsp;проект#nbsp;vacation‑planner"]
       WEB["<b>web</b> · nginx 1.27<br/><small>статика SPA, CSP, кеш ассетов, gzip;<br/>/api → server:8080, поток событий без буфера;<br/>адрес server — заново каждые 10 с</small>"]:::box
-      API["<b>server</b> · Node.js 20, NestJS 11<br/><small>REST API v1 (57 операций), поток событий,<br/>WEB_CONCURRENCY процессов, кэш графика,<br/>/metrics, миграции Prisma при старте</small>"]:::box
+      API["<b>server</b> · Node.js 20, NestJS 11<br/><small>REST API v1 (58 операций), поток событий,<br/>WEB_CONCURRENCY процессов, кэш графика,<br/>/metrics, миграции Prisma при старте</small>"]:::box
       DB[("<b>postgres</b> · PostgreSQL 17<br/><small>данные, лимит входа, версия данных,<br/>очередь писем; архив WAL</small>")]:::db
       BK["<b>backup</b> · postgres:17-alpine<br/><small>pg_dump раз в сутки,<br/>ротация копий</small>"]:::ext
       REP[("<b>postgres-replica</b> · PostgreSQL 17<br/><small>горячий резерв по слоту;<br/>при аварии — основной</small>")]:::opt
