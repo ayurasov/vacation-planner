@@ -101,3 +101,28 @@ groups:
         annotations:
           summary: Еженедельная сводка не запускалась больше 8 дней
           description: 'Проверьте, что server работает в понедельник утром и что почта настроена.'
+
+      # Реплика и архив WAL (E40-03, docker-compose.replica.yml): цель — не больше 15 минут потерь
+      - alert: VacationReplicaDisconnected
+        expr: min by (slot) (vp_db_replication_slot_active) == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Реплика отключена (слот {{ $labels.slot }})'
+          description: 'Основной сервер копит WAL для реплики (до max_slot_wal_keep_size = 10 ГБ). Проверьте контейнер postgres-replica.'
+
+      - alert: VacationReplicaLagging
+        expr: max by (replica) (vp_db_replica_lag_seconds) > 300
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Реплика {{ $labels.replica }} отстаёт больше 5 минут'
+          description: 'При аварии основного сервера потеряется до {{ $value | humanizeDuration }} изменений.'
+
+      - alert: VacationWalArchiveFailing
+        expr: max(vp_db_wal_archive_failing) == 1
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: Архивирование WAL завершается ошибкой
+          description: 'Восстановление на момент времени невозможно, WAL копится на основном сервере. Журнал postgres: archive command failed; место на томе wal-archive.'

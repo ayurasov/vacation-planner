@@ -14,6 +14,11 @@ interface DbRow {
   pending_requests: number;
   active_employees: number;
   data_version: number | null;
+  replicas: Array<{ name: string; bytes: number | null; seconds: number | null }> | null;
+  slots: Array<{ slot: string; active: boolean; retained: number | null }> | null;
+  archive_enabled: boolean;
+  archive_failing: boolean;
+  archived_at: number | null;
 }
 
 const digest = (s: string): Buffer => createHash('sha256').update(s).digest();
@@ -60,7 +65,19 @@ export class MetricsController {
              SELECT name, extract(epoch FROM max(ran_at))::float8 AS t FROM job_runs GROUP BY 1) j) AS jobs,
           (SELECT count(*)::int FROM vacation_requests WHERE status = 'pending') AS pending_requests,
           (SELECT count(*)::int FROM employees WHERE is_active) AS active_employees,
-          (SELECT sum(version)::float8 FROM data_version) AS data_version`;
+          (SELECT sum(version)::float8 FROM data_version) AS data_version,
+          -- Реплики и слоты (E40-03). Отставание в байтах видно суперпользователю или роли pg_monitor
+          (SELECT json_agg(json_build_object('name', coalesce(nullif(application_name, ''), client_addr::text, 'replica'),
+                  'bytes', pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)::float8,
+                  'seconds', coalesce(extract(epoch FROM replay_lag)::float8, 0)))
+             FROM pg_stat_replication) AS replicas,
+          (SELECT json_agg(json_build_object('slot', slot_name, 'active', active,
+                  'retained', pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::float8))
+             FROM pg_replication_slots WHERE slot_type = 'physical') AS slots,
+          current_setting('archive_mode') <> 'off' AS archive_enabled,
+          -- Архив «сломан», если последняя неудача позже последнего успеха; простой без записи — не сбой
+          (SELECT coalesce(last_failed_time > coalesce(last_archived_time, 'epoch'), false) FROM pg_stat_archiver) AS archive_failing,
+          (SELECT extract(epoch FROM last_archived_time)::float8 FROM pg_stat_archiver) AS archived_at`;
     } catch {
       row = undefined; // БД недоступна: метрики процессов всё равно отдаются, vp_db_up = 0
     }
@@ -88,6 +105,19 @@ export class MetricsController {
       gauge('vp_vacation_requests_pending', 'Заявки, ожидающие согласования', [[{}, row.pending_requests]]),
       gauge('vp_employees_active', 'Активные сотрудники', [[{}, row.active_employees]]),
       gauge('vp_data_version', 'Версия данных графика (растёт при каждом изменении)', [[{}, row.data_version ?? 0]]),
+      // Ряды реплик и слотов есть, только когда они настроены (docker-compose.replica.yml)
+      gauge('vp_db_replica_lag_bytes', 'Отставание реплики от основного сервера, байт WAL',
+        (row.replicas ?? []).filter((r) => r.bytes !== null).map((r) => [{ replica: r.name }, r.bytes!])),
+      gauge('vp_db_replica_lag_seconds', 'Отставание применения на реплике, секунд (0 — догнала)',
+        (row.replicas ?? []).map((r) => [{ replica: r.name }, r.seconds ?? 0])),
+      gauge('vp_db_replication_slot_active', 'Слот репликации используется репликой (0 — реплика отключена, WAL копится)',
+        (row.slots ?? []).map((sl) => [{ slot: sl.slot }, sl.active ? 1 : 0])),
+      gauge('vp_db_replication_slot_retained_bytes', 'WAL, удерживаемый слотом на основном сервере, байт',
+        (row.slots ?? []).filter((sl) => sl.retained !== null).map((sl) => [{ slot: sl.slot }, sl.retained!])),
+      gauge('vp_db_wal_archive_enabled', 'Архивирование WAL включено (archive_mode)', [[{}, row.archive_enabled ? 1 : 0]]),
+      gauge('vp_db_wal_archive_failing', 'Архивирование WAL сейчас завершается ошибкой (1 — да)', [[{}, row.archive_failing ? 1 : 0]]),
+      gauge('vp_db_wal_archive_last_success_timestamp_seconds', 'Время последнего успешно заархивированного сегмента WAL (Unix, секунд)',
+        row.archived_at === null ? [] : [[{}, row.archived_at]]),
     );
     return out;
   }

@@ -1,0 +1,76 @@
+# Потоковая реплика PostgreSQL и архив WAL (E40-03): не больше 15 минут потерянных данных.
+#   docker compose -f docker-compose.yml -f docker-compose.replica.yml --profile full up -d
+# Нужен REPLICATION_PASSWORD в .env. Переключение и восстановление — руководство по развёртыванию.
+#
+# Потеря данных: реплика отстаёт на секунды (асинхронная репликация); если потеряны и основной
+# сервер, и реплика, — не больше archive_timeout (5 минут) по архиву WAL и физическим копиям.
+# Архив WAL держите на отдельном диске или хранилище: том wal-archive — пример.
+x-wal-archive: &wal-archive
+  - -c
+  - archive_mode=on
+  - -c
+  - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+  - -c
+  - archive_timeout=300
+  - -c
+  - hba_file=/etc/postgresql/pg_hba.conf
+  # Слот держит WAL для отключённой реплики, но не больше 10 ГБ — диск основного не переполнится
+  - -c
+  - max_slot_wal_keep_size=10GB
+
+services:
+  postgres:
+    # Каталог архива на томе принадлежит postgres; затем штатная точка входа образа
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /wal-archive && chown postgres:postgres /wal-archive && exec docker-entrypoint.sh postgres \"$$@\"", "--"]
+    command: *wal-archive
+    volumes:
+      - ./deploy/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - wal-archive:/wal-archive
+
+  # Горячий резерв: читает поток WAL основного по слоту replica1. Те же параметры архива:
+  # на резерве архивирование не работает и включается само после повышения до основного.
+  postgres-replica:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: vacation
+      POSTGRES_PASSWORD: vacation
+      PRIMARY_HOST: postgres
+      SLOT: replica1
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?задайте REPLICATION_PASSWORD в .env}
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /wal-archive && chown postgres:postgres /wal-archive && exec /bin/sh /replica.sh \"$$@\"", "--"]
+    command: *wal-archive
+    volumes:
+      - ./deploy/postgres/replica.sh:/replica.sh:ro
+      - ./deploy/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - db-replica:/var/lib/postgresql/data
+      - wal-archive:/wal-archive
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vacation -d vacation"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Физические копии для восстановления на момент времени: раз в сутки, хранятся 7
+  basebackup:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: ${DB_HOST:-postgres}
+      PGUSER: replicator
+      PGPASSWORD: ${REPLICATION_PASSWORD:?задайте REPLICATION_PASSWORD в .env}
+      BASEBACKUP_INTERVAL: ${BASEBACKUP_INTERVAL:-86400}
+      BASEBACKUP_KEEP: ${BASEBACKUP_KEEP:-7}
+    entrypoint: ["/bin/sh", "/basebackup.sh"]
+    volumes:
+      - ./deploy/postgres/basebackup.sh:/basebackup.sh:ro
+      - wal-archive:/wal-archive
+    depends_on:
+      # Роль replicator создаёт реплика при первом запуске
+      postgres-replica:
+        condition: service_healthy
+
+volumes:
+  db-replica:
+  wal-archive:

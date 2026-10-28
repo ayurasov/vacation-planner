@@ -83,6 +83,22 @@ describe('/metrics', () => {
     expect([...used].filter((name) => !known(name))).toEqual([]);
   });
 
+  it('слоты репликации и архив WAL: отключённая реплика видна, архив без сбоев', async () => {
+    // Слот без реплики удерживает WAL — удаляется в finally; оставшийся от прерванного прогона — до создания
+    await t.prisma.$queryRaw`SELECT pg_drop_replication_slot(slot_name)::text FROM pg_replication_slots WHERE slot_name = 'vp_test_slot'`;
+    try {
+      await t.prisma.$queryRaw`SELECT slot_name::text FROM pg_create_physical_replication_slot('vp_test_slot', true)`;
+      const res = await t.http().get('/metrics');
+      expect(value(res.text, 'vp_db_up')).toBe(1);
+      expect(value(res.text, 'vp_db_replication_slot_active{slot="vp_test_slot"}')).toBe(0);
+      expect(value(res.text, 'vp_db_replication_slot_retained_bytes{slot="vp_test_slot"}')).toBeGreaterThanOrEqual(0);
+      expect(value(res.text, 'vp_db_wal_archive_failing')).toBe(0);
+      expect(res.text).toContain('# TYPE vp_db_replica_lag_seconds gauge'); // семейство есть и без реплик
+    } finally {
+      await t.prisma.$queryRaw`SELECT pg_drop_replication_slot(slot_name)::text FROM pg_replication_slots WHERE slot_name = 'vp_test_slot'`;
+    }
+  });
+
   it('METRICS_TOKEN: без верного токена — 401', async () => {
     process.env.METRICS_TOKEN = 'scrape-secret';
     expect((await t.http().get('/metrics')).status).toBe(401);
