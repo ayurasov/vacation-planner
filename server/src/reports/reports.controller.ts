@@ -10,6 +10,7 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../auth/guards';
+import { calendarDays, toIso, vacationDays } from '../requests/balance';
 import type { AccessClaims } from '../auth/token.service';
 
 export class ReportQuery {
@@ -86,6 +87,7 @@ export class ReportsController {
       { header: 'Начало', key: 'start', width: 12 },
       { header: 'Окончание', key: 'end', width: 12 },
       { header: 'Календарных дней', key: 'days', width: 18 },
+      { header: 'Дней отпуска', key: 'vacationDays', width: 15 },
       { header: 'Статус', key: 'status', width: 16 },
       { header: 'Тип', key: 'type', width: 12 },
       { header: 'Комментарий', key: 'comment', width: 36 },
@@ -94,8 +96,12 @@ export class ReportsController {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const ruStatus: Record<string, string> = { approved: 'согласован', pending: 'на согласовании' };
     const ruType: Record<string, string> = { vacation: 'отпуск', maternity: 'декрет' };
+    // Праздники всех затронутых лет: дни отпуска без нерабочих праздничных (ТК РФ ст. 120)
+    const years = [...new Set(rows.flatMap((r) => [r.startDate.getUTCFullYear(), r.endDate.getUTCFullYear()]))];
+    const calendars = await this.prisma.productionCalendar.findMany({ where: { year: { in: years } } });
+    const holidays = new Set(calendars.flatMap((c) => (Array.isArray(c.holidays) ? (c.holidays as string[]) : [])));
     for (const r of rows) {
-      const days = Math.floor((r.endDate.getTime() - r.startDate.getTime()) / 86400000) + 1;
+      const days = calendarDays(toIso(r.startDate), toIso(r.endDate));
       ws.addRow({
         name: r.employee.name,
         position: r.employee.position ?? '',
@@ -103,6 +109,7 @@ export class ReportsController {
         start: iso(r.startDate),
         end: iso(r.endDate),
         days,
+        vacationDays: vacationDays(toIso(r.startDate), toIso(r.endDate), holidays),
         status: ruStatus[r.status] ?? r.status,
         type: ruType[r.type] ?? r.type,
         comment: r.comment ?? '',

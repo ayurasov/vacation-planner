@@ -1,19 +1,14 @@
 // Начальное наполнение БД из демонстрационного snapshot (docs/specs/04-data-model.md, раздел 6).
 // Пароли демо-данных хешируются scrypt; исходные пароли из snapshot не сохраняются.
 import { PrismaClient, RequestStatus, RequestType, WorkMode } from '@prisma/client';
-import { randomBytes, scryptSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { hashPassword } from '../src/auth/passwords';
 
-const here = dirname(fileURLToPath(import.meta.url));
+// Данные лежат рядом с исходником (tsx) или в prisma/ относительно скомпилированного dist-seed/ (образ)
+const seedData = [join(__dirname, 'seed-data'), join(__dirname, '..', '..', 'prisma', 'seed-data')]
+  .find((dir) => existsSync(join(dir, 'seed.json')))!;
 const prisma = new PrismaClient();
-
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('base64');
-  const hash = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString('base64');
-  return `scrypt$16384$${salt}$${hash}`;
-}
 
 interface LegacyRequest {
   start: string; end: string; status?: string; type?: string;
@@ -28,7 +23,7 @@ interface LegacyEmployee {
 }
 
 async function main() {
-  const snapshot = JSON.parse(readFileSync(join(here, 'seed-data', 'seed.json'), 'utf-8'));
+  const snapshot = JSON.parse(readFileSync(join(seedData, 'seed.json'), 'utf-8'));
 
   // org_settings
   await prisma.orgSettings.upsert({

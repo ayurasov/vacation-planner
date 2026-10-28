@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-seed",
+    "rootDir": ".",
+    "sourceMap": false
+  },
+  "include": [
+    "prisma/seed.ts",
+    "src/auth/passwords.ts"
+  ]
+}

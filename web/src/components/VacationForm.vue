@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, type Balance, type Employee, type OrgSettings, type VacationRequest } from '@/api/client';
 import { useCalendarStore } from '@/stores/calendar';
+import { useAuthStore } from '@/stores/auth';
 import { addDays, calendarDays, fmtDate, fmtNumber, holidaysIn, localIso, plural, vacationDays } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import SuggestPanel from '@/components/SuggestPanel.vue';
@@ -20,7 +21,10 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; saved: [VacationRequest] }>();
 
 const calendar = useCalendarStore();
+const auth = useAuthStore();
 const today = localIso(new Date());
+/** Прошедшие даты разрешены только администратору (сервер проверяет то же). */
+const minDate = computed(() => (auth.isAdmin ? undefined : today));
 const start = ref(props.editing?.start ?? '');
 const end = ref(props.editing?.end ?? '');
 const comment = ref(props.editing?.comment ?? '');
@@ -205,7 +209,7 @@ async function submit(): Promise<void> {
               v-model="start"
               type="date"
               class="input"
-              :min="today"
+              :min="minDate"
               required
             >
           </div>
@@ -216,7 +220,7 @@ async function submit(): Promise<void> {
               v-model="end"
               type="date"
               class="input"
-              :min="start || today"
+              :min="start || minDate"
               required
             >
           </div>
