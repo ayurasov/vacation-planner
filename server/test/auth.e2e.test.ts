@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createExtraApp, createTestApp, destroyTestApp, login, type TestApp } from './helpers';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { LoginRateLimitGuard } from '../src/auth/rate-limit';
 
 let t: TestApp;
@@ -52,6 +53,18 @@ describe('GET /api/v1/auth/me', () => {
   it('без токена → 401', async () => {
     const res = await t.http().get('/api/v1/auth/me');
     expect(res.status).toBe(401);
+  });
+
+  it('токен с другим алгоритмом подписи, даже тем же секретом, не принимается', async () => {
+    const me = await t.prisma.employee.findUniqueOrThrow({ where: { id: t.employee.id } });
+    const claims = { sub: me.id, login: me.login, isAdmin: me.isAdmin, pwv: me.pwVersion };
+    // Контроль: те же утверждения с HS256 принимаются — отказ ниже именно из-за алгоритма
+    const hs256 = jwt.sign(claims, process.env.JWT_SECRET!, { algorithm: 'HS256', expiresIn: '5m' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${hs256}`)).status).toBe(200);
+    const hs512 = jwt.sign(claims, process.env.JWT_SECRET!, { algorithm: 'HS512', expiresIn: '5m' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${hs512}`)).status).toBe(401);
+    const unsigned = jwt.sign(claims, null, { algorithm: 'none' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${unsigned}`)).status).toBe(401);
   });
 });
 
