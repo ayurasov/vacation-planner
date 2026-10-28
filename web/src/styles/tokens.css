@@ -1,56 +1,91 @@
-/* Дизайн-токены: ДНК todo-planner (светлая) + тёмная тема в духе puls/gantt.
-   Стилистика согласована с внутренними продуктами (docs/specs/01-architecture.md). */
+/* Дизайн-токены «Планировщика отпусков».
+   Светлая тема — ДНК todo-planner (общий стандарт внутренних продуктов): фон #f6f7fb,
+   поверхности #fff, синий #4f7cff, плотная типографика 13–14 px, тени 1/2 уровня.
+   Тёмная тема — холодная графитовая в той же логике контраста. Цвет темы задаётся
+   атрибутом data-theme на <html>: light | dark (по умолчанию — системная, см. main.ts). */
 :root,
 [data-theme='light'] {
+  color-scheme: light;
   --color-bg: #f6f7fb;
   --color-surface: #ffffff;
   --color-surface-2: #fafbfe;
   --color-border: #e3e6ee;
+  --color-border-strong: #cdd3e2;
   --color-text: #1c2331;
   --color-text-muted: #6b7280;
+  --color-text-soft: #8a92a6;
   --color-primary: #4f7cff;
   --color-primary-dark: #3860e0;
   --color-primary-soft: #e6ecff;
+  --color-primary-ring: rgba(79, 124, 255, 0.22);
   --color-danger: #e5484d;
+  --color-danger-dark: #c62933;
   --color-danger-soft: #fde5e6;
   --color-success: #2fa96b;
+  --color-success-dark: #1e8a52;
   --color-success-soft: #e4f6ea;
   --color-warning: #e8a13a;
+  --color-warning-dark: #b56a10;
   --color-warning-soft: #fdf3e2;
+  --color-violet: #8e6fc1;
+  --color-violet-soft: #f1ebfa;
   --color-neutral-soft: #eef1f7;
   --color-hover: #eef1f7;
+  --color-hover-strong: #f0f2f8;
   --color-row-hover: #fafbfe;
-  --color-overlay: rgba(20, 25, 40, 0.4);
+  --color-overlay: rgba(20, 25, 40, 0.42);
+  --color-weekend: #f3f5fa;
+  --color-holiday: #fdeeee;
+  --color-scrollbar: #d3d8e4;
+
   --radius-sm: 6px;
   --radius-md: 10px;
+  --radius-lg: 14px;
   --shadow-1: 0 1px 3px rgba(20, 25, 40, 0.06);
   --shadow-2: 0 6px 20px rgba(20, 25, 40, 0.1);
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+  --shadow-3: 0 16px 48px rgba(20, 25, 40, 0.18);
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
   --sidebar-width: 232px;
+  --sidebar-collapsed: 60px;
   --topbar-height: 56px;
 }
 
 [data-theme='dark'] {
-  --color-bg: #121211;
-  --color-surface: #1a1918;
-  --color-surface-2: #1f1e1c;
-  --color-border: #2e2d2a;
-  --color-text: #d6d3ce;
-  --color-text-muted: #8a857d;
-  --color-primary: #4f8dfd;
-  --color-primary-dark: #6ea1ff;
-  --color-primary-soft: #1d2f4e;
-  --color-danger: #f87171;
-  --color-danger-soft: #3a2325;
-  --color-success: #4ade80;
-  --color-success-soft: #173327;
-  --color-warning: #d4a13a;
-  --color-warning-soft: #332a17;
-  --color-neutral-soft: #242320;
-  --color-hover: #242320;
-  --color-row-hover: #1f1e1c;
-  --color-overlay: rgba(0, 0, 0, 0.55);
-  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+  --color-bg: #0f1218;
+  --color-surface: #171b23;
+  --color-surface-2: #1b2029;
+  --color-border: #262c38;
+  --color-border-strong: #343c4c;
+  --color-text: #e3e7ef;
+  --color-text-muted: #9099ab;
+  --color-text-soft: #6f788b;
+  --color-primary: #5b87ff;
+  --color-primary-dark: #8aa8ff;
+  --color-primary-soft: #1b2744;
+  --color-primary-ring: rgba(91, 135, 255, 0.3);
+  --color-danger: #f26d71;
+  --color-danger-dark: #ff9a9d;
+  --color-danger-soft: #3a1f24;
+  --color-success: #3cc282;
+  --color-success-dark: #6fdca6;
+  --color-success-soft: #15301f;
+  --color-warning: #e6aa4f;
+  --color-warning-dark: #f2c27c;
+  --color-warning-soft: #352816;
+  --color-violet: #a98ae0;
+  --color-violet-soft: #2a2140;
+  --color-neutral-soft: #1f2530;
+  --color-hover: #1f2530;
+  --color-hover-strong: #232a36;
+  --color-row-hover: #1a1f28;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-weekend: #141820;
+  --color-holiday: #2a1b20;
+  --color-scrollbar: #3a4252;
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.45);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6);
 }

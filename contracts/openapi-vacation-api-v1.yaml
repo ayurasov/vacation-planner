@@ -993,6 +993,7 @@ components:
     Department:
       type: object
       properties:
+        id: { type: integer, description: 'Идентификатор (с v0.3.0); в путях отдел адресуется по имени' }
         name: { type: string }
         managerId: { type: [integer, 'null'] }
         headcount: { type: integer }
@@ -1054,7 +1055,8 @@ components:
       properties:
         id: { type: integer }
         ts: { type: string, format: date-time }
-        actor: { type: integer }
+        actorId: { type: [integer, 'null'] }
+        actorName: { type: [string, 'null'], description: 'ФИО автора действия (с v0.3.0)' }
         action: { type: string, description: 'Из каталога действий docs/specs/02-api-spec.md' }
         entity: { type: string }
         entityId: { type: string }

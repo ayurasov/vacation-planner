@@ -1,351 +1,659 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { api, daysBetween, fmtRange, type Department, type Schedule, type ScheduleEmployee } from '@/api/client';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { api, type Department, type Schedule, type ScheduleEmployee } from '@/api/client';
+import { useAuthStore } from '@/stores/auth';
+import { useCalendarStore } from '@/stores/calendar';
+import { useUiStore } from '@/stores/ui';
+import {
+  addDays, dayIndex, daysInYear, fmtDate, fmtRange, isWeekend, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
+} from '@/lib/dates';
+import { barsForYear, conflictDatesFor, isAbsent, segments, type Bar } from '@/lib/schedule';
+import { shortName } from '@/lib/people';
+import { statusMeta } from '@/lib/requests';
+import AppIcon from '@/components/common/AppIcon.vue';
+import UserAvatar from '@/components/common/UserAvatar.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
+import StatusBadge from '@/components/common/StatusBadge.vue';
 
-const YEAR = new Date().getFullYear();
+const auth = useAuthStore();
+const calendar = useCalendarStore();
+const ui = useUiStore();
 
+const today = localIso(new Date());
+const year = ref(Number(today.slice(0, 4)));
 const schedule = ref<Schedule | null>(null);
 const departments = ref<Department[]>([]);
-const deptFilter = ref('');
+const holidays = ref<Set<string>>(new Set());
+const dept = ref('');
 const search = ref('');
 const loading = ref(true);
 const error = ref('');
 const selected = ref<ScheduleEmployee | null>(null);
+const collapsedDepts = ref<Set<string>>(new Set());
+const scroller = ref<HTMLElement | null>(null);
 
-const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
-const monthFull = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-
-const daysInMonth = (m: number) => new Date(YEAR, m + 1, 0).getDate();
-const dayOfYear = (date: string) => {
-  const [y, m, d] = date.split('-').map(Number);
-  return Math.round((Date.parse(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T00:00:00Z`)
-    - Date.parse(`${YEAR}-01-01T00:00:00Z`)) / 86400000);
+type Zoom = 'year' | 'quarter' | 'month';
+const ZOOM: Record<Zoom, { day: number; label: string }> = {
+  year: { day: 5, label: 'Год' },
+  quarter: { day: 18, label: 'Квартал' },
+  month: { day: 30, label: 'Месяц' },
 };
-const TOTAL_DAYS = dayOfYear(`${YEAR}-12-31`) + 1;
-const todayIso = new Date().toISOString().slice(0, 10);
-const todayIndex = todayIso.startsWith(String(YEAR)) ? dayOfYear(todayIso) : -1;
+const zoom = ref<Zoom>(readZoom());
+const DAY = computed(() => ZOOM[zoom.value].day);
+const NAME_COL = 264;
+const ROW_H = 40;
 
-const CELL = 13; // px на день
+function readZoom(): Zoom {
+  try {
+    const v = localStorage.getItem('vp.schedule.zoom');
+    return v === 'year' || v === 'month' ? v : 'quarter';
+  } catch { return 'quarter'; }
+}
+
+const totalDays = computed(() => daysInYear(year.value));
+const months = computed(() => monthsOf(year.value));
+const laneWidth = computed(() => totalDays.value * DAY.value);
+const todayIdx = computed(() => (today.startsWith(`${year.value}-`) ? dayIndex(year.value, today) : -1));
+const isCurrentYear = computed(() => todayIdx.value >= 0);
+
+/** Дни года для подписей и фона: выходные и праздники. */
+const days = computed(() => Array.from({ length: totalDays.value }, (_, i) => {
+  const iso = addDays(`${year.value}-01-01`, i);
+  return { i, iso, d: Number(iso.slice(8)), weekend: isWeekend(iso), holiday: holidays.value.has(iso), wd: weekday(iso) };
+}));
+const offDaySegments = computed(() => segments(year.value, days.value.filter((d) => d.weekend || d.holiday).map((d) => d.iso)));
 
 const filtered = computed(() => {
-  if (!schedule.value) return [];
-  let list = schedule.value.employees;
-  if (deptFilter.value) list = list.filter((e) => e.dept === deptFilter.value);
-  if (search.value.trim()) {
-    const q = search.value.trim().toLowerCase();
-    list = list.filter((e) => e.name.toLowerCase().includes(q) || (e.position ?? '').toLowerCase().includes(q));
-  }
-  return list;
+  const list = schedule.value?.employees ?? [];
+  const q = search.value.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((e) => e.name.toLowerCase().includes(q) || (e.position ?? '').toLowerCase().includes(q));
 });
 
-const conflictDates = computed(() => new Set((schedule.value?.conflicts ?? []).map((c) => c.date)));
-const conflictToday = computed(() =>
-  schedule.value?.conflicts.filter((c) => c.date === todayIso).length ?? 0);
-const onVacationToday = computed(() => {
-  if (!schedule.value || todayIndex < 0) return 0;
-  return schedule.value.employees.filter((e) =>
-    e.vacations.some((v) => v.status === 'approved' && v.start <= todayIso && todayIso <= v.end)).length;
-});
-const pendingCount = computed(() =>
-  schedule.value?.employees.reduce((acc, e) => acc + e.vacations.filter((v) => v.status === 'pending').length, 0) ?? 0);
-
-interface Bar {
-  key: string;
-  left: number;
-  width: number;
-  status: string;
-  type: string;
-  title: string;
-}
-
-/** Полосы отпусков строки — одна полоса на период (а не клетка на день). */
-function bars(e: ScheduleEmployee): Bar[] {
-  return e.vacations
-    .map((v) => {
-      const start = Math.max(0, dayOfYear(v.start));
-      const end = Math.min(TOTAL_DAYS - 1, dayOfYear(v.end));
-      if (end < start) return null;
-      return {
-        key: `${e.id}-${v.requestId}`,
-        left: start * CELL,
-        width: (end - start + 1) * CELL - 2,
-        status: v.status,
-        type: v.type,
-        title: `${fmtRange(v.start, v.end)} · ${daysBetween(v.start, v.end)} к.д. · ${v.status === 'approved' ? 'согласован' : 'на согласовании'}`,
-      } satisfies Bar;
-    })
-    .filter((b): b is Bar => b !== null);
-}
-
-/** Конфликтные даты строки — красная штриховка фона (сегменты подряд). */
-function conflictSegments(e: ScheduleEmployee): Array<{ left: number; width: number }> {
-  const days = e.vacations
-    .filter((v) => v.status === 'approved')
-    .flatMap((v) => {
-      const out: string[] = [];
-      const n = daysBetween(v.start, v.end);
-      for (let i = 0; i < n; i++) {
-        const d = new Date(Date.parse(`${v.start}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10);
-        if (conflictDates.value.has(d) && d.startsWith(String(YEAR))) out.push(d);
-      }
-      return out;
-    });
-  if (!days.length) return [];
-  days.sort();
-  const segs: Array<{ left: number; width: number }> = [];
-  let startD = days[0];
-  let prev = days[0];
-  const push = (a: string, b: string) => segs.push({
-    left: dayOfYear(a) * CELL,
-    width: (dayOfYear(b) - dayOfYear(a) + 1) * CELL,
-  });
-  for (const d of days.slice(1)) {
-    const next = new Date(Date.parse(`${prev}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
-    if (d !== next) {
-      push(startD, prev);
-      startD = d;
-    }
-    prev = d;
+/** Конфликтные даты по отделам (порог из настроек организации). */
+const conflictsByDept = computed(() => {
+  const map = new Map<string, Set<string>>();
+  for (const c of schedule.value?.conflicts ?? []) {
+    if (!map.has(c.dept)) map.set(c.dept, new Set());
+    map.get(c.dept)!.add(c.date);
   }
-  push(startD, prev);
-  return segs;
+  return map;
+});
+
+interface Group { name: string; employees: ScheduleEmployee[]; absentToday: number; conflictDays: number }
+const groups = computed<Group[]>(() => {
+  const map = new Map<string, ScheduleEmployee[]>();
+  for (const e of filtered.value) {
+    const key = e.dept ?? 'Без отдела';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(e);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, 'ru'))
+    .map(([name, employees]) => ({
+      name,
+      employees,
+      absentToday: employees.filter((e) => isAbsent(e.vacations, today)).length,
+      conflictDays: [...(conflictsByDept.value.get(name) ?? [])].filter((d) => d.startsWith(`${year.value}-`)).length,
+    }));
+});
+
+const stats = computed(() => {
+  const list = filtered.value;
+  return {
+    people: list.length,
+    absentToday: isCurrentYear.value ? list.filter((e) => isAbsent(e.vacations, today)).length : 0,
+    pending: list.reduce((n, e) => n + e.vacations.filter((v) => v.status === 'pending').length, 0),
+    conflictDays: groups.value.reduce((n, g) => n + g.conflictDays, 0),
+  };
+});
+
+function barsOf(e: ScheduleEmployee): Bar[] {
+  return barsForYear(year.value, e.vacations);
+}
+
+function conflictSegs(e: ScheduleEmployee) {
+  const set = conflictsByDept.value.get(e.dept ?? 'Без отдела');
+  return set ? segments(year.value, conflictDatesFor(e.vacations, set)) : [];
+}
+
+function barClass(b: Bar): string[] {
+  return [
+    b.type === 'maternity' ? 'bar-maternity' : b.status === 'approved' ? 'bar-approved' : 'bar-pending',
+    b.first + b.days - 1 < todayIdx.value ? 'bar-past' : '',
+  ];
+}
+
+function barLabel(b: Bar): string {
+  const width = b.days * DAY.value;
+  if (width < 44) return '';
+  const n = vacationDays(b.start, b.end, holidays.value);
+  if (width < 120) return `${n} д.`;
+  return `${fmtRange(b.start, b.end).replace(/ \d{4}$/, '')} · ${n} д.`;
+}
+
+function barTitle(e: ScheduleEmployee, b: Bar): string {
+  const n = vacationDays(b.start, b.end, holidays.value);
+  return `${e.name}\n${fmtRange(b.start, b.end)} · ${n} дн. отпуска\n${statusMeta(b).label}${b.type === 'maternity' ? ' · по уходу за ребёнком' : ''}`;
+}
+
+function toggleDept(name: string): void {
+  const next = new Set(collapsedDepts.value);
+  if (next.has(name)) next.delete(name); else next.add(name);
+  collapsedDepts.value = next;
+}
+
+function scrollToToday(smooth = false): void {
+  const el = scroller.value;
+  if (!el) return;
+  const idx = isCurrentYear.value ? todayIdx.value : 0;
+  const target = NAME_COL + idx * DAY.value - (el.clientWidth - NAME_COL) / 3;
+  el.scrollTo({ left: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
 }
 
 async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const query = deptFilter.value ? `&dept=${encodeURIComponent(deptFilter.value)}` : '';
-    schedule.value = await api.get<Schedule>(`/schedule?from=${YEAR}-01-01&to=${YEAR}-12-31${query}`);
+    const q = dept.value ? `&dept=${encodeURIComponent(dept.value)}` : '';
+    const [s, h] = await Promise.all([
+      api.get<Schedule>(`/schedule?from=${year.value}-01-01&to=${year.value}-12-31${q}`),
+      calendar.holidays(year.value),
+    ]);
+    schedule.value = s;
+    holidays.value = h;
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
     loading.value = false;
   }
+  await nextTick();
+  scrollToToday();
 }
 
+async function exportXlsx(): Promise<void> {
+  try {
+    const res = await api.download(`/reports/vacations?from=${year.value}-01-01&to=${year.value}-12-31`);
+    const url = URL.createObjectURL(res);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `otpuska-${year.value}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    ui.toast('Выгрузка сформирована');
+  } catch (e) {
+    ui.error(e);
+  }
+}
+
+watch(zoom, async (z) => {
+  try { localStorage.setItem('vp.schedule.zoom', z); } catch { /* приватный режим */ }
+  await nextTick();
+  scrollToToday();
+});
+watch([year, dept], reload);
+
 onMounted(async () => {
-  await reload();
+  void reload();
   try {
     departments.value = await api.get<Department[]>('/departments');
-  } catch { /* необязательно */ }
+  } catch { /* фильтр по отделам необязателен */ }
 });
+
+const canExport = computed(() => auth.isAdmin || auth.isApprover);
+const selectedDays = computed(() => selected.value
+  ? selected.value.vacations.filter((v) => v.status === 'approved' && v.start.startsWith(`${year.value}`))
+    .reduce((n, v) => n + vacationDays(v.start, v.end, holidays.value), 0)
+  : 0);
 </script>
 
 <template>
-  <div>
+  <div class="page">
     <div class="view-header">
       <div>
         <div class="view-title">
-          График отпусков · {{ YEAR }}
+          График отпусков
         </div>
         <div class="view-subtitle">
-          {{ filtered.length }} сотрудников{{ deptFilter ? ` · ${deptFilter}` : '' }}
+          {{ stats.people }} сотрудников{{ dept ? ` · ${dept}` : ' · вся организация' }}
         </div>
       </div>
-      <div class="view-controls">
-        <select
-          v-model="deptFilter"
-          class="input"
-          style="width: auto"
-          @change="reload"
+      <div class="toolbar">
+        <div
+          class="year-switch"
+          role="group"
+          aria-label="Год"
         >
-          <option value="">
-            Все отделы
-          </option>
-          <option
-            v-for="d in departments"
-            :key="d.name"
-            :value="d.name"
+          <button
+            class="btn btn-icon btn-sm btn-ghost"
+            type="button"
+            aria-label="Предыдущий год"
+            @click="year--"
           >
-            {{ d.name }} ({{ d.headcount }})
-          </option>
-        </select>
+            <AppIcon
+              name="chevronLeft"
+              :size="15"
+            />
+          </button>
+          <strong>{{ year }}</strong>
+          <button
+            class="btn btn-icon btn-sm btn-ghost"
+            type="button"
+            aria-label="Следующий год"
+            @click="year++"
+          >
+            <AppIcon
+              name="chevronRight"
+              :size="15"
+            />
+          </button>
+        </div>
+        <div
+          class="segmented"
+          role="group"
+          aria-label="Масштаб"
+        >
+          <button
+            v-for="(z, key) in ZOOM"
+            :key="key"
+            type="button"
+            :class="{ active: zoom === key }"
+            @click="zoom = key"
+          >
+            {{ z.label }}
+          </button>
+        </div>
+        <button
+          class="btn"
+          type="button"
+          @click="isCurrentYear ? scrollToToday(true) : (year = Number(today.slice(0, 4)))"
+        >
+          <AppIcon
+            name="today"
+            :size="15"
+          /> Сегодня
+        </button>
+        <button
+          v-if="canExport"
+          class="btn"
+          type="button"
+          title="Выгрузить отпуска года в Excel"
+          @click="exportXlsx"
+        >
+          <AppIcon
+            name="spreadsheet"
+            :size="15"
+          /> <span class="hide-mobile">Excel</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="filters">
+      <select
+        v-model="dept"
+        class="input dept-select"
+        aria-label="Отдел"
+      >
+        <option value="">
+          Все отделы
+        </option>
+        <option
+          v-for="d in departments"
+          :key="d.name"
+          :value="d.name"
+        >
+          {{ d.name }} · {{ d.headcount }}
+        </option>
+      </select>
+      <div class="input-icon search">
+        <AppIcon
+          name="search"
+          :size="15"
+        />
         <input
           v-model="search"
           class="input"
-          style="width: 200px"
-          placeholder="Поиск по ФИО…"
+          placeholder="Поиск по ФИО или должности"
+          aria-label="Поиск"
         >
+      </div>
+      <div class="legend">
+        <span><i class="sw sw-approved" />согласован</span>
+        <span><i class="sw sw-pending" />на согласовании</span>
+        <span><i class="sw sw-maternity" />по уходу за ребёнком</span>
+        <span><i class="sw sw-conflict" />конфликт отдела</span>
+        <span><i class="sw sw-off" />выходные и праздники</span>
       </div>
     </div>
 
     <div
       v-if="error"
-      class="error-banner"
+      class="banner banner-error"
     >
-      {{ error }}
+      <AppIcon
+        name="warning"
+        :size="15"
+      /> {{ error }}
     </div>
 
-    <div class="kpi-row">
-      <div class="card kpi">
-        <div class="kpi-value">
-          {{ filtered.length }}
-        </div>
-        <div class="kpi-label">
-          сотрудников в выборке
+    <div class="stats">
+      <div class="card stat">
+        <span class="stat-icon"><AppIcon
+          name="team"
+          :size="19"
+        /></span>
+        <div>
+          <div class="stat-value">
+            {{ stats.people }}
+          </div>
+          <div class="stat-label">
+            сотрудников в выборке
+          </div>
         </div>
       </div>
+      <div class="card stat">
+        <span class="stat-icon tone-success"><AppIcon
+          name="vacation"
+          :size="19"
+        /></span>
+        <div>
+          <div class="stat-value">
+            {{ stats.absentToday }}
+          </div>
+          <div class="stat-label">
+            в отпуске сегодня
+          </div>
+        </div>
+      </div>
+      <div class="card stat">
+        <span class="stat-icon tone-warning"><AppIcon
+          name="clock"
+          :size="19"
+        /></span>
+        <div>
+          <div class="stat-value">
+            {{ stats.pending }}
+          </div>
+          <div class="stat-label">
+            заявок на согласовании
+          </div>
+        </div>
+      </div>
+      <div class="card stat">
+        <span
+          class="stat-icon"
+          :class="stats.conflictDays ? 'tone-danger' : 'tone-muted'"
+        ><AppIcon
+          name="warning"
+          :size="19"
+        /></span>
+        <div>
+          <div class="stat-value">
+            {{ stats.conflictDays }}
+          </div>
+          <div class="stat-label">
+            конфликтных дней в отделах
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card gantt-card">
       <div
-        class="card kpi"
-        :class="{ 'kpi-warn': onVacationToday > 0 }"
+        v-if="loading"
+        class="gantt-loading"
       >
-        <div class="kpi-value">
-          {{ onVacationToday }}
-        </div>
-        <div class="kpi-label">
-          в отпуске сегодня
+        <div
+          v-for="i in 8"
+          :key="i"
+          class="skeleton-row"
+        >
+          <span
+            class="skeleton"
+            style="width: 30px; height: 30px; border-radius: 50%"
+          />
+          <span
+            class="skeleton"
+            :style="{ width: `${140 + (i % 3) * 30}px`, height: '12px' }"
+          />
+          <span
+            class="skeleton"
+            :style="{ marginLeft: `${60 + i * 37}px`, width: `${50 + (i % 4) * 25}px`, height: '18px' }"
+          />
         </div>
       </div>
+
+      <EmptyState
+        v-else-if="!filtered.length"
+        icon="search"
+        title="Никого не нашли"
+        :text="search ? `По запросу «${search}» сотрудников нет — уточните ФИО или очистите поиск.` : 'В выбранном отделе нет активных сотрудников.'"
+      />
+
       <div
-        class="card kpi"
-        :class="{ 'kpi-warn': pendingCount > 0 }"
+        v-else
+        ref="scroller"
+        class="gantt-scroll scroll-thin"
       >
-        <div class="kpi-value">
-          {{ pendingCount }}
-        </div>
-        <div class="kpi-label">
-          заявок на согласовании
-        </div>
-      </div>
-      <div
-        class="card kpi"
-        :class="{ 'kpi-danger': conflictToday > 0 }"
-      >
-        <div class="kpi-value">
-          {{ conflictToday }}
-        </div>
-        <div class="kpi-label">
-          конфликтов отдела сегодня
-        </div>
-      </div>
-    </div>
-
-    <div class="legend">
-      <span class="legend-item"><span class="sw sw-approved" /> согласован</span>
-      <span class="legend-item"><span class="sw sw-pending" /> на согласовании</span>
-      <span class="legend-item"><span class="sw sw-maternity" /> декрет</span>
-      <span class="legend-item"><span class="sw sw-conflict" /> конфликт отдела</span>
-      <span class="legend-item"><span class="sw sw-today" /> сегодня</span>
-    </div>
-
-    <div
-      v-if="loading"
-      class="empty-state"
-    >
-      Загрузка графика…
-    </div>
-
-    <div
-      v-else
-      class="card schedule-card"
-    >
-      <div class="schedule-scroll scroll-thin">
-        <div class="schedule-grid">
-          <div
-            class="grid-head schedule-row head-row"
-            :style="{ gridTemplateColumns: `240px ${TOTAL_DAYS * CELL}px` }"
-          >
-            <div class="emp-head">
+        <div
+          class="gantt"
+          :style="{ width: `${NAME_COL + laneWidth}px`, '--day': `${DAY}px`, '--name-col': `${NAME_COL}px` }"
+        >
+          <!-- шапка: месяцы и дни -->
+          <div class="g-head">
+            <div class="g-corner">
               Сотрудник
             </div>
-            <div class="months-strip">
+            <div class="g-scale">
+              <div class="g-months">
+                <div
+                  v-for="m in months"
+                  :key="m.index"
+                  class="g-month"
+                  :class="{ current: isCurrentYear && today.slice(5, 7) === String(m.index + 1).padStart(2, '0') }"
+                  :style="{ width: `${m.days * DAY}px` }"
+                >
+                  {{ zoom === 'year' ? m.short : m.name }}
+                </div>
+              </div>
               <div
-                v-for="(m, mi) in monthNames"
-                :key="m"
-                class="month-label"
-                :style="{ width: daysInMonth(mi) * CELL + 'px' }"
-                :title="monthFull[mi]"
+                v-if="zoom !== 'year'"
+                class="g-days"
               >
-                {{ m }}
+                <div
+                  v-for="d in days"
+                  :key="d.i"
+                  class="g-day"
+                  :class="{ off: d.weekend || d.holiday, holiday: d.holiday, today: d.i === todayIdx }"
+                  :title="`${fmtDate(d.iso)}${d.holiday ? ' · праздник' : ''}`"
+                >
+                  <span>{{ d.d }}</span>
+                  <small v-if="zoom === 'month'">{{ WEEKDAYS_SHORT[d.wd] }}</small>
+                </div>
               </div>
             </div>
           </div>
 
-          <div
-            v-for="e in filtered"
-            :key="e.id"
-            class="grid-row schedule-row body-row"
-            :style="{ gridTemplateColumns: `240px ${TOTAL_DAYS * CELL}px` }"
-            @click="selected = e"
-          >
-            <div class="emp-cell">
-              <div class="emp-name">
-                {{ e.name }}
-              </div>
-              <div class="emp-dept">
-                {{ e.dept ?? 'Без отдела' }}
-              </div>
-            </div>
+          <!-- тело -->
+          <div class="g-body">
             <div
-              class="lane"
-              :style="{ width: TOTAL_DAYS * CELL + 'px' }"
+              class="g-overlay"
+              aria-hidden="true"
             >
-              <div class="lane-bg" />
               <div
-                v-for="(seg, si) in conflictSegments(e)"
-                :key="'c' + si"
-                class="conflict-zone"
-                :style="{ left: seg.left + 'px', width: seg.width + 'px' }"
+                v-for="(s, si) in offDaySegments"
+                :key="`off${si}`"
+                class="g-off"
+                :style="{ left: `${s.first * DAY}px`, width: `${s.days * DAY}px` }"
               />
               <div
-                v-if="todayIndex >= 0"
-                class="today-line"
-                :style="{ left: todayIndex * CELL + CELL / 2 + 'px' }"
+                v-for="m in months.slice(1)"
+                :key="`m${m.index}`"
+                class="g-month-line"
+                :style="{ left: `${m.offset * DAY}px` }"
               />
               <div
-                v-for="b in bars(e)"
-                :key="b.key"
-                class="vac-bar"
-                :class="[b.status === 'approved' ? 'bar-approved' : 'bar-pending', { 'bar-maternity': b.type === 'maternity' }]"
-                :style="{ left: b.left + 'px', width: b.width + 'px' }"
-                :title="`${e.name} · ${b.title}`"
+                v-if="isCurrentYear"
+                class="g-today"
+                :style="{ left: `${todayIdx * DAY + DAY / 2}px` }"
               />
             </div>
+
+            <template
+              v-for="g in groups"
+              :key="g.name"
+            >
+              <button
+                type="button"
+                class="g-group"
+                :aria-expanded="!collapsedDepts.has(g.name)"
+                @click="toggleDept(g.name)"
+              >
+                <span class="g-group-name">
+                  <AppIcon
+                    :name="collapsedDepts.has(g.name) ? 'chevronRight' : 'chevronDown'"
+                    :size="14"
+                  />
+                  <strong>{{ g.name }}</strong>
+                  <span class="muted">{{ g.employees.length }}</span>
+                  <span
+                    v-if="g.absentToday"
+                    class="badge badge-success"
+                    :title="'В отпуске сегодня'"
+                  >{{ g.absentToday }} в отпуске</span>
+                  <span
+                    v-if="g.conflictDays"
+                    class="badge badge-danger"
+                    :title="'Дней, когда в отпуске доля отдела выше порога'"
+                  >{{ g.conflictDays }} дн. конфликта</span>
+                </span>
+              </button>
+              <template v-if="!collapsedDepts.has(g.name)">
+                <div
+                  v-for="e in g.employees"
+                  :key="e.id"
+                  class="g-row"
+                  :style="{ height: `${ROW_H}px` }"
+                >
+                  <button
+                    type="button"
+                    class="g-name"
+                    @click="selected = e"
+                  >
+                    <UserAvatar
+                      :name="e.name"
+                      :size="26"
+                    />
+                    <span class="person-text">
+                      <span class="person-name">{{ shortName(e.name) }}</span>
+                      <span class="person-sub">{{ e.position ?? '—' }}</span>
+                    </span>
+                    <span
+                      v-if="isCurrentYear && isAbsent(e.vacations, today)"
+                      class="away-dot"
+                      title="В отпуске сегодня"
+                    />
+                  </button>
+                  <div
+                    class="g-lane"
+                    :style="{ width: `${laneWidth}px` }"
+                  >
+                    <div
+                      v-for="(c, ci) in conflictSegs(e)"
+                      :key="`c${ci}`"
+                      class="g-conflict"
+                      :style="{ left: `${c.first * DAY}px`, width: `${c.days * DAY}px` }"
+                    />
+                    <button
+                      v-for="b in barsOf(e)"
+                      :key="b.requestId"
+                      type="button"
+                      class="g-bar"
+                      :class="barClass(b)"
+                      :style="{ left: `${b.first * DAY + 1}px`, width: `${Math.max(b.days * DAY - 2, 3)}px` }"
+                      :title="barTitle(e, b)"
+                      @click="selected = e"
+                    >
+                      {{ barLabel(b) }}
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </template>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- карточка сотрудника -->
     <div
       v-if="selected"
       class="modal-overlay"
       @click.self="selected = null"
+      @keydown.esc="selected = null"
     >
-      <div class="modal">
-        <div class="modal-title">
-          {{ selected.name }}
+      <div
+        class="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="modal-head">
+          <div class="person">
+            <UserAvatar
+              :name="selected.name"
+              :size="44"
+            />
+            <div class="person-text">
+              <span class="modal-title">{{ selected.name }}</span>
+              <span class="modal-sub">{{ selected.position ?? 'Должность не указана' }} · {{ selected.dept ?? 'Без отдела' }}</span>
+            </div>
+          </div>
+          <button
+            class="btn btn-icon btn-ghost"
+            type="button"
+            aria-label="Закрыть"
+            @click="selected = null"
+          >
+            <AppIcon
+              name="close"
+              :size="16"
+            />
+          </button>
         </div>
-        <div
-          class="muted"
-          style="margin-bottom: 12px"
-        >
-          {{ selected.position }} · {{ selected.dept ?? 'Без отдела' }}
-        </div>
-        <div
-          v-if="!selected.vacations.length"
-          class="empty-state"
-        >
-          Отпусков нет
-        </div>
-        <div
-          v-for="v in selected.vacations"
-          :key="v.requestId"
-          class="vac-line"
-        >
-          <span
-            class="badge"
-            :class="v.status === 'approved' ? 'badge-success' : 'badge-info'"
-          >{{ v.status === 'approved' ? 'согласован' : 'на согласовании' }}</span>
-          {{ fmtRange(v.start, v.end) }} · {{ daysBetween(v.start, v.end) }} к.д.
-          <span
-            v-if="v.type === 'maternity'"
-            class="badge badge-warning"
-          >декрет</span>
+        <div class="modal-body">
+          <div class="emp-summary">
+            <span class="badge badge-info">{{ selectedDays }} дн. согласовано в {{ year }}</span>
+            <span
+              v-if="isCurrentYear && isAbsent(selected.vacations, today)"
+              class="badge badge-success"
+            >в отпуске сегодня</span>
+          </div>
+          <EmptyState
+            v-if="!selected.vacations.length"
+            icon="vacation"
+            title="Отпусков в этом году нет"
+            compact
+          />
+          <div
+            v-for="v in selected.vacations"
+            :key="v.requestId"
+            class="period"
+          >
+            <span
+              class="period-mark"
+              :class="v.type === 'maternity' ? 'bar-maternity' : v.status === 'approved' ? 'bar-approved' : 'bar-pending'"
+            />
+            <div class="period-main">
+              <strong>{{ fmtRange(v.start, v.end) }}</strong>
+              <span class="muted small">{{ vacationDays(v.start, v.end, holidays) }} дн. отпуска{{ v.type === 'maternity' ? ' · по уходу за ребёнком' : '' }}</span>
+            </div>
+            <StatusBadge :request="v" />
+          </div>
         </div>
         <div class="modal-actions">
           <button
             class="btn"
+            type="button"
             @click="selected = null"
           >
             Закрыть
@@ -357,215 +665,383 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.view-controls {
-  display: flex;
-  gap: 10px;
+.year-switch {
+  display: inline-flex;
   align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 2px;
+}
+
+.year-switch strong {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.dept-select {
+  width: auto;
+  min-width: 220px;
+}
+
+.search {
+  width: 280px;
 }
 
 .legend {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--color-text-muted);
-  margin-bottom: 12px;
+  margin-left: auto;
 }
 
-.legend-item {
+.legend span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
 .sw {
-  width: 14px;
-  height: 10px;
+  width: 16px;
+  height: 9px;
   border-radius: 3px;
   display: inline-block;
 }
 
-.sw-approved {
-  background: var(--color-primary);
-}
+.sw-approved { background: var(--color-primary); }
+.sw-pending { background: repeating-linear-gradient(135deg, var(--color-warning) 0 3px, color-mix(in srgb, var(--color-warning) 55%, var(--color-surface)) 3px 6px); }
+.sw-maternity { background: var(--color-violet); }
+.sw-conflict { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-danger) 55%, transparent) 0 2px, transparent 2px 4px); outline: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent); }
+.sw-off { background: var(--color-weekend); outline: 1px solid var(--color-border); }
 
-.sw-pending {
-  background: repeating-linear-gradient(45deg, var(--color-warning) 0 4px, #f3cd8a 4px 8px);
-}
-
-.sw-maternity {
-  background: #8e6fc1;
-}
-
-.sw-conflict {
-  background: repeating-linear-gradient(90deg, transparent 0 3px, var(--color-danger) 3px 5px);
-}
-
-.sw-today {
-  background: var(--color-danger);
-  width: 2px;
-  height: 12px;
-  border-radius: 1px;
-}
-
-.schedule-card {
+/* ── Диаграмма ── */
+.gantt-card {
   overflow: hidden;
 }
 
-.schedule-scroll {
+.gantt-scroll {
   overflow: auto;
-  max-height: calc(100dvh - 340px);
+  max-height: calc(100dvh - 318px);
+  min-height: 320px;
 }
 
-.schedule-grid {
-  min-width: fit-content;
+.gantt {
+  position: relative;
 }
 
-.schedule-row {
-  padding: 0;
+.g-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
 }
 
-.head-row {
-  position: sticky;
-  top: 0;
-  background: var(--color-surface);
-  z-index: 3;
-}
-
-.emp-head {
-  padding: 8px 12px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+.g-corner {
   position: sticky;
   left: 0;
+  z-index: 7;
+  flex: 0 0 var(--name-col);
   background: var(--color-surface);
-  z-index: 2;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  align-items: flex-end;
+  padding: 0 14px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
 }
 
-.months-strip {
+.g-months {
   display: flex;
 }
 
-.month-label {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  text-align: center;
-  padding: 8px 0;
+.g-month {
+  flex-shrink: 0;
+  padding: 8px 8px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
   border-left: 1px solid var(--color-border);
-  overflow: hidden;
   white-space: nowrap;
-}
-
-.body-row {
-  cursor: pointer;
-}
-
-.body-row:hover {
-  background: var(--color-row-hover);
-}
-
-.emp-cell {
-  padding: 6px 12px;
+  overflow: hidden;
   position: sticky;
-  left: 0;
-  background: var(--color-surface);
-  z-index: 2;
-  min-width: 0;
-  border-right: 1px solid var(--color-border);
 }
 
-.emp-name {
-  font-size: 12.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.g-month.current {
+  color: var(--color-primary-dark);
 }
 
-.emp-dept {
-  font-size: 11px;
+.g-days {
+  display: flex;
+  border-top: 1px solid var(--color-border);
+}
+
+.g-day {
+  flex: 0 0 var(--day);
+  text-align: center;
+  font-size: 10px;
   color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 4px 0;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
 }
 
-.lane {
+.g-day small {
+  font-size: 9.5px;
+  color: var(--color-text-soft);
+}
+
+.g-day.off {
+  background: var(--color-weekend);
+}
+
+.g-day.holiday {
+  color: var(--color-danger);
+  background: var(--color-holiday);
+}
+
+.g-day.today span {
+  background: var(--color-danger);
+  color: #fff;
+  border-radius: 4px;
+  margin: 0 1px;
+  font-weight: 700;
+}
+
+.g-body {
   position: relative;
-  height: 30px;
 }
 
-.lane-bg {
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(90deg, transparent 0 12px, var(--color-neutral-soft) 12px 13px);
-  opacity: 0.5;
-}
-
-.conflict-zone {
+.g-overlay {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: repeating-linear-gradient(90deg, transparent 0 3px, var(--color-danger) 3px 5px);
-  opacity: 0.35;
+  left: var(--name-col);
+  right: 0;
   pointer-events: none;
 }
 
-.today-line {
+.g-off {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--color-weekend);
+}
+
+.g-month-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.g-today {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
+  margin-left: -1px;
   background: var(--color-danger);
-  opacity: 0.75;
-  pointer-events: none;
+  opacity: 0.7;
+  z-index: 2;
 }
 
-.vac-bar {
-  position: absolute;
-  top: 7px;
-  height: 16px;
-  border-radius: 4px;
+.g-group {
+  position: relative;
+  z-index: 3;
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
+  padding: 0;
   cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text);
 }
 
-.bar-approved {
-  background: var(--color-primary);
-}
-
-.bar-approved:hover {
-  background: var(--color-primary-dark);
-}
-
-.bar-pending {
-  background: repeating-linear-gradient(45deg, var(--color-warning) 0 4px, #f3cd8a 4px 8px);
-}
-
-.bar-maternity {
-  background: #8e6fc1;
-}
-
-.bar-maternity:hover {
-  background: #7a5cb0;
-}
-
-.vac-line {
-  display: flex;
+.g-group-name {
+  position: sticky;
+  left: 0;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  font-size: 13px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+
+.g-group:hover {
+  background: var(--color-hover);
+}
+
+.g-row {
+  position: relative;
+  display: flex;
   border-bottom: 1px solid var(--color-border);
 }
 
-.vac-line:last-child {
+.g-row:hover .g-name,
+.g-row:hover {
+  background: color-mix(in srgb, var(--color-primary-soft) 30%, transparent);
+}
+
+.g-name {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  flex: 0 0 var(--name-col);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px 0 22px;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.g-name .person-name {
+  font-size: 13px;
+}
+
+.away-dot {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-soft);
+  flex-shrink: 0;
+}
+
+.g-lane {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.g-conflict {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 4px;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-danger) 35%, transparent) 0 2px, transparent 2px 5px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+
+.g-bar {
+  position: absolute;
+  top: 9px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+  z-index: 3;
+  box-shadow: 0 1px 2px rgba(20, 25, 40, 0.15);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.g-bar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(20, 25, 40, 0.2);
+}
+
+.bar-approved { background: var(--color-primary); }
+.bar-pending {
+  background: repeating-linear-gradient(135deg, var(--color-warning) 0 6px, color-mix(in srgb, var(--color-warning) 75%, #fff) 6px 12px);
+  color: #5a3a06;
+}
+.bar-maternity { background: var(--color-violet); }
+.bar-past { opacity: 0.55; }
+
+.gantt-loading {
+  padding: 8px 0;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ── Карточка сотрудника ── */
+.emp-summary {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.period {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.period:last-child {
   border-bottom: none;
 }
 
-.muted {
-  color: var(--color-text-muted);
-  font-size: 12.5px;
+.period-mark {
+  width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+}
+
+.period-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .search,
+  .dept-select {
+    width: 100%;
+  }
+
+  .legend {
+    margin-left: 0;
+  }
+
+  .gantt-scroll {
+    max-height: calc(100dvh - 220px);
+  }
 }
 </style>

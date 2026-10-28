@@ -42,10 +42,11 @@ export class AuditService {
         orderBy: { ts: 'desc' },
         skip: (params.page - 1) * params.perPage,
         take: params.perPage,
+        include: { actor: { select: { name: true } } },
       }),
       this.prisma.auditEvent.count({ where }),
     ]).then(([items, total]) => ({
-      items,
+      items: items.map(({ actor, ...e }) => ({ ...e, actorName: actor?.name ?? null })),
       meta: { page: params.page, perPage: params.perPage, total },
     }));
   }

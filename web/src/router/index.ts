@@ -17,11 +17,11 @@ export const router = createRouter({
     { path: '/', redirect: '/schedule' },
     { path: '/schedule', component: ScheduleView, meta: { title: 'График отпусков' } },
     { path: '/my', component: MyVacationView, meta: { title: 'Мой отпуск' } },
-    { path: '/approvals', component: ApprovalsView, meta: { title: 'Заявки к согласованию' } },
+    { path: '/approvals', component: ApprovalsView, meta: { title: 'Заявки на согласование' } },
     { path: '/employees', component: EmployeesView, meta: { admin: true, title: 'Сотрудники' } },
     { path: '/directories', component: DirectoriesView, meta: { admin: true, title: 'Справочники' } },
-    { path: '/settings', component: SettingsView, meta: { title: 'Настройки' } },
-    { path: '/audit', component: AuditView, meta: { admin: true, title: 'Аудит' } },
+    { path: '/settings', component: SettingsView, meta: { title: 'Профиль и настройки' } },
+    { path: '/audit', component: AuditView, meta: { admin: true, title: 'Журнал аудита' } },
     { path: '/:pathMatch(.*)*', redirect: '/schedule' },
   ],
 });
@@ -33,4 +33,9 @@ router.beforeEach(async (to) => {
   if (to.path === '/login' && auth.isLoggedIn) return { path: '/schedule' };
   if (to.meta.admin && !auth.isAdmin) return { path: '/schedule' };
   return true;
+});
+
+router.afterEach((to) => {
+  const title = to.meta.title as string | undefined;
+  document.title = title ? `${title} · Планировщик отпусков` : 'Планировщик отпусков';
 });
