@@ -46,7 +46,7 @@ async function refresh(vu) {
     const t0 = performance.now();
     try {
       const res = await fetch(`${URL_BASE}/api/v1/auth/refresh`, {
-        method: 'POST', headers: { 'X-Forwarded-For': vu.ip, Cookie: vu.cookie ?? '' },
+        method: 'POST', headers: { 'X-Forwarded-For': vu.ip, Cookie: liveCookie(vu) },
       });
       const body = res.ok ? await res.json() : null;
       record('POST /auth/refresh', performance.now() - t0, res.ok, res.status);
@@ -63,10 +63,16 @@ async function refresh(vu) {
   return vu.refreshing;
 }
 
+// Cookie хранится с Expires и, как в браузере, не отправляется после истечения: так генератор
+// видит ошибку срока cookie (до v0.5.0 она жила 15 минут вместо 30 дней)
 const takeCookie = (vu, res) => {
   const c = res.headers.getSetCookie().find((h) => h.startsWith('vp_refresh='));
-  if (c) vu.cookie = c.split(';')[0];
+  if (!c) return;
+  vu.cookie = c.split(';')[0];
+  const expires = /;\s*Expires=([^;]+)/i.exec(c)?.[1];
+  vu.cookieExpires = expires ? Date.parse(expires) : Infinity;
 };
+const liveCookie = (vu) => (vu.cookie && Date.now() < (vu.cookieExpires ?? Infinity) ? vu.cookie : '');
 
 async function call(vu, op, path, init = {}, retry = true) {
   const t0 = performance.now();
