@@ -143,6 +143,8 @@ export function subscribeLive(handlers: LiveHandlers): () => void {
 }
 
 export const api = {
+  /** Восстановить сеанс по refresh-cookie при запуске: без заведомого 401 на /auth/me до обновления. */
+  restore: (): Promise<boolean> => refreshAccess(),
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),

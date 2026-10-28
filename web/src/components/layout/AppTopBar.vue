@@ -37,7 +37,10 @@ const roleLabel = computed(() => (auth.isAdmin ? 'Администратор' : 
       />
     </button>
     <div class="topbar-title">
-      <h1 class="page-title">
+      <h1
+        class="page-title"
+        :title="title"
+      >
         {{ title }}
       </h1>
       <span class="topbar-date">{{ today }}</span>

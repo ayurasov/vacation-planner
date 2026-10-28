@@ -1,6 +1,7 @@
 // Отображение людей: инициалы, цвет аватара, краткое ФИО. Цвет детерминирован по имени.
 
-const AVATAR_COLORS = ['#4f7cff', '#2fa96b', '#e8a13a', '#8e6fc1', '#e5484d', '#14a3a3', '#d9578b', '#5b6b8c'];
+// Белые инициалы читаются на каждом цвете: контраст не ниже 4,5:1 (аудит v0.5.0)
+const AVATAR_COLORS = ['#3569ff', '#258554', '#a46913', '#8766bd', '#e12d33', '#108383', '#d23a77', '#5b6b8c'];
 
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

@@ -340,7 +340,13 @@ onMounted(reload);
   color: var(--color-primary);
   font-size: 12px;
   cursor: pointer;
-  padding: 0;
+  padding: 4px 0; /* цель нажатия не ниже 24 px (WCAG 2.5.8) */
+}
+
+@media (pointer: coarse) {
+  .link-btn {
+    padding: 10px 0;
+  }
 }
 
 .diff {

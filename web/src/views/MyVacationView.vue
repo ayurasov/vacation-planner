@@ -37,17 +37,19 @@ async function reload(): Promise<void> {
   if (!me.value || isIpsz.value) { loading.value = false; return; }
   error.value = '';
   try {
-    // Праздники соседних лет — для отпусков через Новый год (дни отпуска в списке без них завышены)
-    const [b, rq, ...h] = await Promise.all([
+    const [b, rq, h] = await Promise.all([
       api.get<Balance>(`/employees/${me.value.id}/balance?year=${year.value}`),
       api.get<Page<VacationRequest>>('/vacation-requests?scope=mine&per_page=200'),
-      calendar.holidays(year.value - 1),
       calendar.holidays(year.value),
-      calendar.holidays(year.value + 1),
     ]);
     balance.value = b;
     requests.value = rq.items;
-    holidays.value = new Set(h.flatMap((x) => [...x]));
+    // Праздники соседнего года — только если отпуск переходит через Новый год: иначе дни отпуска
+    // в списке завышены, а лишний запрос календаря не загруженного года — ошибка в консоли
+    const other = [...new Set(rq.items.filter(inYear).flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))]
+      .filter((y) => y !== year.value);
+    const extra = await Promise.all(other.map((y) => calendar.holidays(y)));
+    holidays.value = new Set([...h, ...extra.flatMap((x) => [...x])]);
   } catch (e) {
     error.value = (e as Error).message;
   } finally {

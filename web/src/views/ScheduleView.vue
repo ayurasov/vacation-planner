@@ -757,6 +757,7 @@ const selectedDays = computed(() => selected.value
                   <button
                     type="button"
                     class="g-name"
+                    :title="it.e.position ? `${it.e.name} · ${it.e.position}` : it.e.name"
                     @click="selected = it.e"
                   >
                     <UserAvatar

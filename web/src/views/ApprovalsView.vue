@@ -62,6 +62,12 @@ function overlaps(r: VacationRequest): Array<{ name: string; start: string; end:
   return out;
 }
 
+/** Должность и отдел под именем: отдел есть в заявке, должность — в графике отдела. */
+function personSub(r: VacationRequest): string {
+  const p = people.value.get(r.employee);
+  return [p?.position, r.employeeDept ?? p?.dept].filter(Boolean).join(' · ');
+}
+
 function deptSize(r: VacationRequest): number {
   const me = people.value.get(r.employee);
   if (!me?.dept) return 0;
@@ -261,8 +267,14 @@ onMounted(() => {
             :size="38"
           />
           <div class="person-text">
-            <span class="person-name">{{ r.employeeName }}</span>
-            <span class="person-sub">{{ people.get(r.employee)?.position ?? '' }}{{ people.get(r.employee)?.dept ? ` · ${people.get(r.employee)?.dept}` : '' }}</span>
+            <span
+              class="person-name"
+              :title="r.employeeName"
+            >{{ r.employeeName }}</span>
+            <span
+              class="person-sub"
+              :title="personSub(r)"
+            >{{ personSub(r) }}</span>
           </div>
         </div>
         <span
@@ -390,8 +402,14 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap; /* на узком экране вид заявки уходит под имя, а не сжимает его */
+  gap: 8px 12px;
   padding: 14px 18px 0;
+}
+
+.request-head .person {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .request-body {

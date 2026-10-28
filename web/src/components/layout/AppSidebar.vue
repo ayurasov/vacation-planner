@@ -324,7 +324,7 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
   min-width: 20px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--color-warning);
+  background: var(--color-warning-dark); /* белая цифра на светлом янтарном читалась плохо (2,2:1) */
   color: #fff;
   font-size: 10.5px;
   font-weight: 700;

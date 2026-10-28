@@ -305,12 +305,18 @@ onMounted(async () => {
           <thead>
             <tr>
               <th>Сотрудник</th>
-              <th>Отдел</th>
-              <th>Роль</th>
-              <th class="num">
+              <th class="hide-mobile">
+                Отдел
+              </th>
+              <th class="hide-mobile">
+                Роль
+              </th>
+              <th class="num hide-mobile">
                 Норма
               </th>
-              <th>Логин</th>
+              <th class="hide-mobile">
+                Логин
+              </th>
               <th class="actions" />
             </tr>
           </thead>
@@ -331,10 +337,10 @@ onMounted(async () => {
                   </div>
                 </div>
               </td>
-              <td class="muted">
+              <td class="muted hide-mobile">
                 {{ e.deptName ?? '—' }}
               </td>
-              <td>
+              <td class="hide-mobile">
                 <div class="roles">
                   <span
                     v-if="e.isAdmin"
@@ -358,13 +364,15 @@ onMounted(async () => {
                   >сотрудник</span>
                 </div>
               </td>
-              <td class="num">
+              <td class="num hide-mobile">
                 {{ fmtNumber(e.plannedDays) }}<span
                   v-if="e.carryOver"
                   class="soft small"
                 > +{{ fmtNumber(e.carryOver) }}</span>
               </td>
-              <td><span class="mono muted">{{ e.login }}</span></td>
+              <td class="hide-mobile">
+                <span class="mono muted">{{ e.login }}</span>
+              </td>
               <td class="actions">
                 <div
                   v-if="!canTouch(e)"
