@@ -19,6 +19,7 @@ model Employee {
   dept         Department? @relation("DeptMembers", fields: [deptId], references: [id], onDelete: SetNull)
   role         String     @default("employee") // employee | manager
   isAdmin      Boolean    @default(false) @map("is_admin")
+  isHr         Boolean    @default(false) @map("is_hr") // кадровая служба: сотрудники, календарь, импорт, выгрузки, аудит
   empType      String     @default("staff") @map("emp_type") // staff | ipsz
   managerId    Int?       @map("manager_id")
   manager      Employee?  @relation("Subordinates", fields: [managerId], references: [id], onDelete: SetNull)

@@ -91,15 +91,21 @@ export interface Me {
   employee: {
     id: number; name: string; login: string; position: string | null;
     deptId: number | null; projectId: number | null; managerId: number | null;
-    role: string; isAdmin: boolean; empType: string;
+    role: string; isAdmin: boolean; isHr: boolean; empType: string;
     plannedDays: number; carryOver: number;
   };
-  permissions: { approveSubordinates: number[]; isAdmin: boolean; manageDirectories: boolean };
+  permissions: {
+    approveSubordinates: number[]; isAdmin: boolean; isHr: boolean;
+    /** Сотрудники, импорт, календарь, выгрузки, аудит: администратор или кадровая служба. */
+    manageStaff: boolean; manageDirectories: boolean;
+    /** Настройки организации: только администратор. */
+    manageSettings: boolean;
+  };
 }
 
 export interface Employee {
   id: number; login: string; name: string; position: string | null;
-  deptId: number | null; deptName?: string | null; role: string; isAdmin: boolean;
+  deptId: number | null; deptName?: string | null; role: string; isAdmin: boolean; isHr: boolean;
   empType: string; managerId: number | null; projectId: number | null;
   plannedDays: number; carryOver: number; isActive: boolean;
 }

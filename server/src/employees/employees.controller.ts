@@ -7,13 +7,14 @@ import {
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
-import { CurrentUser, Roles } from '../auth/guards';
+import { CurrentUser } from '../auth/guards';
+import { assertStaff } from '../auth/access';
 import type { AccessClaims } from '../auth/token.service';
 import { AuthService } from '../auth/auth.service';
 import { RequestsService } from '../requests/requests.service';
 import { AuditService } from '../audit/audit.service';
 import { calendarDays, toIso } from '../requests/balance';
-import { EmployeesService } from './employees.service';
+import { EmployeesService, assertCanTouch } from './employees.service';
 
 export class EmployeeCreateDto {
   @IsString() @MinLength(3) @MaxLength(128)
@@ -30,6 +31,9 @@ export class EmployeeCreateDto {
 
   @IsOptional() @IsBoolean()
     isAdmin?: boolean;
+
+  @IsOptional() @IsBoolean()
+    isHr?: boolean;
 
   @IsOptional() @IsIn(['staff', 'ipsz'])
     empType?: string;
@@ -68,6 +72,9 @@ export class EmployeeUpdateDto {
 
   @IsOptional() @IsBoolean()
     isAdmin?: boolean;
+
+  @IsOptional() @IsBoolean()
+    isHr?: boolean;
 
   @IsOptional() @IsIn(['staff', 'ipsz'])
     empType?: string;
@@ -141,18 +148,13 @@ export class WorkOverrideDto {
     mode!: 'office' | 'remote' | 'off';
 }
 
-async function assertAdmin(user: AccessClaims, prisma: PrismaService): Promise<void> {
-  const me = await prisma.employee.findUnique({ where: { id: user.sub } });
-  if (!me?.isAdmin) throw new ProblemException('auth/forbidden');
-}
-
-/** Свой профиль или подчинённый; иначе — администратор. */
-async function assertCanManage(user: AccessClaims, id: number, prisma: PrismaService): Promise<void> {
+/** Свой профиль или подчинённый; иначе — администратор (для чтения — и кадровая служба). */
+async function assertCanManage(user: AccessClaims, id: number, prisma: PrismaService, readOnly = false): Promise<void> {
   if (user.sub === id) return;
   const me = await prisma.employee.findUnique({
     where: { id: user.sub }, include: { subordinates: { select: { id: true } } },
   });
-  if (me?.isAdmin) return;
+  if (me?.isAdmin || (readOnly && me?.isHr)) return;
   if (me?.subordinates.some((s) => s.id === id)) return;
   throw new ProblemException('auth/forbidden');
 }
@@ -179,11 +181,10 @@ export class EmployeesController {
 
   @Post()
   @HttpCode(201)
-    @Roles('admin')
-  @ApiOperation({ operationId: 'createEmployee', summary: 'Создать сотрудника (администратор)' })
+  @ApiOperation({ operationId: 'createEmployee', summary: 'Создать сотрудника (администратор, кадровая служба)' })
   async create(@CurrentUser() user: AccessClaims, @Body() dto: EmployeeCreateDto) {
-    await assertAdmin(user, this.prisma);
-    return this.employees.create(user.sub, dto);
+    const actor = await assertStaff(this.prisma, user, 'hr');
+    return this.employees.create(actor, dto);
   }
 
   @Get(':id')
@@ -193,20 +194,18 @@ export class EmployeesController {
   }
 
   @Patch(':id')
-    @Roles('admin')
-  @ApiOperation({ operationId: 'updateEmployee', summary: 'Изменить поля сотрудника (администратор)' })
+  @ApiOperation({ operationId: 'updateEmployee', summary: 'Изменить поля сотрудника (администратор, кадровая служба)' })
   async update(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number, @Body() dto: EmployeeUpdateDto) {
-    await assertAdmin(user, this.prisma);
-    return this.employees.update(user.sub, id, dto);
+    const actor = await assertStaff(this.prisma, user, 'hr');
+    return this.employees.update(actor, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-    @Roles('admin')
   @ApiOperation({ operationId: 'deleteEmployee', summary: 'Уволить сотрудника (soft delete)' })
   async remove(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number) {
-    await assertAdmin(user, this.prisma);
-    await this.employees.remove(user.sub, id);
+    const actor = await assertStaff(this.prisma, user, 'hr');
+    await this.employees.remove(actor, id);
   }
 
   @Get(':id/balance')
@@ -216,7 +215,7 @@ export class EmployeesController {
       @Param('id', ParseIntPipe) id: number,
       @Query('year') year?: string,
   ) {
-    await assertCanManage(user, id, this.prisma);
+    await assertCanManage(user, id, this.prisma, true);
     const y = year ? Number(year) : new Date().getFullYear();
     if (!Number.isInteger(y) || y < 2024 || y > 2100) {
       throw new ProblemException('validation/invalid-field', 'Год: 2024–2100');
@@ -232,7 +231,7 @@ export class EmployeesController {
       @Query('from') from?: string,
       @Query('to') to?: string,
   ) {
-    await assertCanManage(user, id, this.prisma);
+    await assertCanManage(user, id, this.prisma, true);
     const year = new Date().getFullYear();
     const f = from ?? `${year}-01-01`;
     const t = to ?? `${year}-12-31`;
@@ -336,7 +335,10 @@ export class EmployeesController {
       await this.auth.changeOwnPassword(id, dto.oldPassword, dto.newPassword);
       return;
     }
-    await assertAdmin(user, this.prisma);
-    await this.auth.setPassword(id, dto.newPassword);
+    const actor = await assertStaff(this.prisma, user, 'hr');
+    const target = await this.prisma.employee.findUnique({ where: { id } });
+    if (!target) throw new ProblemException('not-found');
+    assertCanTouch(actor, target);
+    await this.auth.setPassword(id, dto.newPassword, actor.id);
   }
 }

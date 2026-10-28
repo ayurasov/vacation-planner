@@ -24,8 +24,33 @@ const weekday = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`)).getUTC
 const isWeekend = (iso: string) => [0, 6].includes(weekday(iso));
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export function isWorkday(iso: string, holidays: ReadonlySet<string>): boolean {
-  return !isWeekend(iso) && !holidays.has(iso);
+/**
+ * Производственный календарь для расчётов рабочих дней. Различает два понятия:
+ * праздники ст. 112 ТК РФ (`holidays`) — только они не входят в дни отпуска (ст. 120);
+ * нерабочие дни (`offDays`) — праздники и перенесённые выходные: по ним считается
+ * нагрузка отдела. Перенесённый выходной входит в отпуск как обычный день.
+ */
+export interface WorkCalendar {
+  holidays: ReadonlySet<string>;
+  offDays: ReadonlySet<string>;
+  /** Выходные, ставшие рабочими по переносу. */
+  workWeekends: ReadonlySet<string>;
+}
+
+export interface Transfer { from: string; to: string }
+
+export function workCalendar(holidays: Iterable<string>, transfers: readonly Transfer[] = []): WorkCalendar {
+  const h = new Set(holidays);
+  return {
+    holidays: h,
+    offDays: new Set([...h, ...transfers.map((t) => t.to)]),
+    workWeekends: new Set(transfers.map((t) => t.from).filter((d) => !h.has(d) && isWeekend(d))),
+  };
+}
+
+export function isWorkday(iso: string, cal: WorkCalendar): boolean {
+  if (cal.workWeekends.has(iso)) return true;
+  return !isWeekend(iso) && !cal.offDays.has(iso);
 }
 
 /** Отсутствует ли человек в дату: согласованный отпуск (и, по запросу, ожидающий). */
@@ -51,7 +76,7 @@ export interface ConflictPeriod {
 }
 
 /** Доля отсутствующих по рабочим дням года; pending учитывается отдельно как «план». */
-export function monthlyLoad(people: Person[], year: number, holidays: ReadonlySet<string>, withPending = false): MonthLoad[] {
+export function monthlyLoad(people: Person[], year: number, cal: WorkCalendar, withPending = false): MonthLoad[] {
   const n = people.length || 1;
   const out: MonthLoad[] = [];
   for (let m = 1; m <= 12; m++) {
@@ -62,7 +87,7 @@ export function monthlyLoad(people: Person[], year: number, holidays: ReadonlySe
     let peak = 0;
     let peakDate: string | null = null;
     for (const d of eachDay(first, last)) {
-      if (!isWorkday(d, holidays)) continue;
+      if (!isWorkday(d, cal)) continue;
       const ratio = people.filter((p) => absentOn(p, d, withPending)).length / n;
       sum += ratio;
       days++;
@@ -74,7 +99,7 @@ export function monthlyLoad(people: Person[], year: number, holidays: ReadonlySe
 }
 
 /** Непрерывные периоды, когда доля согласованных отсутствий отдела ≥ порога (выходные не разрывают период). */
-export function conflictPeriods(people: Person[], year: number, threshold: number, holidays: ReadonlySet<string>): ConflictPeriod[] {
+export function conflictPeriods(people: Person[], year: number, threshold: number, cal: WorkCalendar): ConflictPeriod[] {
   const n = people.length;
   if (n < 2) return []; // у одиночки «конфликта» с самим собой не бывает
   const out: ConflictPeriod[] = [];
@@ -94,7 +119,7 @@ export function conflictPeriods(people: Person[], year: number, threshold: numbe
       }
     } else if (cur) {
       // Выходные/праздники внутри периода его не разрывают; рабочий день без конфликта — закрывает
-      if (!isWorkday(d, holidays) && gap < 4) { gap++; continue; }
+      if (!isWorkday(d, cal) && gap < 4) { gap++; continue; }
       out.push(cur);
       cur = null;
       gap = 0;
@@ -145,11 +170,11 @@ const fmtNum = (n: number) => String(round2(n)).replace('.', ',');
  * нарушение части в 14 дней, малочисленный отдел. today — дата расчёта (для «до конца года»).
  */
 export function insightsFor(
-  dept: string, people: Person[], year: number, threshold: number, holidays: ReadonlySet<string>, today: string,
+  dept: string, people: Person[], year: number, threshold: number, cal: WorkCalendar, today: string,
 ): Insight[] {
   const out: Insight[] = [];
   const staff = people.filter((p) => p.empType !== 'ipsz');
-  const conflicts = conflictPeriods(people, year, threshold, holidays).filter((c) => c.end >= today);
+  const conflicts = conflictPeriods(people, year, threshold, cal).filter((c) => c.end >= today);
   for (const c of conflicts.slice(0, 3)) {
     out.push({
       severity: 'danger',
@@ -158,7 +183,7 @@ export function insightsFor(
     });
   }
 
-  const load = monthlyLoad(people, year, holidays, true).filter((m) => `${year}-${String(m.month).padStart(2, '0')}-31` >= today);
+  const load = monthlyLoad(people, year, cal, true).filter((m) => `${year}-${String(m.month).padStart(2, '0')}-31` >= today);
   const busiest = [...load].sort((a, b) => b.avgRatio - a.avgRatio)[0];
   const calmest = [...load].sort((a, b) => a.avgRatio - b.avgRatio)[0];
   if (busiest && busiest.avgRatio >= threshold * 0.6 && busiest.avgRatio > 0) {
@@ -169,7 +194,7 @@ export function insightsFor(
     });
   }
 
-  const statuses = staff.map((p) => planningStatus(p, year, holidays));
+  const statuses = staff.map((p) => planningStatus(p, year, cal.holidays));
   const daysLeft = Math.max(0, calendarDays(today, `${year}-12-31`));
   const unplanned = statuses.filter((s) => s.available >= 7);
   if (unplanned.length) {
@@ -300,12 +325,12 @@ export function suggestWindows(input: SuggestInput): Suggestion[] {
 export type DayStatus = 'vacation' | 'office' | 'remote' | 'off';
 
 export function dayStatus(
-  p: Person, iso: string, pattern: Record<number, string>, overrides: Record<string, string>, holidays: ReadonlySet<string>,
+  p: Person, iso: string, pattern: Record<number, string>, overrides: Record<string, string>, cal: WorkCalendar,
 ): DayStatus {
   if (absentOn(p, iso)) return 'vacation';
   const o = overrides[iso];
   if (o === 'office' || o === 'remote' || o === 'off') return o;
-  if (!isWorkday(iso, holidays)) return 'off';
+  if (!isWorkday(iso, cal)) return 'off';
   const m = pattern[weekday(iso)];
   return m === 'remote' || m === 'off' ? m : 'office';
 }

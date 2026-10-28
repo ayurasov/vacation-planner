@@ -13,6 +13,8 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isLoggedIn: (s) => s.me !== null,
     isAdmin: (s) => s.me?.permissions.isAdmin ?? false,
+    /** Кадровые разделы: администратор или кадровая служба. */
+    isStaff: (s) => s.me?.permissions.manageStaff ?? false,
     isApprover: (s) => (s.me?.permissions.approveSubordinates.length ?? 0) > 0,
     displayName: (s) => {
       const name = s.me?.employee.name ?? '';

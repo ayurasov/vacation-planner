@@ -4,7 +4,8 @@ import { api, type Department, type Employee, type Page, type Schedule, type Wor
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
 import { useUiStore } from '@/stores/ui';
-import { addDays, fmtDate, isWeekend, localIso, MONTHS, weekday } from '@/lib/dates';
+import { addDays, fmtDate, localIso, MONTHS, weekday } from '@/lib/dates';
+import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 
@@ -23,6 +24,7 @@ const schedule = ref<WorkSchedule | null>(null);
 const pattern = ref<Record<number, Mode>>({});
 const vacations = ref<Array<{ start: string; end: string; status: string }>>([]);
 const holidays = ref<Set<string>>(new Set());
+const workCal = ref<WorkCalendar>(workCalendar([]));
 const dirty = ref(false);
 const loading = ref(true);
 const saving = ref(false);
@@ -61,7 +63,7 @@ function effective(iso: string): { mode: Mode | 'vacation' | 'holiday'; override
   const o = overrideMap.value.get(iso);
   if (o) return { mode: o, override: true };
   if (holidays.value.has(iso)) return { mode: 'holiday', override: false };
-  if (isWeekend(iso)) return { mode: 'off', override: false };
+  if (isDayOff(iso, workCal.value)) return { mode: 'off', override: false };
   return { mode: pattern.value[weekday(iso)] ?? 'office', override: false };
 }
 
@@ -91,7 +93,7 @@ async function savePattern(): Promise<void> {
 async function toggleDay(iso: string): Promise<void> {
   const eff = effective(iso);
   if (eff.mode === 'vacation') return;
-  const base = holidays.value.has(iso) || isWeekend(iso) ? 'off' : pattern.value[weekday(iso)] ?? 'office';
+  const base = isDayOff(iso, workCal.value) ? 'off' : pattern.value[weekday(iso)] ?? 'office';
   const cur = eff.mode === 'holiday' ? 'off' : eff.mode;
   const next: Mode = cur === 'office' ? 'remote' : cur === 'remote' ? (base === 'off' ? 'off' : 'office') : 'office';
   try {
@@ -121,12 +123,13 @@ async function load(): Promise<void> {
     const y = year.value;
     const [ws, h, sch] = await Promise.all([
       api.get<WorkSchedule>(`/employees/${employeeId.value}/work-schedule?from=${y}-01-01&to=${y}-12-31`),
-      calendar.holidays(y),
+      calendar.workCalendar(y),
       api.get<Schedule>(`/schedule?from=${month.value}-01&to=${addDays(`${month.value}-01`, 41)}`),
     ]);
     schedule.value = ws;
     if (!dirty.value) pattern.value = Object.fromEntries(Object.entries(ws.pattern).map(([k, v]) => [Number(k), v]));
-    holidays.value = h;
+    workCal.value = h;
+    holidays.value = h.holidays;
     vacations.value = sch.employees.find((e) => e.id === employeeId.value)?.vacations ?? [];
   } catch (e) {
     ui.error(e);

@@ -4,6 +4,7 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/passwords';
+import type { StaffActor } from '../auth/access';
 import { randomBytes } from 'node:crypto';
 
 function translitLogin(name: string): string {
@@ -26,15 +27,34 @@ function generatePassword(): string {
 
 export function toPublic(e: {
   id: number; login: string; name: string; position: string | null; deptId: number | null;
-  role: string; isAdmin: boolean; empType: string; managerId: number | null; projectId: number | null;
+  role: string; isAdmin: boolean; isHr: boolean; empType: string; managerId: number | null; projectId: number | null;
   plannedDays: number; carryOver: number; isActive: boolean;
 }) {
   return {
     id: e.id, login: e.login, name: e.name, position: e.position, deptId: e.deptId,
-    role: e.role, isAdmin: e.isAdmin, empType: e.empType, managerId: e.managerId,
+    role: e.role, isAdmin: e.isAdmin, isHr: e.isHr, empType: e.empType, managerId: e.managerId,
     projectId: e.projectId, plannedDays: e.plannedDays, carryOver: e.carryOver,
     isActive: e.isActive,
   };
+}
+
+/**
+ * Служебные права выдаёт и снимает только администратор. Кадровая служба не меняет
+ * учётные записи администраторов и коллег по кадровой службе: иначе сброс пароля
+ * или правка карточки давали бы ей чужие права.
+ */
+export function assertCanTouch(actor: StaffActor, target: { id: number; isAdmin: boolean; isHr: boolean }): void {
+  if (actor.isAdmin) return;
+  if (target.isAdmin || (target.isHr && target.id !== actor.id)) {
+    throw new ProblemException('auth/forbidden', 'Учётные записи администраторов и кадровой службы меняет администратор');
+  }
+}
+
+function assertGrants(actor: StaffActor, input: { isAdmin?: boolean; isHr?: boolean }, current: { isAdmin: boolean; isHr: boolean }): void {
+  if (actor.isAdmin) return;
+  const changes = (input.isAdmin !== undefined && input.isAdmin !== current.isAdmin)
+    || (input.isHr !== undefined && input.isHr !== current.isHr);
+  if (changes) throw new ProblemException('auth/forbidden', 'Служебные права выдаёт администратор');
 }
 
 @Injectable()
@@ -77,11 +97,13 @@ export class EmployeesService {
     return { ...toPublic(e), deptName: e.dept?.name ?? null };
   }
 
-  async create(actorId: number, input: {
-    name: string; position?: string; deptId?: number; role?: string; isAdmin?: boolean;
+  async create(actor: StaffActor, input: {
+    name: string; position?: string; deptId?: number; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number; projectId?: number; login?: string;
     password?: string; plannedDays?: number; carryOver?: number;
   }): Promise<{ employee: ReturnType<typeof toPublic>; generatedPassword?: string }> {
+    assertGrants(actor, input, { isAdmin: false, isHr: false });
+    const actorId = actor.id;
     const login = input.login?.trim() || `${translitLogin(input.name)}`;
     const dup = await this.prisma.employee.findFirst({ where: { login } });
     if (dup) throw new ProblemException('validation/invalid-field', `Логин «${login}» уже занят`);
@@ -97,6 +119,7 @@ export class EmployeesService {
           deptId: input.deptId ?? null,
           role: input.role === 'manager' ? 'manager' : 'employee',
           isAdmin: input.isAdmin ?? false,
+          isHr: input.isHr ?? false,
           empType: input.empType === 'ipsz' ? 'ipsz' : 'staff',
           managerId: input.managerId ?? null,
           projectId: input.projectId ?? null,
@@ -113,13 +136,16 @@ export class EmployeesService {
     return { employee: toPublic(created), ...(generated ? { generatedPassword: generated } : {}) };
   }
 
-  async update(actorId: number, id: number, input: {
-    name?: string; position?: string; deptId?: number | null; role?: string; isAdmin?: boolean;
+  async update(actor: StaffActor, id: number, input: {
+    name?: string; position?: string; deptId?: number | null; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number | null; projectId?: number | null;
     plannedDays?: number; carryOver?: number;
   }) {
+    const actorId = actor.id;
     const before = await this.prisma.employee.findUnique({ where: { id } });
     if (!before) throw new ProblemException('not-found');
+    assertCanTouch(actor, before);
+    assertGrants(actor, input, before);
     if ((input.isAdmin === false) && before.isAdmin) {
       await this.assertNotLastAdmin(id);
     }
@@ -129,7 +155,7 @@ export class EmployeesService {
         data: {
           name: input.name, position: input.position,
           deptId: input.deptId === undefined ? undefined : input.deptId,
-          role: input.role, isAdmin: input.isAdmin,
+          role: input.role, isAdmin: input.isAdmin, isHr: input.isHr,
           empType: input.empType, managerId: input.managerId === undefined ? undefined : input.managerId,
           projectId: input.projectId === undefined ? undefined : input.projectId,
           plannedDays: input.plannedDays, carryOver: input.carryOver,
@@ -144,9 +170,11 @@ export class EmployeesService {
     return toPublic(updated);
   }
 
-  async remove(actorId: number, id: number) {
+  async remove(actor: StaffActor, id: number) {
+    const actorId = actor.id;
     const e = await this.prisma.employee.findUnique({ where: { id } });
     if (!e) throw new ProblemException('not-found');
+    assertCanTouch(actor, e);
     if (e.isAdmin) await this.assertNotLastAdmin(id);
     await this.prisma.$transaction(async (tx) => {
       // soft delete: увольнение сохраняет историю

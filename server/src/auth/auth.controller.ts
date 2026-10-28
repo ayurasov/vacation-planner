@@ -92,17 +92,21 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
   }
 
-  private toMe(e: { id: number; name: string; login: string; position: string | null; role: string; isAdmin: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; subordinates: number[] }) {
+  private toMe(e: { id: number; name: string; login: string; position: string | null; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; subordinates: number[] }) {
     return {
       employee: {
         id: e.id, name: e.name, login: e.login, position: e.position, deptId: e.deptId,
-        projectId: e.projectId, managerId: e.managerId, role: e.role, isAdmin: e.isAdmin,
+        projectId: e.projectId, managerId: e.managerId, role: e.role, isAdmin: e.isAdmin, isHr: e.isHr,
         empType: e.empType, plannedDays: e.plannedDays, carryOver: e.carryOver,
       },
       permissions: {
         approveSubordinates: e.subordinates,
         isAdmin: e.isAdmin,
-        manageDirectories: e.isAdmin,
+        isHr: e.isHr,
+        // кадровые операции: сотрудники, оргструктура, календарь, импорт, выгрузки, аудит
+        manageStaff: e.isAdmin || e.isHr,
+        manageDirectories: e.isAdmin || e.isHr,
+        manageSettings: e.isAdmin,
       },
     };
   }

@@ -4,6 +4,7 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { hashPassword, verifyPassword } from './passwords';
 import { TokenService } from './token.service';
+import { AuditService } from '../audit/audit.service';
 
 export interface LoginResult {
   accessToken: string;
@@ -17,6 +18,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
+    private readonly audit: AuditService,
   ) {}
 
   async login(login: string, password: string): Promise<LoginResult> {
@@ -71,15 +73,21 @@ export class AuthService {
     await this.setPassword(userId, newPassword);
   }
 
-  async setPassword(userId: number, newPassword: string): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.employee.update({
+  /** Смена пароля; `resetBy` — кто сбросил чужой пароль (попадает в аудит, сам пароль — нет). */
+  async setPassword(userId: number, newPassword: string, resetBy?: number): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.employee.update({
         where: { id: userId },
         data: { passwordHash: hashPassword(newPassword), pwVersion: { increment: 1 } },
-      }),
+      });
       // Смена пароля отзывает все refresh-токены
-      this.prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
-    ]);
+      await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+      if (resetBy !== undefined) {
+        await this.audit.record(tx, {
+          actorId: resetBy, action: 'employee.password_reset', entity: 'employee', entityId: userId,
+        });
+      }
+    });
   }
 
   async me(userId: number): Promise<Employee & { subordinates: number[] }> {

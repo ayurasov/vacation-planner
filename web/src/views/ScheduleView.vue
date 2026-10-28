@@ -3,9 +3,10 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
+import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import { useUiStore } from '@/stores/ui';
 import {
-  addDays, dayIndex, daysInYear, fmtDate, fmtRange, isWeekend, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
+  addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
 } from '@/lib/dates';
 import { barsForYear, conflictDatesFor, isAbsent, segments, type Bar } from '@/lib/schedule';
 import { shortName } from '@/lib/people';
@@ -24,6 +25,7 @@ const year = ref(Number(today.slice(0, 4)));
 const schedule = ref<Schedule | null>(null);
 const departments = ref<Department[]>([]);
 const holidays = ref<Set<string>>(new Set());
+const workCal = ref<WorkCalendar>(workCalendar([]));
 const dept = ref('');
 const search = ref('');
 const loading = ref(true);
@@ -62,7 +64,9 @@ const isCurrentYear = computed(() => todayIdx.value >= 0);
 /** Дни года для подписей и фона: выходные и праздники. */
 const days = computed(() => Array.from({ length: totalDays.value }, (_, i) => {
   const iso = addDays(`${year.value}-01-01`, i);
-  return { i, iso, d: Number(iso.slice(8)), weekend: isWeekend(iso), holiday: holidays.value.has(iso), wd: weekday(iso) };
+  const holiday = holidays.value.has(iso);
+  // weekend — любой нерабочий день кроме праздника: выходные и перенесённые выходные
+  return { i, iso, d: Number(iso.slice(8)), weekend: !holiday && isDayOff(iso, workCal.value), holiday, wd: weekday(iso) };
 }));
 const offDaySegments = computed(() => segments(year.value, days.value.filter((d) => d.weekend || d.holiday).map((d) => d.iso)));
 
@@ -206,12 +210,13 @@ async function reload(): Promise<void> {
     const q = dept.value ? `&dept=${encodeURIComponent(dept.value)}` : '';
     const [s, h, st] = await Promise.all([
       api.get<Schedule>(`/schedule?from=${year.value}-01-01&to=${year.value}-12-31${q}`),
-      calendar.holidays(year.value),
+      calendar.workCalendar(year.value),
       api.get<OrgSettings>('/settings').catch(() => null),
     ]);
     if (st) threshold.value = st.conflictThreshold / 100;
     schedule.value = s;
-    holidays.value = h;
+    workCal.value = h;
+    holidays.value = h.holidays;
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -250,7 +255,7 @@ onMounted(async () => {
   } catch { /* фильтр по отделам необязателен */ }
 });
 
-const canExport = computed(() => auth.isAdmin || auth.isApprover);
+const canExport = computed(() => auth.isStaff || auth.isApprover);
 const selectedDays = computed(() => selected.value
   ? selected.value.vacations.filter((v) => v.status === 'approved' && v.start.startsWith(`${year.value}`))
     .reduce((n, v) => n + vacationDays(v.start, v.end, holidays.value), 0)

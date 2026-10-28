@@ -1,14 +1,15 @@
 // Модульные тесты аналитики пересечений (чистые функции, без БД).
 import { describe, expect, it } from 'vitest';
 import {
-  conflictPeriods, dayStatus, insightsFor, monthlyLoad, planningStatus, suggestWindows, windowEnd, type Person,
+  conflictPeriods, dayStatus, insightsFor, isWorkday, monthlyLoad, planningStatus, suggestWindows, windowEnd, workCalendar,
+  type Person,
 } from '../src/analytics/coverage';
 
 const person = (id: number, name: string, vacations: Person['vacations'] = [], extra: Partial<Person> = {}): Person => ({
   id, name, dept: 'Отдел', plannedDays: 28, carryOver: 0, empType: 'staff', vacations, ...extra,
 });
 const approved = (start: string, end: string) => ({ start, end, status: 'approved' as const });
-const NONE = new Set<string>();
+const NONE = workCalendar([]);
 
 describe('нагрузка и конфликты отдела', () => {
   const team = [
@@ -70,7 +71,7 @@ describe('подбор окон отпуска', () => {
       person(3, 'Коллега 2', [approved('2027-06-01', '2027-06-30')]),
       person(4, 'Коллега 3'),
     ];
-    const items = suggestWindows({ person: me, colleagues: others, length: 7, from: '2027-06-01', to: '2027-09-30', holidays: NONE, threshold: 0.5 });
+    const items = suggestWindows({ person: me, colleagues: others, length: 7, from: '2027-06-01', to: '2027-09-30', holidays: NONE.holidays, threshold: 0.5 });
     expect(items.length).toBeGreaterThan(0);
     for (const s of items) {
       expect(s.start > '2027-06-30' || s.end < '2027-06-01').toBe(true); // июнь занят двумя коллегами — 75% с сотрудником
@@ -99,5 +100,27 @@ describe('статус на дату', () => {
     expect(dayStatus(p, '2027-07-13', { 2: 'remote' }, {}, NONE)).toBe('remote');
     expect(dayStatus(p, '2027-07-13', { 2: 'remote' }, { '2027-07-13': 'office' }, NONE)).toBe('office');
     expect(dayStatus(p, '2027-07-10', {}, {}, NONE)).toBe('off');
+  });
+});
+
+describe('производственный календарь', () => {
+  // 2026: 3 января (сб, праздник) перенесён на 9 января (пт); 9 мая (сб) — праздник, выходной 11 мая (пн)
+  const cal = workCalendar(['2026-01-03', '2026-05-09'], [{ from: '2026-01-03', to: '2026-01-09' }, { from: '2026-05-09', to: '2026-05-11' }]);
+
+  it('перенесённый выходной — нерабочий день, но не праздник: в дни отпуска входит', () => {
+    expect(isWorkday('2026-01-09', cal)).toBe(false);
+    expect(isWorkday('2026-05-11', cal)).toBe(false);
+    expect(cal.holidays.has('2026-05-11')).toBe(false);
+    expect(planningStatus(person(1, 'Анна', [approved('2026-05-04', '2026-05-17')]), 2026, cal.holidays).planned).toBe(13);
+  });
+
+  it('праздник в выходной не становится рабочим днём из-за переноса', () => {
+    expect(isWorkday('2026-01-03', cal)).toBe(false);
+  });
+
+  it('рабочая суббота по переносу — рабочий день', () => {
+    const sat = workCalendar([], [{ from: '2027-11-13', to: '2027-11-05' }]);
+    expect(isWorkday('2027-11-13', sat)).toBe(true);
+    expect(isWorkday('2027-11-05', sat)).toBe(false);
   });
 });

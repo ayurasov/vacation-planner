@@ -4,12 +4,13 @@ import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { toIso } from '../requests/balance';
 import {
-  conflictPeriods, dayStatus, insightsFor, monthlyLoad, planningStatus, suggestWindows,
-  type DayStatus, type Person,
+  conflictPeriods, dayStatus, insightsFor, monthlyLoad, planningStatus, suggestWindows, workCalendar,
+  type DayStatus, type Person, type Transfer, type WorkCalendar,
 } from './coverage';
 
 export interface Viewer {
   id: number;
+  /** Администратор или кадровая служба: видит аналитику всех отделов. */
   isAdmin: boolean;
   deptName: string | null;
   /** Отделы, где пользователь руководит или работают его подчинённые. */
@@ -36,7 +37,7 @@ export class AnalyticsService {
     const managed = new Set<string>(me.managedDepts.map((d) => d.name));
     for (const s of me.subordinates) if (s.dept) managed.add(s.dept.name);
     return {
-      id: me.id, isAdmin: me.isAdmin, deptName: me.dept?.name ?? null,
+      id: me.id, isAdmin: me.isAdmin || me.isHr, deptName: me.dept?.name ?? null,
       managedDepts: [...managed].sort(), subordinates: me.subordinates.map((s) => s.id),
     };
   }
@@ -53,9 +54,11 @@ export class AnalyticsService {
     if (!(await this.visibleDepts(v)).includes(dept)) throw new ProblemException('auth/forbidden', 'Аналитика доступна по своим отделам');
   }
 
-  async holidays(year: number): Promise<Set<string>> {
-    const cal = await this.prisma.productionCalendar.findUnique({ where: { year } });
-    return new Set(Array.isArray(cal?.holidays) ? (cal.holidays as string[]) : []);
+  /** Календарь лет: праздники ст. 112 и переносы выходных. Нет календаря года — только выходные. */
+  async calendar(...years: number[]): Promise<WorkCalendar> {
+    const rows = await this.prisma.productionCalendar.findMany({ where: { year: { in: years } } });
+    const list = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
+    return workCalendar(rows.flatMap((r) => list<string>(r.holidays)), rows.flatMap((r) => list<Transfer>(r.transfers)));
   }
 
   private async threshold(): Promise<number> {
@@ -91,17 +94,16 @@ export class AnalyticsService {
   /** Аналитика года по отделу: нагрузка по месяцам, конфликты, распределение дней, выводы. */
   async overview(v: Viewer, dept: string, year: number, today: string) {
     await this.assertDept(v, dept);
-    const [people, holidays, threshold] = await Promise.all([
-      this.people({ dept }, `${year}-01-01`, `${year}-12-31`), this.holidays(year), this.threshold(),
+    const [people, cal, threshold] = await Promise.all([
+      this.people({ dept }, `${year}-01-01`, `${year}-12-31`), this.calendar(year), this.threshold(),
     ]);
+    const plan = monthlyLoad(people, year, cal, true);
     return {
       dept, year, threshold, headcount: people.length,
-      months: monthlyLoad(people, year, holidays).map((m, i) => ({
-        ...m, planRatio: monthlyLoad(people, year, holidays, true)[i].avgRatio,
-      })),
-      conflicts: conflictPeriods(people, year, threshold, holidays),
-      planning: people.filter((p) => p.empType !== 'ipsz').map((p) => planningStatus(p, year, holidays)),
-      insights: insightsFor(dept, people, year, threshold, holidays, today),
+      months: monthlyLoad(people, year, cal).map((m, i) => ({ ...m, planRatio: plan[i].avgRatio })),
+      conflicts: conflictPeriods(people, year, threshold, cal),
+      planning: people.filter((p) => p.empType !== 'ipsz').map((p) => planningStatus(p, year, cal.holidays)),
+      insights: insightsFor(dept, people, year, threshold, cal, today),
     };
   }
 
@@ -115,8 +117,8 @@ export class AnalyticsService {
     }
     if (!scope.dept && !scope.project) throw new ProblemException('validation/invalid-field', 'Укажите отдел или проект');
     const year = Number(date.slice(0, 4));
-    const [people, holidays, threshold] = await Promise.all([
-      this.people(scope, `${year}-01-01`, `${year}-12-31`), this.holidays(year), this.threshold(),
+    const [people, cal, threshold] = await Promise.all([
+      this.people(scope, `${year}-01-01`, `${year}-12-31`), this.calendar(year), this.threshold(),
     ]);
     const ids = people.map((p) => p.id);
     const [patterns, overrides, pending] = await Promise.all([
@@ -128,8 +130,8 @@ export class AnalyticsService {
     const members = people.map((p) => {
       const pattern = Object.fromEntries(patterns.filter((w) => w.employeeId === p.id).map((w) => [w.weekday, w.mode]));
       const ovr = Object.fromEntries(overrides.filter((o) => o.employeeId === p.id).map((o) => [toIso(o.date), o.mode]));
-      const status: DayStatus = dayStatus(p, date, pattern, ovr, holidays);
-      const plan = planningStatus(p, year, holidays);
+      const status: DayStatus = dayStatus(p, date, pattern, ovr, cal);
+      const plan = planningStatus(p, year, cal.holidays);
       const current = p.vacations.find((x) => x.status === 'approved' && x.start <= date && date <= x.end) ?? null;
       const next = p.vacations.filter((x) => x.status === 'approved' && x.start > date).sort((a, b) => a.start.localeCompare(b.start))[0] ?? null;
       return {
@@ -156,8 +158,7 @@ export class AnalyticsService {
     if (!emp || !emp.isActive) throw new ProblemException('not-found');
     if (emp.empType === 'ipsz') throw new ProblemException('validation/invalid-field', 'Для ИП/самозанятых отпуск не предусмотрен');
     const years = [...new Set([Number(from.slice(0, 4)), Number(to.slice(0, 4))])];
-    const holidaySets = await Promise.all(years.map((y) => this.holidays(y)));
-    const holidays = new Set(holidaySets.flatMap((s) => [...s]));
+    const { holidays } = await this.calendar(...years);
     const team = await this.people({ dept: emp.dept?.name ?? NO_DEPT }, from, `${to.slice(0, 4)}-12-31`);
     const person = team.find((p) => p.id === employeeId) ?? (await this.people({}, from, to)).find((p) => p.id === employeeId)!;
     const threshold = await this.threshold();

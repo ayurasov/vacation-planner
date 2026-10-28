@@ -783,6 +783,39 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ProductionCalendar' }
         '400': { $ref: '#/components/responses/Problem' }
+    put:
+      tags: [calendar]
+      operationId: setHolidays
+      summary: Загрузить или изменить календарь года (кадровая служба, администратор)
+      description: Даты сортируются, повторы убираются; праздники — только этого года. Изменение пишется в аудит (calendar.created / calendar.updated).
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer, minimum: 2024, maximum: 2100 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [holidays, transfers]
+              properties:
+                holidays: { type: array, maxItems: 60, items: { type: string, format: date } }
+                transfers:
+                  type: array
+                  maxItems: 30
+                  items:
+                    type: object
+                    required: [from, to]
+                    properties:
+                      from: { type: string, format: date, description: Выходной, который становится рабочим }
+                      to: { type: string, format: date, description: Рабочий день, который становится выходным }
+      responses:
+        '200':
+          description: Сохранённый календарь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionCalendar' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
 
   /notifications:
     get:
@@ -1084,23 +1117,29 @@ components:
           properties:
             approveSubordinates: { type: array, items: { type: integer }, description: Идентификаторы подчинённых }
             isAdmin: { type: boolean }
+            isHr: { type: boolean, description: Кадровая служба }
+            manageStaff: { type: boolean, description: 'Сотрудники, импорт, календарь, выгрузки, аудит (администратор или кадровая служба)' }
             manageDirectories: { type: boolean }
+            manageSettings: { type: boolean, description: Настройки организации — только администратор }
 
     Employee:
       type: object
       properties:
         id: { type: integer }
         name: { type: string }
-        position: { type: string }
-        dept: { type: string }
+        position: { type: [string, 'null'] }
+        deptId: { type: [integer, 'null'] }
+        deptName: { type: [string, 'null'] }
         role: { type: string, enum: [employee, manager] }
         isAdmin: { type: boolean }
+        isHr: { type: boolean, description: Кадровая служба }
         empType: { type: string, enum: [staff, ipsz], description: 'ipsz — ИП/самозанятый, отпуск не предусмотрен' }
-        manager: { type: [integer, 'null'] }
+        managerId: { type: [integer, 'null'] }
         projectId: { type: [integer, 'null'] }
         login: { type: string }
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
+        isActive: { type: boolean }
 
     EmployeeCreate:
       type: object
@@ -1108,11 +1147,12 @@ components:
       properties:
         name: { type: string, minLength: 3, maxLength: 128 }
         position: { type: string, maxLength: 128 }
-        dept: { type: string, maxLength: 128 }
+        deptId: { type: integer }
         role: { type: string, enum: [employee, manager], default: employee }
-        isAdmin: { type: boolean, default: false }
+        isAdmin: { type: boolean, default: false, description: Выдаёт только администратор }
+        isHr: { type: boolean, default: false, description: Выдаёт только администратор }
         empType: { type: string, enum: [staff, ipsz], default: staff }
-        manager: { type: [integer, 'null'] }
+        managerId: { type: integer }
         projectId: { type: [integer, 'null'] }
         login: { type: string, maxLength: 64, description: 'Не задан — генерируется транслитом ФИО' }
         password: { type: string, minLength: 8, description: 'Не задан — генерируется, возвращается один раз' }
@@ -1125,11 +1165,12 @@ components:
       properties:
         name: { type: string, minLength: 3, maxLength: 128 }
         position: { type: string, maxLength: 128 }
-        dept: { type: string, maxLength: 128 }
+        deptId: { type: [integer, 'null'] }
         role: { type: string, enum: [employee, manager] }
-        isAdmin: { type: boolean }
+        isAdmin: { type: boolean, description: Меняет только администратор }
+        isHr: { type: boolean, description: Меняет только администратор }
         empType: { type: string, enum: [staff, ipsz] }
-        manager: { type: [integer, 'null'] }
+        managerId: { type: [integer, 'null'] }
         projectId: { type: [integer, 'null'] }
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }

@@ -22,10 +22,10 @@ export const router = createRouter({
     { path: '/team', component: TeamView, meta: { title: 'Команда' } },
     { path: '/work-schedule', component: WorkScheduleView, meta: { title: 'График работы' } },
     { path: '/approvals', component: ApprovalsView, meta: { title: 'Заявки на согласование' } },
-    { path: '/employees', component: EmployeesView, meta: { admin: true, title: 'Сотрудники' } },
-    { path: '/directories', component: DirectoriesView, meta: { admin: true, title: 'Справочники' } },
+    { path: '/employees', component: EmployeesView, meta: { staff: true, title: 'Сотрудники' } },
+    { path: '/directories', component: DirectoriesView, meta: { staff: true, title: 'Справочники' } },
     { path: '/settings', component: SettingsView, meta: { title: 'Профиль и настройки' } },
-    { path: '/audit', component: AuditView, meta: { admin: true, title: 'Журнал аудита' } },
+    { path: '/audit', component: AuditView, meta: { staff: true, title: 'Журнал аудита' } },
     { path: '/:pathMatch(.*)*', redirect: '/schedule' },
   ],
 });
@@ -35,7 +35,7 @@ router.beforeEach(async (to) => {
   if (auth.loading) await auth.restore();
   if (!to.meta.public && !auth.isLoggedIn) return { path: '/login' };
   if (to.path === '/login' && auth.isLoggedIn) return { path: '/schedule' };
-  if (to.meta.admin && !auth.isAdmin) return { path: '/schedule' };
+  if (to.meta.staff && !auth.isStaff) return { path: '/schedule' };
   return true;
 });
 

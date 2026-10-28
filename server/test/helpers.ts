@@ -18,6 +18,8 @@ export interface TestApp {
   admin: { id: number; login: string; password: string };
   manager: { id: number; login: string; password: string };
   employee: { id: number; login: string; password: string };
+  /** Кадровая служба — в отдельном отделе, чтобы не менять состав «Тестового отдела». */
+  hr: { id: number; login: string; password: string };
 }
 
 export async function createTestApp(): Promise<TestApp> {
@@ -50,6 +52,12 @@ export async function createTestApp(): Promise<TestApp> {
     },
   });
   await prisma.department.update({ where: { id: dept.id }, data: { managerId: managerRow.id } });
+  const hrDept = await prisma.department.create({ data: { name: 'Кадровая служба' } });
+  const hr = { id: 0, login: 'hr.test', password: 'hr-pass-12345' };
+  const hrRow = await prisma.employee.create({
+    data: { login: hr.login, passwordHash: hashPassword(hr.password), name: 'Кадровикова Тест', isHr: true, deptId: hrDept.id },
+  });
+  hr.id = hrRow.id;
   await prisma.orgSettings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
 
   admin.id = adminRow.id;
@@ -63,6 +71,7 @@ export async function createTestApp(): Promise<TestApp> {
     admin,
     manager,
     employee,
+    hr,
   };
 }
 
