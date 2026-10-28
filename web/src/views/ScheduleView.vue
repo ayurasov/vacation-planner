@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
@@ -8,7 +8,7 @@ import { useUiStore } from '@/stores/ui';
 import {
   addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
 } from '@/lib/dates';
-import { barsForYear, conflictDatesFor, isAbsent, segments, type Bar } from '@/lib/schedule';
+import { absentPerDay, barsForYear, conflictDatesFor, isAbsent, segments, virtualWindow, type Bar } from '@/lib/schedule';
 import { shortName } from '@/lib/people';
 import { statusMeta } from '@/lib/requests';
 import AppIcon from '@/components/common/AppIcon.vue';
@@ -47,6 +47,7 @@ const zoom = ref<Zoom>(readZoom());
 const DAY = computed(() => ZOOM[zoom.value].day);
 const NAME_COL = 264;
 const ROW_H = 40;
+const GROUP_H = 36;
 
 function readZoom(): Zoom {
   try {
@@ -119,12 +120,51 @@ const stats = computed(() => {
 const dailyLoad = computed(() => {
   const list = filtered.value;
   const n = list.length || 1;
+  const counts = absentPerDay(year.value, list);
   return days.value.map((d) => {
     if (d.weekend || d.holiday) return { i: d.i, ratio: -1, absent: 0 };
-    const absent = list.filter((e) => isAbsent(e.vacations, d.iso)).length;
-    return { i: d.i, ratio: absent / n, absent };
+    return { i: d.i, ratio: counts[d.i] / n, absent: counts[d.i] };
   });
 });
+
+// ── Виртуальный список: рисуются только видимые строки (5000 сотрудников — не 65 тыс. узлов DOM)
+type Item = { kind: 'group'; key: string; g: Group } | { kind: 'row'; key: string; e: ScheduleEmployee };
+const items = computed<Item[]>(() => {
+  const out: Item[] = [];
+  for (const g of groups.value) {
+    out.push({ kind: 'group', key: `g:${g.name}`, g });
+    if (!collapsedDepts.value.has(g.name)) for (const e of g.employees) out.push({ kind: 'row', key: `r:${e.id}`, e });
+  }
+  return out;
+});
+const layout = computed(() => {
+  const offsets: number[] = [];
+  let y = 0;
+  for (const it of items.value) { offsets.push(y); y += it.kind === 'group' ? GROUP_H : ROW_H; }
+  return { offsets, total: y };
+});
+const view = ref({ top: 0, height: 900 });
+const bodyRef = ref<HTMLElement | null>(null);
+const win = computed(() => virtualWindow(layout.value.offsets, layout.value.total, view.value.top, view.value.height));
+const visible = computed(() => items.value.slice(win.value.start, win.value.end));
+
+let frame = 0;
+function measure(): void {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    const el = scroller.value;
+    if (!el) return;
+    const bodyTop = bodyRef.value?.offsetTop ?? 0; // высота шапки над строками
+    view.value = { top: Math.max(0, el.scrollTop - bodyTop), height: el.clientHeight };
+  });
+}
+const resizer = new ResizeObserver(measure);
+watch(scroller, (el, old) => {
+  old?.removeEventListener('scroll', measure);
+  if (old) resizer.unobserve(old);
+  if (el) { el.addEventListener('scroll', measure, { passive: true }); resizer.observe(el); measure(); }
+});
+onBeforeUnmount(() => { resizer.disconnect(); cancelAnimationFrame(frame); });
 
 function loadColor(ratio: number): string {
   if (ratio < 0) return 'transparent';
@@ -606,7 +646,10 @@ const selectedDays = computed(() => selected.value
           </div>
 
           <!-- тело -->
-          <div class="g-body">
+          <div
+            ref="bodyRef"
+            class="g-body"
+          >
             <div
               class="g-overlay"
               aria-hidden="true"
@@ -636,53 +679,56 @@ const selectedDays = computed(() => selected.value
               />
             </div>
 
+            <div
+              class="g-pad"
+              :style="{ height: `${win.padTop}px` }"
+            />
             <template
-              v-for="g in groups"
-              :key="g.name"
+              v-for="it in visible"
+              :key="it.key"
             >
               <button
+                v-if="it.kind === 'group'"
                 type="button"
                 class="g-group"
-                :aria-expanded="!collapsedDepts.has(g.name)"
-                @click="toggleDept(g.name)"
+                :aria-expanded="!collapsedDepts.has(it.g.name)"
+                @click="toggleDept(it.g.name)"
               >
                 <span class="g-group-name">
                   <AppIcon
-                    :name="collapsedDepts.has(g.name) ? 'chevronRight' : 'chevronDown'"
+                    :name="collapsedDepts.has(it.g.name) ? 'chevronRight' : 'chevronDown'"
                     :size="14"
                   />
-                  <strong>{{ g.name }}</strong>
-                  <span class="muted">{{ g.employees.length }}</span>
+                  <strong>{{ it.g.name }}</strong>
+                  <span class="muted">{{ it.g.employees.length }}</span>
                   <span
-                    v-if="g.absentToday"
+                    v-if="it.g.absentToday"
                     class="badge badge-success"
                     :title="'В отпуске сегодня'"
-                  >{{ g.absentToday }} в отпуске</span>
+                  >{{ it.g.absentToday }} в отпуске</span>
                   <span
-                    v-if="g.conflictDays"
+                    v-if="it.g.conflictDays"
                     class="badge badge-danger"
                     :title="'Дней, когда в отпуске доля отдела выше порога'"
-                  >{{ g.conflictDays }} дн. конфликта</span>
+                  >{{ it.g.conflictDays }} дн. конфликта</span>
                 </span>
               </button>
-              <template v-if="!collapsedDepts.has(g.name)">
+              <template v-else>
                 <div
-                  v-for="e in g.employees"
-                  :key="e.id"
                   class="g-row"
-                  :class="{ picked: picked.has(e.id) }"
+                  :class="{ picked: picked.has(it.e.id) }"
                   :style="{ height: `${ROW_H}px` }"
                 >
                   <button
                     type="button"
                     class="g-pick"
-                    :class="{ on: picked.has(e.id) }"
-                    :aria-pressed="picked.has(e.id)"
-                    :title="picked.has(e.id) ? 'Убрать из сравнения' : 'Добавить в сравнение пересечений'"
-                    @click="togglePick(e.id)"
+                    :class="{ on: picked.has(it.e.id) }"
+                    :aria-pressed="picked.has(it.e.id)"
+                    :title="picked.has(it.e.id) ? 'Убрать из сравнения' : 'Добавить в сравнение пересечений'"
+                    @click="togglePick(it.e.id)"
                   >
                     <AppIcon
-                      :name="picked.has(e.id) ? 'check' : 'plus'"
+                      :name="picked.has(it.e.id) ? 'check' : 'plus'"
                       :size="11"
                       :stroke="2.2"
                     />
@@ -690,18 +736,18 @@ const selectedDays = computed(() => selected.value
                   <button
                     type="button"
                     class="g-name"
-                    @click="selected = e"
+                    @click="selected = it.e"
                   >
                     <UserAvatar
-                      :name="e.name"
+                      :name="it.e.name"
                       :size="26"
                     />
                     <span class="person-text">
-                      <span class="person-name">{{ shortName(e.name) }}</span>
-                      <span class="person-sub">{{ e.position ?? '—' }}</span>
+                      <span class="person-name">{{ shortName(it.e.name) }}</span>
+                      <span class="person-sub">{{ it.e.position ?? '—' }}</span>
                     </span>
                     <span
-                      v-if="isCurrentYear && isAbsent(e.vacations, today)"
+                      v-if="isCurrentYear && isAbsent(it.e.vacations, today)"
                       class="away-dot"
                       title="В отпуске сегодня"
                     />
@@ -712,27 +758,27 @@ const selectedDays = computed(() => selected.value
                   >
                     <template v-if="showWorkMode">
                       <div
-                        v-for="(r, ri) in remoteSegs(e)"
+                        v-for="(r, ri) in remoteSegs(it.e)"
                         :key="`r${ri}`"
                         class="g-remote"
                         :style="{ left: `${r.first * DAY}px`, width: `${r.days * DAY}px` }"
                       />
                     </template>
                     <div
-                      v-for="(c, ci) in conflictSegs(e)"
+                      v-for="(c, ci) in conflictSegs(it.e)"
                       :key="`c${ci}`"
                       class="g-conflict"
                       :style="{ left: `${c.first * DAY}px`, width: `${c.days * DAY}px` }"
                     />
                     <button
-                      v-for="b in barsOf(e)"
+                      v-for="b in barsOf(it.e)"
                       :key="b.requestId"
                       type="button"
                       class="g-bar"
                       :class="barClass(b)"
                       :style="{ left: `${b.first * DAY + 1}px`, width: `${Math.max(b.days * DAY - 2, 3)}px` }"
-                      :title="barTitle(e, b)"
-                      @click="selected = e"
+                      :title="barTitle(it.e, b)"
+                      @click="selected = it.e"
                     >
                       {{ barLabel(b) }}
                     </button>
@@ -740,6 +786,10 @@ const selectedDays = computed(() => selected.value
                 </div>
               </template>
             </template>
+            <div
+              class="g-pad"
+              :style="{ height: `${win.padBottom}px` }"
+            />
           </div>
         </div>
       </div>
@@ -1035,6 +1085,7 @@ const selectedDays = computed(() => selected.value
   z-index: 3;
   display: block;
   width: 100%;
+  height: 36px; /* GROUP_H — виртуальный список считает высоты строк заранее; без overflow: иначе sticky-название «прилипает» внутри кнопки и уезжает влево */
   border: none;
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
@@ -1051,7 +1102,8 @@ const selectedDays = computed(() => selected.value
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  height: 100%;
+  padding: 0 14px;
   font-size: 12.5px;
 }
 

@@ -61,3 +61,48 @@ export function conflictDatesFor(vacations: VacationSpan[], deptConflicts: Reado
 export function isAbsent(vacations: VacationSpan[], iso: string): boolean {
   return vacations.some((v) => v.status === 'approved' && v.start <= iso && iso <= v.end);
 }
+
+/**
+ * Окно виртуального списка: какие строки рисовать при прокрутке. offsets — верх каждой строки
+ * (по возрастанию), total — высота списка. Рисуются строки, видимые в окне, плюс запас overscan
+ * сверху и снизу; остальное место занимают пустые отступы (v0.5.0: 5000 строк — 65 тыс. узлов DOM).
+ */
+export function virtualWindow(offsets: readonly number[], total: number, scrollTop: number, viewport: number, overscan = 8):
+{ start: number; end: number; padTop: number; padBottom: number } {
+  const n = offsets.length;
+  if (!n) return { start: 0, end: 0, padTop: 0, padBottom: 0 };
+  // первая строка, нижняя граница которой ниже верха окна
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const bottom = mid + 1 < n ? offsets[mid + 1] : total;
+    if (bottom <= scrollTop) lo = mid + 1; else hi = mid;
+  }
+  const first = lo;
+  let last = first;
+  while (last + 1 < n && offsets[last + 1] < scrollTop + viewport) last++;
+  const start = Math.max(0, first - overscan);
+  const end = Math.min(n, last + 1 + overscan);
+  return { start, end, padTop: offsets[start], padBottom: total - (end < n ? offsets[end] : total) };
+}
+
+/** Число сотрудников в согласованном отпуске по дням года — одним проходом по отпускам, без перебора дней × людей. */
+export function absentPerDay(year: number, people: ReadonlyArray<{ vacations: VacationSpan[] }>): Int32Array {
+  const days = daysInYear(year);
+  const diff = new Int32Array(days + 1);
+  for (const p of people) {
+    for (const v of p.vacations) {
+      if (v.status !== 'approved') continue;
+      const a = Math.max(0, dayIndex(year, v.start));
+      const b = Math.min(days - 1, dayIndex(year, v.end));
+      if (b < a) continue;
+      diff[a]++;
+      diff[b + 1]--;
+    }
+  }
+  const out = new Int32Array(days);
+  let run = 0;
+  for (let i = 0; i < days; i++) { run += diff[i]; out[i] = run; }
+  return out;
+}
