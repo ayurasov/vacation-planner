@@ -9,7 +9,7 @@
 ### Добавлено
 
 - **Кластер процессов** (`main.ts`, `infra/concurrency.ts`): `WEB_CONCURRENCY` (`auto` — по ядрам), перезапуск упавших процессов, останов при частых падениях; пул соединений на процесс min(10, 40 / процессов), `DB_POOL_SIZE`.
-- **Кэш графика**: таблица `data_version` (16 строк, триггеры на таблицах графика), `ScheduleService` на простом SQL, кэш ответов в памяти по версии, `ETag` и `304 Not Modified`.
+- **Кэш графика**: таблица `data_version` (16 строк, отложенные триггеры на таблицах графика — при фиксации, один раз за транзакцию), `ScheduleService` на простом SQL, кэш ответов в памяти по версии, `ETag` и `304 Not Modified`.
 - **Поток событий** (`server/src/events`): `POST /events/ticket`, `GET /events` (SSE: `hello`, `notifications`, `data`, heartbeat); клиент `subscribeLive` с откатом на опрос; nginx без буферизации, `worker_connections 16384`.
 - **Метрики** (`infra/metrics.ts`, `GET /metrics`): HTTP по шаблонам маршрутов, цикл событий, процессор и память, SSE, соединения БД, очередь писем, фоновые задачи, реплики и архив WAL; сложение процессов кластера по IPC; `METRICS_TOKEN`. `deploy/monitoring`: Prometheus (профиль `monitoring`), 15 правил оповещений, панель Grafana.
 - **Реплика и архив WAL** (`docker-compose.replica.yml`, `deploy/postgres`): горячий резерв по слоту, архив WAL (`archive_timeout` 300 с), ежедневные физические копии с очисткой архива; `DB_HOST` для переключения.
@@ -29,6 +29,7 @@
 
 ### Исправлено
 
+- Взаимная блокировка (`40P01`) при одновременной подаче заявок сотрудником и его руководителем под нагрузкой: блокировки `FOR NO KEY UPDATE`, счётчик версии — при фиксации (миграция `data_version_on_commit`).
 - Смена пароля и увольнение не отзывали выданные access-токены (проверка `pw_version` и активности теперь в `JwtAuthGuard`, кэш 10 с).
 - Фильтр ошибок превращал любой `401` в `auth/invalid-credentials`.
 - `429 rate-limited` не нёс заголовок `Retry-After`.
