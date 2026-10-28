@@ -51,6 +51,16 @@ export class ImportsService {
       throw new ProblemException('validation/invalid-field', `Исправьте ошибки в строках ${lines}${plan.summary.error > 10 ? '…' : ''} и загрузите файл снова`);
     }
     const credentials: ImportResult['credentials'] = [];
+    // Пароли новых сотрудников хешируются до транзакции, параллельно в пуле потоков:
+    // 5000 scrypt внутри транзакции не укладывались в её срок и держали соединение БД
+    const creates = plan.rows.filter((x) => x.action === 'create');
+    const secrets = new Map<string, { password: string; hash: string }>();
+    for (let i = 0; i < creates.length; i += 64) {
+      await Promise.all(creates.slice(i, i + 64).map(async (r) => {
+        const password = generatePassword();
+        secrets.set(r.login, { password, hash: await hashPassword(password) });
+      }));
+    }
     await this.prisma.$transaction(async (tx) => {
       // Блокировка от параллельного импорта: план строился до транзакции, повторяем
       // проверки уникальности на уровне БД (уникальные логин и e-mail).
@@ -66,10 +76,10 @@ export class ImportsService {
 
       for (const r of plan.rows.filter((x) => x.action === 'create')) {
         const v = r.values!;
-        const password = generatePassword();
+        const { password, hash } = secrets.get(v.login)!;
         const e = await tx.employee.create({
           data: {
-            login: v.login, passwordHash: hashPassword(password), name: v.name, email: v.email ?? null,
+            login: v.login, passwordHash: hash, name: v.name, email: v.email ?? null,
             position: v.position ?? null, deptId: deptId(v.dept) ?? null,
             plannedDays: v.plannedDays ?? 28, carryOver: v.carryOver ?? 0, empType: v.empType ?? 'staff',
           },

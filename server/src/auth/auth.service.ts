@@ -28,7 +28,9 @@ export class AuthService {
       include: { subordinates: { where: { isActive: true }, select: { id: true } } },
     });
     // Единая ошибка: не раскрываем, что именно неверно
-    if (!employee || !verifyPassword(password, employee.passwordHash)) {
+    // Пароль проверяется и для неизвестного логина (заглушкой) — по времени ответа логин не угадать
+    const valid = await verifyPassword(password, employee?.passwordHash);
+    if (!employee || !valid) {
       throw new ProblemException('auth/invalid-credentials');
     }
     // С единым входом пароль можно отключить; администраторам он остаётся — аварийный доступ
@@ -81,7 +83,7 @@ export class AuthService {
 
   async changeOwnPassword(userId: number, oldPassword: string, newPassword: string): Promise<void> {
     const me = await this.prisma.employee.findUnique({ where: { id: userId } });
-    if (!me || !verifyPassword(oldPassword, me.passwordHash)) {
+    if (!me || !(await verifyPassword(oldPassword, me.passwordHash))) {
       throw new ProblemException('auth/invalid-credentials', 'Старый пароль неверен');
     }
     await this.setPassword(userId, newPassword);
@@ -89,10 +91,11 @@ export class AuthService {
 
   /** Смена пароля; `resetBy` — кто сбросил чужой пароль (попадает в аудит, сам пароль — нет). */
   async setPassword(userId: number, newPassword: string, resetBy?: number): Promise<void> {
+    const passwordHash = await hashPassword(newPassword); // до транзакции: хеш не держит соединение БД
     await this.prisma.$transaction(async (tx) => {
       await tx.employee.update({
         where: { id: userId },
-        data: { passwordHash: hashPassword(newPassword), pwVersion: { increment: 1 } },
+        data: { passwordHash, pwVersion: { increment: 1 } },
       });
       // Смена пароля отзывает все refresh-токены
       await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });

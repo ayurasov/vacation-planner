@@ -206,13 +206,13 @@ describe('XLSX-выгрузка отпусков', () => {
     const dept = await t.prisma.department.create({ data: { name: 'Отдел без руководителя' } });
     const mgrB = { login: 'mgr.b', password: 'manager-b-pass-123' };
     const boss = await t.prisma.employee.create({
-      data: { login: mgrB.login, passwordHash: hashPassword(mgrB.password), name: 'Начальников Бэ', role: 'manager', deptId: dept.id },
+      data: { login: mgrB.login, passwordHash: await hashPassword(mgrB.password), name: 'Начальников Бэ', role: 'manager', deptId: dept.id },
     });
     const sub = await t.prisma.employee.create({
-      data: { login: 'sub.b', passwordHash: hashPassword('sub-b-pass-1234'), name: 'Подчинённый Бэ', deptId: dept.id, managerId: boss.id },
+      data: { login: 'sub.b', passwordHash: await hashPassword('sub-b-pass-1234'), name: 'Подчинённый Бэ', deptId: dept.id, managerId: boss.id },
     });
     const outsider = await t.prisma.employee.create({
-      data: { login: 'out.b', passwordHash: hashPassword('out-b-pass-1234'), name: 'Посторонний Бэ', deptId: dept.id },
+      data: { login: 'out.b', passwordHash: await hashPassword('out-b-pass-1234'), name: 'Посторонний Бэ', deptId: dept.id },
     });
     for (const id of [sub.id, outsider.id]) {
       await t.http().post('/api/v1/vacation-requests').set('Authorization', `Bearer ${adm}`)

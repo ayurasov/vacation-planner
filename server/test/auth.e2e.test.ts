@@ -1,6 +1,7 @@
 // E2E: аутентификация и сессии (критерии историй E01-xx, docs/specs/03-backlog.md).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestApp, destroyTestApp, login, type TestApp } from './helpers';
+import { createExtraApp, createTestApp, destroyTestApp, login, type TestApp } from './helpers';
+import request from 'supertest';
 import { LoginRateLimitGuard } from '../src/auth/rate-limit';
 
 let t: TestApp;
@@ -99,7 +100,7 @@ describe('смена пароля', () => {
 describe('лимит частоты входа', () => {
   // Последний блок в файле: исчерпывает окна для адресов тест-клиента
   it('11-я попытка за минуту к одному логину с адреса → 429 rate-limited', async () => {
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
     let last = 0;
     for (let i = 0; i < 11; i++) {
       last = (await t.http().post('/api/v1/auth/login')
@@ -109,7 +110,7 @@ describe('лимит частоты входа', () => {
   });
 
   it('за прокси лимит считается по адресу клиента, а не nginx', async () => {
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
     const attempt = (ip: string) => t.http().post('/api/v1/auth/login')
       .set('X-Forwarded-For', ip).send({ login: 'nobody', password: 'wrong' });
     for (let i = 0; i < 10; i++) await attempt('10.1.1.1');
@@ -119,12 +120,27 @@ describe('лимит частоты входа', () => {
   });
 
   it('другие логины с того же адреса не блокируются лимитом одной учётной записи', async () => {
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
     const attempt = (login: string) => t.http().post('/api/v1/auth/login')
       .set('X-Forwarded-For', '10.2.2.2').send({ login, password: 'wrong' });
     for (let i = 0; i < 10; i++) await attempt('nobody');
     expect((await attempt('nobody')).status).toBe(429);
     expect((await attempt(t.employee.login)).status).toBe(401);
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
+  });
+
+  it('лимит общий для всех экземпляров сервера: попытки на двух экземплярах складываются', async () => {
+    await LoginRateLimitGuard.resetForTests(t.prisma);
+    const second = await createExtraApp();
+    try {
+      const attempt = (app: 1 | 2) => (app === 1 ? t.http() : request(second.getHttpServer())).post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '10.3.3.3').send({ login: 'nobody', password: 'wrong' });
+      for (let i = 0; i < 5; i++) { await attempt(1); await attempt(2); }
+      expect((await attempt(2)).status).toBe(429);
+      expect((await attempt(1)).status).toBe(429);
+    } finally {
+      await second.close();
+      await LoginRateLimitGuard.resetForTests(t.prisma);
+    }
   });
 });

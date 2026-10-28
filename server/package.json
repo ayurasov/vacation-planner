@@ -17,7 +17,8 @@
     "lint": "eslint src test prisma --ext .ts",
     "sbom": "cyclonedx-npm -o ../sbom/server.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only",
     "build:seed": "tsc -p tsconfig.seed.json",
-    "db:seed:prod": "node dist-seed/prisma/seed.js"
+    "db:seed:prod": "node dist-seed/prisma/seed.js",
+    "db:seed:load": "tsx prisma/load-seed.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

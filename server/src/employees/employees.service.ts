@@ -109,12 +109,13 @@ export class EmployeesService {
     if (dup) throw new ProblemException('validation/invalid-field', `Логин «${login}» уже занят`);
     await this.assertEmailFree(input.email);
     const generated = input.password ? undefined : generatePassword();
+    const passwordHash = await hashPassword(input.password ?? generated!);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const e = await tx.employee.create({
         data: {
           login,
-          passwordHash: hashPassword(input.password ?? generated!),
+          passwordHash,
           name: input.name,
           email: input.email?.toLowerCase() ?? null,
           position: input.position ?? null,
