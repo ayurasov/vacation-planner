@@ -5,7 +5,7 @@ name: CI (сервер)
 
 on:
   push:
-    branches: [main, 'v0.*']
+    branches: [main, 'v*']
   workflow_dispatch:
 
 concurrency:
@@ -54,7 +54,7 @@ jobs:
       - name: 'Обновление с прошлого выпуска на данных (миграции main → данные → миграции ветки)'
         run: scripts/upgrade-check.sh
         env:
-          UPGRADE_DATABASE_URL: postgresql://vacation:vacation@localhost:5432/vacation_test?schema=upgrade_check
+          UPGRADE_DATABASE_URL: postgresql://vacation:vacation@postgres:5432/vacation_test?schema=upgrade_check
       - name: Сборка (tsc strict)
         run: npm run build
         working-directory: server
@@ -158,6 +158,10 @@ jobs:
     name: 'Deploy прод-стенда + smoke'
     runs-on: deploy
     needs: [server, web, sbom, e2e]
+    env:
+      # Секрет подписи токенов стенда — в секретах репозитория Gitea (v1.0.0: известного значения
+      # по умолчанию больше нет, без секрета compose откажется запускать стенд)
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
     steps:
       - name: Docker CLI и compose
         run: apk add --no-cache docker-cli docker-cli-compose curl

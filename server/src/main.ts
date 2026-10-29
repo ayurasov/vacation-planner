@@ -24,7 +24,8 @@ async function bootstrap(): Promise<void> {
     .setVersion((JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { version: string }).version)
     .addBearerAuth()
     .build();
-  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, doc));
+  // validatorUrl: null — Swagger UI не загружает значок проверки с validator.swagger.io (закрытый контур)
+  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, doc), { swaggerOptions: { validatorUrl: null } });
 
   const port = Number(process.env.PORT ?? 8080);
   await app.listen(port, '0.0.0.0');

@@ -46,6 +46,21 @@ export function toPublic(e: {
   };
 }
 
+export type PublicEmployee = ReturnType<typeof toPublic> & { deptName: string | null };
+
+/**
+ * Карточка коллеги для сотрудника без служебной роли (v1.0.0, E50-02): справочные поля для выбора
+ * заместителя, участников группы и графика команды. Логин, почта, нормы дней, табельный номер и
+ * служебные права видны только себе, своему руководителю, кадровой службе и администратору —
+ * баланс по матрице прав закрыт, а список служебных учётных записей упрощал бы подбор цели атаки.
+ */
+export function directoryView(e: PublicEmployee) {
+  return {
+    id: e.id, name: e.name, position: e.position, deptId: e.deptId, deptName: e.deptName, role: e.role,
+    empType: e.empType, managerId: e.managerId, projectId: e.projectId, isActive: e.isActive,
+  };
+}
+
 /**
  * Служебные права выдаёт и снимает только администратор. Кадровая служба не меняет
  * учётные записи администраторов и коллег по кадровой службе: иначе сброс пароля
@@ -72,7 +87,8 @@ export class EmployeesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string; manager?: number }) {
+  /** byNumber — поиск и по табельному номеру (кадровая служба и администратор). */
+  async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string; manager?: number; byNumber?: boolean }) {
     const where = {
       isActive: true,
       ...(params.dept ? { dept: { name: params.dept } } : {}),
@@ -83,7 +99,7 @@ export class EmployeesService {
         OR: [
           { name: { contains: params.search, mode: 'insensitive' as const } },
           { position: { contains: params.search, mode: 'insensitive' as const } },
-          { personnelNumber: params.search.trim() },
+          ...(params.byNumber ? [{ personnelNumber: params.search.trim() }] : []),
         ],
       } : {}),
     };

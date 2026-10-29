@@ -68,10 +68,17 @@ describe('GET /api/v1/auth/me', () => {
 
   it('токен с другим алгоритмом подписи, даже тем же секретом, не принимается', async () => {
     const me = await t.prisma.employee.findUniqueOrThrow({ where: { id: t.employee.id } });
-    const claims = { sub: me.id, login: me.login, isAdmin: me.isAdmin, pwv: me.pwVersion };
+    const live = await login(t, t.employee);
+    const sid = JSON.parse(Buffer.from(live.split('.')[1], 'base64url').toString()).sid as string;
+    const claims = { sub: me.id, login: me.login, isAdmin: me.isAdmin, pwv: me.pwVersion, sid };
     // Контроль: те же утверждения с HS256 принимаются — отказ ниже именно из-за алгоритма
     const hs256 = jwt.sign(claims, process.env.JWT_SECRET!, { algorithm: 'HS256', expiresIn: '5m' });
     expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${hs256}`)).status).toBe(200);
+    // Без сеанса подписи секретом мало (v1.0.0): нужен живой сеанс, а не только секрет
+    const sessionless = jwt.sign({ ...claims, sid: undefined }, process.env.JWT_SECRET!, { algorithm: 'HS256', expiresIn: '5m' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${sessionless}`)).status).toBe(401);
+    const forged = jwt.sign({ ...claims, sid: '00000000-0000-4000-8000-000000000000' }, process.env.JWT_SECRET!, { algorithm: 'HS256', expiresIn: '5m' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${forged}`)).status).toBe(401);
     const hs512 = jwt.sign(claims, process.env.JWT_SECRET!, { algorithm: 'HS512', expiresIn: '5m' });
     expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${hs512}`)).status).toBe(401);
     const unsigned = jwt.sign(claims, null, { algorithm: 'none' });

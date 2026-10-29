@@ -106,6 +106,21 @@ describe('блокировка после неудачных попыток', ()
     expect(audit).not.toBeNull();
   });
 
+  it('неверный старый пароль при смене — 400 и неудачная попытка: перебором с похищенным сеансом не подобрать (v1.0.0)', async () => {
+    const user = await person('Похищенный Сеанс Сеансович', 'stolen.ss', 'Kp4-willow-bright');
+    const { token } = await signIn(user);
+    for (let i = 0; i < 3; i++) {
+      const r = await t.http().post('/api/v1/auth/password').set(auth(token)).send({ oldPassword: `guess-${i}-password`, newPassword: 'Zx7-harbor-quiet' });
+      expect(r.status).toBe(400); // не 401: сеанс действует, клиент не обновляет токен
+      expect(r.body.detail).toBe('Старый пароль неверен');
+    }
+    const locked = await t.http().post('/api/v1/auth/password').set(auth(token)).send({ oldPassword: user.password, newPassword: 'Zx7-harbor-quiet' });
+    expect(locked.status).toBe(423);
+    expect((await t.http().post('/api/v1/auth/login').send({ login: user.login, password: user.password })).status).toBe(423);
+    const journal = await t.http().get(`/api/v1/login-events?login=${user.login}&failed=true`).set(auth(hr));
+    expect(journal.body.items.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('успешный вход обнуляет счётчик: блокируют только неудачи подряд', async () => {
     const user = await person('Рассеянный Иван Ильич', 'absent.ii', 'Wv3-cedar-north');
     for (const pw of ['wrong-pass-1', 'wrong-pass-2', user.password, 'wrong-pass-3', 'wrong-pass-4']) {
@@ -232,5 +247,65 @@ describe('срок хранения журнала входов', () => {
     await old();
     await jobs.tick(new Date()); // за эти сутки уже выполнена — повторно не удаляет
     expect(await t.prisma.loginEvent.count({ where: { login: 'ancient' } })).toBe(1);
+  });
+});
+
+describe('сроки хранения служебных данных (v1.0.0, E51-08)', () => {
+  it('удаляются истёкшие токены и токены завершённых сеансов, старые письма и прочитанные уведомления; документы и живые сеансы остаются', async () => {
+    const user = await person('Хранимов Срок Сроков', 'retention.ss', 'Lm2-meadow-sound');
+    const days = (n: number) => new Date(Date.now() + n * 86_400_000);
+    const token = (data: { sessionId: string; expiresAt: Date; revokedAt?: Date }) =>
+      t.prisma.refreshToken.create({ data: { userId: user.id, tokenHash: `retention-${Math.random()}`, ...data } });
+    const live = '11111111-1111-4111-8111-111111111111';
+    const ended = '22222222-2222-4222-8222-222222222222';
+    const expired = await token({ sessionId: '33333333-3333-4333-8333-333333333333', expiresAt: days(-2) });
+    const rotatedLive = await token({ sessionId: live, expiresAt: days(20), revokedAt: days(-5) }); // признак кражи, если предъявят
+    const current = await token({ sessionId: live, expiresAt: days(29) });
+    const endedOld = await token({ sessionId: ended, expiresAt: days(20), revokedAt: days(-3) });
+
+    const sentOld = await t.prisma.emailOutbox.create({ data: { to: 'a@corp.ru', kind: 'test', subject: 's', body: 'b', status: 'sent', sentAt: days(-100) } });
+    const sentNew = await t.prisma.emailOutbox.create({ data: { to: 'a@corp.ru', kind: 'test', subject: 's', body: 'b', status: 'sent', sentAt: days(-10) } });
+    const pendingOld = await t.prisma.emailOutbox.create({ data: { to: 'a@corp.ru', kind: 'test', subject: 's', body: 'b', createdAt: days(-200) } });
+    const readOld = await t.prisma.notification.create({ data: { employeeId: user.id, kind: 'test', text: 't', isRead: true, createdAt: days(-400) } });
+    const unreadOld = await t.prisma.notification.create({ data: { employeeId: user.id, kind: 'test', text: 't', createdAt: days(-400) } });
+
+    await t.prisma.$executeRaw`DELETE FROM job_runs WHERE name = 'data-retention'`;
+    await t.app.get(JobsService).tick(new Date());
+
+    const ids = async () => (await t.prisma.refreshToken.findMany({ where: { userId: user.id }, select: { id: true } })).map((r) => r.id);
+    expect(await ids()).toEqual(expect.arrayContaining([rotatedLive.id, current.id]));
+    expect(await ids()).not.toEqual(expect.arrayContaining([expired.id]));
+    expect(await ids()).not.toContain(endedOld.id);
+    const mail = (await t.prisma.emailOutbox.findMany({ select: { id: true } })).map((m) => m.id);
+    expect(mail).not.toContain(sentOld.id);
+    expect(mail).toEqual(expect.arrayContaining([sentNew.id, pendingOld.id]));
+    const notes = (await t.prisma.notification.findMany({ where: { employeeId: user.id }, select: { id: true } })).map((n) => n.id);
+    expect(notes).not.toContain(readOld.id);
+    expect(notes).toContain(unreadOld.id);
+  });
+});
+
+describe('заголовки ответов API (v1.0.0, ASVS 8.2.1, 14.3.3)', () => {
+  it('платформа не раскрывается; ответы с данными не кэшируются, график сверяется по ETag', async () => {
+    const me = await t.http().get('/api/v1/auth/me').set(auth(hr));
+    expect(me.headers['x-powered-by']).toBeUndefined();
+    expect(me.headers['cache-control']).toBe('no-store');
+    const schedule = await t.http().get('/api/v1/schedule?from=2027-01-01&to=2027-01-31').set(auth(hr));
+    expect(schedule.headers['cache-control']).toBe('private, no-cache');
+    expect(schedule.headers.etag).toBeTruthy();
+  });
+});
+
+describe('уведомление о смене пароля (v1.0.0, ASVS 2.2.3)', () => {
+  it('сотрудник узнаёт о смене своего пароля и о пароле, выданном кадровой службой', async () => {
+    const user = await person('Уведомляемов Пароль Паролевич', 'notified.pp', 'Qr5-silent-forest');
+    const { token } = await signIn(user);
+    expect((await t.http().post('/api/v1/auth/password').set(auth(token)).send({ oldPassword: user.password, newPassword: 'Vn3-amber-coast' })).status).toBe(204);
+    expect((await t.http().post(`/api/v1/employees/${user.id}/password-reset`).set(auth(hr))).status).toBe(200);
+    const notes = await t.prisma.notification.findMany({ where: { employeeId: user.id, kind: 'password_changed' }, orderBy: { id: 'asc' } });
+    expect(notes.map((n) => n.text)).toEqual([
+      expect.stringMatching(/^Пароль изменён .*Если это были не вы/),
+      expect.stringMatching(/^Кадровая служба выдала вам новый пароль/),
+    ]);
   });
 });

@@ -19,7 +19,7 @@ services:
       - -c
       - log_min_duration_statement=${PG_SLOW_MS:-1000}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -35,7 +35,7 @@ services:
     environment:
       # DB_HOST — адрес БД; при переключении на реплику: DB_HOST=postgres-replica (руководство по развёртыванию)
       DATABASE_URL: postgresql://vacation:vacation@${DB_HOST:-postgres}:5432/vacation
-      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-dev-only-secret-32ch}
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в .env — случайная строка не короче 32 символов}
       PORT: 8080
       NODE_ENV: production
       # Процессы API: auto — по числу ядер контейнера (01-architecture, «Масштабирование»)

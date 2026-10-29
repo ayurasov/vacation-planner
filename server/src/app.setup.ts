@@ -11,6 +11,7 @@ export function configureApp(app: NestExpressApplication): void {
   // Адрес клиента из X-Forwarded-For только от доверенных прокси (nginx стенда и прокси организации
   // в частных сетях). Без этого req.ip — адрес nginx, и лимит входа общий на всех (auth/rate-limit.ts).
   app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
+  app.disable('x-powered-by'); // платформа сервера не раскрывается (ASVS 14.3.3, v1.0.0)
   app.use(requestTracking); // X-Request-Id и журнал медленных и неуспешных запросов (v1.0.0)
   app.use(httpMetrics); // задержки и коды ответов по маршрутам для /metrics
   app.use(cookieParser());
@@ -20,6 +21,9 @@ export function configureApp(app: NestExpressApplication): void {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    // Ответы с персональными данными не сохраняются в кэше браузера и прокси (ASVS 8.2.1, v1.0.0);
+    // график отпусков переопределяет на private, no-cache — сверка по ETag (schedule.controller.ts)
+    res.setHeader('Cache-Control', 'no-store');
     next();
   });
   app.useGlobalPipes(new ValidationPipe({
