@@ -1,0 +1,24 @@
+      таблица       | строк | размер  |   байт   
+--------------------+-------+---------+----------
+ refresh_tokens     | 79556 | 26 MB   | 27500544
+ login_events       | 54339 | 9544 kB |  9773056
+ audit_events       | 50214 | 9136 kB |  9355264
+ request_events     | 50214 | 5096 kB |  5218304
+ vacation_requests  | 35318 | 4696 kB |  4808704
+ vacation_notices   | 23749 | 3664 kB |  3751936
+ employees          |  2000 | 1144 kB |  1171456
+ schedule_approvals |     5 | 512 kB  |   524288
+ login_attempts     |  1430 | 248 kB  |   253952
+ work_patterns      |  1249 | 104 kB  |   106496
+ departments        |    61 | 48 kB   |    49152
+ notifications      |     5 | 48 kB   |    49152
+ calendars          |     7 | 32 kB   |    32768
+ _prisma_migrations |    12 | 32 kB   |    32768
+ org_settings       |     1 | 32 kB   |    32768
+(15 rows)
+
+ база  
+-------
+ 67 MB
+(1 row)
+
