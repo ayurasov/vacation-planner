@@ -1,0 +1,40 @@
+{
+  "open": {
+    "status": 200,
+    "ms": 741,
+    "invited": 2000,
+    "letters": 2000
+  },
+  "mailDrainSec": 45.6,
+  "remind": {
+    "status": 200,
+    "ms": 541,
+    "reminded": null
+  },
+  "t7": {
+    "status": 200,
+    "ms": [
+      3749,
+      3030,
+      3420
+    ],
+    "kb": 217
+  },
+  "vacations": {
+    "status": 200,
+    "ms": [
+      3707,
+      1314,
+      1026
+    ],
+    "kb": 308
+  },
+  "notices": {
+    "count": 400,
+    "sec": 43.5
+  },
+  "approve": {
+    "status": 201,
+    "ms": 3429
+  }
+}
