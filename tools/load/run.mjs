@@ -66,7 +66,7 @@ const STAGES = arg('stages')
   : base.stages ?? [{ users: USERS, sec: Number(arg('duration', base.duration)) }];
 const DURATION = STAGES.reduce((n, s) => n + s.sec, 0) * 1000;
 
-const sse = { open: 0, events: { hello: 0, notifications: 0, data: 0 }, failed: 0 };
+const sse = { open: 0, events: { hello: 0, notifications: 0, data: 0 }, failed: 0, reconnects: 0 };
 const year = new Date().getFullYear();
 const today = new Date().toISOString().slice(0, 10);
 
@@ -144,7 +144,8 @@ async function call(vu, op, path, init = {}, retry = true) {
       },
     });
     status = res.status;
-    if (status === 401 && retry && vu.cookie && !path.startsWith('/auth/')) {
+    // Как web/src/api/client.ts: обновить токен и повторить — кроме входа и самого обновления
+    if (status === 401 && retry && vu.cookie && path !== '/auth/login' && path !== '/auth/refresh') {
       await res.body?.cancel();
       if (await refresh(vu)) return call(vu, op, path, init, false);
     }
@@ -222,21 +223,34 @@ function actionsFor(vu) {
   };
 }
 
-/** Поток событий пользователя до deadline: билет → GET /events, разбор text/event-stream. */
+/** Поток событий до deadline. Как EventSource в браузере: поток, оборванный сервером (перезапуск API,
+ *  отказ БД), переподключается через 5 с (retry: 5000) с новым билетом; вкладку закрывает vu.closed. */
 async function stream(vu, deadline, onNotifications = true) {
+  while (performance.now() < deadline && !vu.closed) {
+    const outcome = await streamOnce(vu, deadline, onNotifications);
+    if (outcome === 'aborted' || vu.closed) return;
+    sse.reconnects++;
+    await sleep(5000);
+  }
+}
+
+/** Одно подключение: билет → GET /events, разбор text/event-stream. Итог — aborted, dropped или failed. */
+async function streamOnce(vu, deadline, onNotifications) {
   const ticket = await call(vu, 'POST /events/ticket', '/events/ticket', { method: 'POST' });
-  if (!ticket.json?.ticket) { sse.failed++; return; }
+  if (!ticket.json?.ticket) { sse.failed++; return 'failed'; }
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), Math.max(0, deadline - performance.now()));
   vu.abort = abort;
   const t0 = performance.now();
   let pendingSchedule = null;
+  let opened = false;
   try {
     const res = await fetch(`${URL_BASE}/api/v1/events?ticket=${encodeURIComponent(ticket.json.ticket)}`, {
       headers: { 'X-Forwarded-For': vu.ip }, signal: abort.signal,
     });
-    if (!res.ok || !res.body) { sse.failed++; return; }
+    if (!res.ok || !res.body) { sse.failed++; return 'failed'; }
     sse.open++;
+    opened = true;
     const decoder = new TextDecoder();
     let buf = '';
     let lastSchedule = 0;
@@ -261,12 +275,15 @@ async function stream(vu, deadline, onNotifications = true) {
         }
       }
     }
+    return 'dropped'; // сервер закрыл поток
   } catch (e) {
-    if (e.name !== 'AbortError') sse.failed++;
+    if (e.name === 'AbortError') return 'aborted';
+    sse.failed++;
+    return 'failed';
   } finally {
     clearTimeout(timer);
     clearTimeout(pendingSchedule); // вкладка закрыта — отложенного перечитывания нет
-    sse.open--;
+    if (opened) sse.open--;
   }
 }
 
@@ -301,6 +318,7 @@ async function activeUser(n, deadline) {
     if (performance.now() >= deadline || n > target) break;
     await next()[2](vu);
   }
+  vu.closed = true;
   vu.abort?.abort();
   await live;
 }
@@ -324,6 +342,7 @@ async function arrival(n) {
     await sleep(jitter());
     await next()[2](vu);
   }
+  vu.closed = true;
   vu.abort?.abort();
   await live;
 }
@@ -386,7 +405,7 @@ async function main() {
     durationSec: Math.round(elapsed), requests: all.length, rps: Math.round(all.length / elapsed),
     errors, errorRate: all.length ? Math.round((errors / all.length) * 10000) / 100 : 0,
     readP95: p95(reads), writeP95: p95(writes),
-    ...(SSE ? { sse: { peakOpen: peak, failed: sse.failed, events: sse.events } } : {}),
+    ...(SSE ? { sse: { peakOpen: peak, failed: sse.failed, reconnects: sse.reconnects, events: sse.events } } : {}),
   };
   const stageRows = STAGES.map((s, i) => {
     const st = stageStats[i] ?? { reads: [], writes: [], errors: 0, count: 0 };
@@ -402,7 +421,7 @@ async function main() {
     for (const s of stageRows) console.log(`| ${s.users} | ${s.requests} | ${s.errors} | ${s.readP95} | ${s.writeP95} |`);
   }
   console.log(`\nИтого: ${summary.requests} запросов за ${summary.durationSec} с (${summary.rps}/с), ошибок ${summary.errors} (${summary.errorRate} %), p95 чтения ${summary.readP95} мс, p95 записи ${summary.writeP95} мс`);
-  if (SSE) console.log(`Поток событий: одновременно открыто до ${peak}, сбоев ${sse.failed}, событий ${JSON.stringify(sse.events)}`);
+  if (SSE) console.log(`Поток событий: одновременно открыто до ${peak}, сбоев ${sse.failed}, переподключений ${sse.reconnects}, событий ${JSON.stringify(sse.events)}`);
   if (OUT) writeFileSync(OUT, JSON.stringify({ summary, rows, stages: stageRows, timeline }, null, 2));
 
   // --slo: требования модели (docs/performance/workday-model.md) — нарушение завершает процесс с кодом 1 (CI)

@@ -50,7 +50,7 @@ export class MailService implements OnApplicationBootstrap, OnApplicationShutdow
     this.running = true;
     try {
       await this.runDigest(new Date());
-      await this.flush();
+      await this.drain();
     } catch (e) {
       this.log.error(`Очередь писем: ${(e as Error).message}`);
     } finally {
@@ -87,6 +87,22 @@ export class MailService implements OnApplicationBootstrap, OnApplicationShutdow
 
   async enqueue(tx: Db, employeeId: number | null, to: string, kind: string, letter: Letter): Promise<void> {
     await tx.emailOutbox.create({ data: { employeeId, to, kind, subject: letter.subject, body: letter.body } });
+  }
+
+  /**
+   * Разбор очереди за проход: пачками, пока есть письма и не вышло время прохода. Одна пачка в 15 секунд
+   * давала 1,3 письма в секунду на процесс — 2000 приглашений кампании уходили бы полчаса (E51-03);
+   * ограничение по времени не даёт проходу задержать сводку и не держит процесс занятым сколь угодно долго.
+   */
+  async drain(budgetMs = 10_000): Promise<{ sent: number; failed: number }> {
+    const t0 = Date.now();
+    const total = { sent: 0, failed: 0 };
+    for (;;) {
+      const r = await this.flush();
+      total.sent += r.sent;
+      total.failed += r.failed;
+      if (r.sent + r.failed < 20 || r.sent === 0 || Date.now() - t0 >= budgetMs) return total;
+    }
   }
 
   /**
