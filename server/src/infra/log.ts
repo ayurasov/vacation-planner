@@ -33,9 +33,15 @@ export function logEvent(level: Level, msg: string, fields: Record<string, unkno
   out.write(`${new Date().toISOString()} ${level.toUpperCase()} ${msg}${extra ? ` ${extra}` : ''}\n`);
 }
 
+// Перечень модулей и маршрутов при старте — сотня строк на каждый процесс, в эксплуатации не нужна
+const STARTUP_NOISE = new Set(['InstanceLoader', 'RoutesResolver', 'RouterExplorer']);
+
 /** Сообщения Nest (старт, плановые задачи, ошибки модулей) — тем же форматом. */
 export class AppLogger implements LoggerService {
-  log(message: unknown, context?: string): void { logEvent('info', String(message), context ? { context } : {}); }
+  log(message: unknown, context?: string): void {
+    if (context && STARTUP_NOISE.has(context)) return;
+    logEvent('info', String(message), context ? { context } : {});
+  }
   warn(message: unknown, context?: string): void { logEvent('warn', String(message), context ? { context } : {}); }
   error(message: unknown, trace?: string, context?: string): void {
     logEvent('error', String(message), { ...(context ? { context } : {}), ...(trace ? { stack: trace } : {}) });

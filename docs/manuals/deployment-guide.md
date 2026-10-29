@@ -76,6 +76,11 @@ docker compose exec server npm run db:seed:prod
 | `METRICS_TOKEN` | `server` | Если задан, `/metrics` требует `Authorization: Bearer <токен>` | — |
 | `EVENTS_POLL_MS` | `server` | Как часто процесс проверяет новые события для потока SSE, мс | 2000 |
 | `JOBS_POLL_SECONDS` | `server` | Как часто каждый процесс проходит плановые задачи: извещения о начале отпуска, эскалацию заявок, напоминания о планировании, очистку журнала входов; `0` — выключено (только для тестов) | 60 |
+| `LOG_FORMAT` | `server` | `json` — журнал строками JSON для сборщика журналов организации (Loki, ELK, Vector); иначе — текст | `json` в compose, текст вне его |
+| `REQUEST_LOG` | `server` | Журнал запросов API: `slow` — медленные и ответы 5xx, `all` — каждый запрос (для разбора инцидента), `off` | `slow` |
+| `SLOW_REQUEST_MS` | `server` | Порог медленного запроса API, мс | 1000 |
+| `SLOW_QUERY_MS` | `server` | Порог медленного запроса к БД, мс: запрос пишется в журнал с кодом запроса API, без параметров; `0` — выключено | 0 |
+| `PG_SLOW_MS` | `postgres` | Порог журнала медленных запросов PostgreSQL (`log_min_duration_statement`), мс; `-1` — выключено | 1000 |
 | `REPLICATION_PASSWORD` | реплика | Пароль роли `replicator`; обязателен для `docker-compose.replica.yml` | — |
 | `BASEBACKUP_INTERVAL`, `BASEBACKUP_KEEP` | `basebackup` | Интервал физических копий, секунд; сколько копий хранить | 86400, 7 |
 | `TRUST_PROXY` | `server` | Каким прокси доверять при определении адреса клиента (влияет на ограничение частоты входа) | `loopback, linklocal, uniquelocal` |
@@ -252,13 +257,15 @@ VALUES ('admin', '<хеш из предыдущей команды>', 'Адми�
 
 ```bash
 cd server
-DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load npx prisma migrate deploy
-DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load npm run db:seed:load   # 5000 сотрудников
+export DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load
+npx prisma migrate deploy
+npm run db:seed:load -- --employees 2000 --history 5    # численность вашей организации
 # сервер на этой БД, затем:
-node ../tools/load/run.mjs --url http://<сервер>:8080 --users 500 --ramp 60 --duration 900
+node ../tools/load/run.mjs --url http://<сервер>:8080 --profile average --population 2000
+node ../tools/load/run.mjs --url http://<сервер>:8080 --profile spike --population 2000
 ```
 
-Скрипт наполнения откажется работать с БД, в имени которой нет `load`. Генератор печатает таблицу p50/p95/p99 по операциям; цели — p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок.
+Скрипт наполнения откажется работать с БД, в имени которой нет `load`. Профиль `average` — час пик последнего дня кампании планирования, `spike` — вход всей организации за 15 минут; модель и остальные профили — `docs/performance/workday-model.md`, порядок прогона и сбора доказательств — `docs/performance/runbook.md`. Генератор печатает таблицу p50/p95/p99 по операциям; цели — p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок.
 
 # Мониторинг
 
@@ -284,12 +291,14 @@ docker compose --profile full --profile monitoring up -d     # Prometheus на 1
 | Оповещение | Важность | Действие |
 |---|---|---|
 | `VacationApiDown`, `VacationDatabaseDown` | критично | Проверьте контейнеры `server`, `postgres`, место на диске |
-| `VacationServerErrors` | предупреждение | Журнал `server`: «Необработанная ошибка» |
+| `VacationServerErrors` | предупреждение | Журнал `server`: строки `"msg":"unhandled error"` со стеком и кодом запроса |
 | `VacationReadLatencyHigh`, `VacationWriteLatencyHigh` | предупреждение | Панель «Задержка p95 по маршрутам»; задержка цикла событий и соединения БД |
 | `VacationDatabaseOverloaded`, `VacationConnectionsNearLimit` | предупреждение | Увеличьте `max_connections` или уменьшите `DB_POOL_SIZE`, проверьте долгие запросы в `pg_stat_activity` |
 | `VacationReplicaDisconnected`, `VacationReplicaLagging` | предупреждение | Раздел «Реплика и архив WAL» |
 | `VacationWalArchiveFailing` | критично | Место на томе `wal-archive`, журнал `postgres` («archive command failed») |
 | `VacationMailStuck`, `VacationMailFailed`, `VacationDigestNotRun` | предупреждение | Раздел «Почта» |
+
+Разбор замедлений и ошибок по шагам «симптом → метрика → причина → действие», поиск по коду запроса из сообщения пользователя, самые затратные запросы БД, профиль процессора и снимок памяти — `docs/runbooks/diagnostics.md`.
 
 # Реплика и архив WAL
 

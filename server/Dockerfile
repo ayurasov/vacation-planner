@@ -23,4 +23,6 @@ COPY --from=build /app/prisma ./prisma
 EXPOSE 8080
 # Миграции применяются при старте. prisma — рабочая зависимость: npx не обращается в интернет,
 # стенд поднимается в закрытом контуре. Демо-данные: docker compose exec server npm run db:seed:prod
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# exec: node заменяет оболочку и получает SIGTERM от docker compose stop — запросы и потоки событий
+# завершаются штатно, а не обрываются через 10 секунд по SIGKILL (E51-07)
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/main.js"]
