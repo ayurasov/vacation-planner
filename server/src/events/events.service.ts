@@ -76,6 +76,7 @@ export class EventsService implements OnApplicationShutdown {
   }
 
   private send(res: Response, event: string, data: unknown): void {
+    if (res.writableEnded) return; // поток закрыт (отзыв), пока готовился hello
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
@@ -136,11 +137,17 @@ export class EventsService implements OnApplicationShutdown {
     }
   }
 
-  /** Потоки сотрудников, чей сеанс отозван (пароль, увольнение, завершённый сеанс): revoked и закрытие. */
+  /**
+   * Потоки сотрудников, чей сеанс отозван (пароль, увольнение, завершённый сеанс): revoked и закрытие.
+   * Проверяются только потоки из снимка до запросов к БД: до v1.0.0 после запросов перебирались
+   * текущие потоки, и подключившийся за это время (его сеанса не было в запросе) получал ложный
+   * revoked — клиент выводил сотрудника на экран входа (прогоны spike и stress, 1 и 199 потоков).
+   */
   private async closeRevoked(): Promise<void> {
-    const ids = [...this.clients.keys()];
-    if (!ids.length) return;
-    const sids = [...new Set(ids.flatMap((id) => [...(this.clients.get(id) ?? [])].map((r) => this.auth.get(r)?.sid).filter((s): s is string => !!s)))];
+    const streams = [...this.clients].flatMap(([id, set]) => [...set].map((res) => ({ id, res, auth: this.auth.get(res) })));
+    if (!streams.length) return;
+    const ids = [...new Set(streams.map((s) => s.id))];
+    const sids = [...new Set(streams.map((s) => s.auth?.sid).filter((s): s is string => !!s))];
     const [rows, alive] = await Promise.all([
       this.prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, isActive: true, pwVersion: true } }),
       sids.length
@@ -149,15 +156,13 @@ export class EventsService implements OnApplicationShutdown {
     ]);
     const state = new Map(rows.map((r) => [r.id, r]));
     const aliveSids = new Set(alive.map((r) => r.sessionId));
-    for (const id of ids) {
+    for (const { id, res, auth } of streams) {
+      if (!this.clients.get(id)?.has(res)) continue; // закрыт, пока шли запросы
       const e = state.get(id);
-      for (const res of [...(this.clients.get(id) ?? [])]) {
-        const a = this.auth.get(res);
-        if (e?.isActive && e.pwVersion === a?.pwv && (!a.sid || aliveSids.has(a.sid))) continue;
-        this.send(res, 'revoked', {});
-        res.end();
-        this.drop(id, res);
-      }
+      if (e?.isActive && e.pwVersion === auth?.pwv && (!auth.sid || aliveSids.has(auth.sid))) continue;
+      this.send(res, 'revoked', {});
+      res.end();
+      this.drop(id, res);
     }
   }
 
