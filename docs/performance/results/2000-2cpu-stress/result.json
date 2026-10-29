@@ -1,0 +1,564 @@
+{
+  "summary": {
+    "complete": true,
+    "profile": "stress",
+    "population": 2000,
+    "users": [
+      115,
+      230,
+      460,
+      920,
+      1840
+    ],
+    "idle": 600,
+    "arrivals": 0,
+    "durationSec": 1572,
+    "requests": 213572,
+    "rps": 136,
+    "errors": 9,
+    "errorRate": 0,
+    "readP95": 5072,
+    "writeP95": 7855,
+    "sse": {
+      "peakOpen": 2440,
+      "failed": 0,
+      "reconnects": 0,
+      "events": {
+        "hello": 2440,
+        "notifications": 5068,
+        "data": 117870
+      }
+    }
+  },
+  "rows": [
+    {
+      "op": "GET /schedule (отдел)",
+      "count": 42341,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 33,
+      "p95": 4257,
+      "p99": 6504,
+      "max": 38431
+    },
+    {
+      "op": "GET /notices/mine",
+      "count": 27040,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 39,
+      "p95": 4450,
+      "p99": 15064,
+      "max": 39109
+    },
+    {
+      "op": "GET /balance",
+      "count": 27040,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 47,
+      "p95": 5346,
+      "p99": 7737,
+      "max": 39976
+    },
+    {
+      "op": "GET /planning/mine",
+      "count": 27040,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 48,
+      "p95": 5499,
+      "p99": 18649,
+      "max": 40169
+    },
+    {
+      "op": "GET /vacation-requests (мои)",
+      "count": 27040,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 50,
+      "p95": 4410,
+      "p99": 13011,
+      "max": 39374
+    },
+    {
+      "op": "GET /analytics/team",
+      "count": 10743,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 60,
+      "p95": 5362,
+      "p99": 7328,
+      "max": 40207
+    },
+    {
+      "op": "POST /vacation-requests",
+      "count": 8237,
+      "errors": 8,
+      "rejected": 1300,
+      "codes": {
+        "503": 8
+      },
+      "p50": 150,
+      "p95": 8649,
+      "p99": 11594,
+      "max": 44704
+    },
+    {
+      "op": "DELETE /vacation-requests/:id",
+      "count": 6929,
+      "errors": 1,
+      "rejected": 0,
+      "codes": {
+        "503": 1
+      },
+      "p50": 68,
+      "p95": 5420,
+      "p99": 7402,
+      "max": 38980
+    },
+    {
+      "op": "GET /analytics/overview",
+      "count": 5419,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 59,
+      "p95": 4344,
+      "p99": 6229,
+      "max": 38940
+    },
+    {
+      "op": "GET /analytics/suggestions",
+      "count": 5406,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 70,
+      "p95": 8010,
+      "p99": 10742,
+      "max": 44157
+    },
+    {
+      "op": "GET /vacation-requests (бейдж)",
+      "count": 4961,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 2686,
+      "p95": 6818,
+      "p99": 8622,
+      "max": 41432
+    },
+    {
+      "op": "GET /schedule (организация)",
+      "count": 4012,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 112,
+      "p95": 4433,
+      "p99": 6692,
+      "max": 38524
+    },
+    {
+      "op": "GET /auth/sessions",
+      "count": 2714,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 27,
+      "p95": 3221,
+      "p99": 4505,
+      "max": 35964
+    },
+    {
+      "op": "GET /notifications",
+      "count": 2699,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 32,
+      "p95": 3102,
+      "p99": 5459,
+      "max": 37036
+    },
+    {
+      "op": "POST /auth/login",
+      "count": 2440,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 116,
+      "p95": 17403,
+      "p99": 47176,
+      "max": 55301
+    },
+    {
+      "op": "GET /employees/:id",
+      "count": 2440,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 11,
+      "p95": 6197,
+      "p99": 36177,
+      "max": 39250
+    },
+    {
+      "op": "POST /events/ticket",
+      "count": 2440,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 4,
+      "p95": 1367,
+      "p99": 6073,
+      "max": 36442
+    },
+    {
+      "op": "SSE: подключение до hello",
+      "count": 2440,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 11,
+      "p95": 5208,
+      "p99": 32285,
+      "max": 38248
+    },
+    {
+      "op": "GET /vacation-requests (очередь)",
+      "count": 1589,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 57,
+      "p95": 6632,
+      "p99": 8118,
+      "max": 38054
+    },
+    {
+      "op": "POST /auth/refresh",
+      "count": 488,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 19,
+      "p95": 2147,
+      "p99": 24861,
+      "max": 36559
+    },
+    {
+      "op": "POST /vacation-requests/:id/approve",
+      "count": 69,
+      "errors": 0,
+      "rejected": 10,
+      "codes": {},
+      "p50": 171,
+      "p95": 11508,
+      "p99": 14715,
+      "max": 14715
+    },
+    {
+      "op": "GET /planning/:year",
+      "count": 19,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 116,
+      "p95": 4136,
+      "p99": 4136,
+      "max": 4136
+    },
+    {
+      "op": "GET /notices",
+      "count": 11,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 14,
+      "p95": 3503,
+      "p99": 3503,
+      "max": 3503
+    },
+    {
+      "op": "GET /employees (поиск)",
+      "count": 7,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 40,
+      "p95": 192,
+      "p99": 192,
+      "max": 192
+    },
+    {
+      "op": "GET /reports/vacations",
+      "count": 3,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 893,
+      "p95": 1318,
+      "p99": 1318,
+      "max": 1318
+    },
+    {
+      "op": "GET /reports/t7",
+      "count": 3,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 2160,
+      "p95": 10915,
+      "p99": 10915,
+      "max": 10915
+    },
+    {
+      "op": "GET /login-events",
+      "count": 2,
+      "errors": 0,
+      "rejected": 0,
+      "codes": {},
+      "p50": 14,
+      "p95": 14,
+      "p99": 14,
+      "max": 14
+    }
+  ],
+  "stages": [
+    {
+      "users": 115,
+      "requests": 12778,
+      "errors": 0,
+      "readP95": 24,
+      "writeP95": 43
+    },
+    {
+      "users": 230,
+      "requests": 17021,
+      "errors": 0,
+      "readP95": 27,
+      "writeP95": 46
+    },
+    {
+      "users": 460,
+      "requests": 33257,
+      "errors": 0,
+      "readP95": 40,
+      "writeP95": 67
+    },
+    {
+      "users": 920,
+      "requests": 65289,
+      "errors": 0,
+      "readP95": 166,
+      "writeP95": 427
+    },
+    {
+      "users": 1840,
+      "requests": 85227,
+      "errors": 9,
+      "readP95": 6517,
+      "writeP95": 9434
+    }
+  ],
+  "timeline": [
+    {
+      "at": 0,
+      "requests": 3557,
+      "errors": 0,
+      "readP95": 29,
+      "writeP95": 63
+    },
+    {
+      "at": 60,
+      "requests": 1924,
+      "errors": 0,
+      "readP95": 24,
+      "writeP95": 45
+    },
+    {
+      "at": 120,
+      "requests": 1843,
+      "errors": 0,
+      "readP95": 24,
+      "writeP95": 42
+    },
+    {
+      "at": 180,
+      "requests": 1914,
+      "errors": 0,
+      "readP95": 21,
+      "writeP95": 35
+    },
+    {
+      "at": 240,
+      "requests": 1792,
+      "errors": 0,
+      "readP95": 23,
+      "writeP95": 39
+    },
+    {
+      "at": 300,
+      "requests": 1748,
+      "errors": 0,
+      "readP95": 22,
+      "writeP95": 39
+    },
+    {
+      "at": 360,
+      "requests": 3113,
+      "errors": 0,
+      "readP95": 25,
+      "writeP95": 45
+    },
+    {
+      "at": 420,
+      "requests": 3423,
+      "errors": 0,
+      "readP95": 27,
+      "writeP95": 46
+    },
+    {
+      "at": 480,
+      "requests": 3559,
+      "errors": 0,
+      "readP95": 28,
+      "writeP95": 51
+    },
+    {
+      "at": 540,
+      "requests": 3401,
+      "errors": 0,
+      "readP95": 26,
+      "writeP95": 44
+    },
+    {
+      "at": 600,
+      "requests": 3525,
+      "errors": 0,
+      "readP95": 26,
+      "writeP95": 46
+    },
+    {
+      "at": 660,
+      "requests": 5888,
+      "errors": 0,
+      "readP95": 37,
+      "writeP95": 63
+    },
+    {
+      "at": 720,
+      "requests": 6694,
+      "errors": 0,
+      "readP95": 42,
+      "writeP95": 74
+    },
+    {
+      "at": 780,
+      "requests": 6937,
+      "errors": 0,
+      "readP95": 38,
+      "writeP95": 64
+    },
+    {
+      "at": 840,
+      "requests": 6773,
+      "errors": 0,
+      "readP95": 42,
+      "writeP95": 66
+    },
+    {
+      "at": 900,
+      "requests": 6957,
+      "errors": 0,
+      "readP95": 40,
+      "writeP95": 68
+    },
+    {
+      "at": 960,
+      "requests": 11790,
+      "errors": 0,
+      "readP95": 114,
+      "writeP95": 293
+    },
+    {
+      "at": 1020,
+      "requests": 13602,
+      "errors": 0,
+      "readP95": 103,
+      "writeP95": 252
+    },
+    {
+      "at": 1080,
+      "requests": 13347,
+      "errors": 0,
+      "readP95": 115,
+      "writeP95": 269
+    },
+    {
+      "at": 1140,
+      "requests": 13361,
+      "errors": 0,
+      "readP95": 122,
+      "writeP95": 267
+    },
+    {
+      "at": 1200,
+      "requests": 13188,
+      "errors": 0,
+      "readP95": 481,
+      "writeP95": 1124
+    },
+    {
+      "at": 1260,
+      "requests": 11814,
+      "errors": 0,
+      "readP95": 15787,
+      "writeP95": 7778
+    },
+    {
+      "at": 1320,
+      "requests": 16797,
+      "errors": 5,
+      "readP95": 27169,
+      "writeP95": 31845
+    },
+    {
+      "at": 1380,
+      "requests": 18525,
+      "errors": 0,
+      "readP95": 5347,
+      "writeP95": 8416
+    },
+    {
+      "at": 1440,
+      "requests": 18280,
+      "errors": 4,
+      "readP95": 5692,
+      "writeP95": 9025
+    },
+    {
+      "at": 1500,
+      "requests": 18915,
+      "errors": 0,
+      "readP95": 5401,
+      "writeP95": 8130
+    },
+    {
+      "at": 1560,
+      "requests": 905,
+      "errors": 0,
+      "readP95": 4314,
+      "writeP95": 6150
+    }
+  ]
+}
