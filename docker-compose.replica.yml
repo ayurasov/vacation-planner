@@ -14,7 +14,9 @@ x-wal-archive: &wal-archive
   - -c
   - archive_mode=on
   - -c
-  - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+  # Копия — через временный файл; сегмент, уже лежащий в архиве с тем же содержимым (сбой между копированием
+  # и отметкой), — не ошибка, иной — ошибка: архив не перезаписывается
+  - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f.tmp && mv /wal-archive/%f.tmp /wal-archive/%f || cmp -s %p /wal-archive/%f
   - -c
   - archive_timeout=300
   - -c
@@ -36,9 +38,10 @@ services:
   # на резерве архивирование не работает и включается само после повышения до основного.
   postgres-replica:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: vacation
-      POSTGRES_PASSWORD: vacation
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vacation}
       PRIMARY_HOST: postgres
       SLOT: replica1
       REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?задайте REPLICATION_PASSWORD в .env}
@@ -61,6 +64,7 @@ services:
   # Физические копии для восстановления на момент времени: раз в сутки, хранятся 7
   basebackup:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       PGHOST: ${DB_HOST:-postgres}
       PGUSER: replicator

@@ -27,7 +27,7 @@
 ```bash
 git clone <адрес репозитория> vacation-planner
 cd vacation-planner
-git checkout v0.6.0
+git checkout v1.0.0
 ```
 
 2. Создайте файл `.env` рядом с `docker-compose.yml`:
@@ -70,12 +70,14 @@ docker compose exec server npm run db:seed:prod
 |---|---|---|---|
 | `JWT_SECRET` | `server` | Секрет подписи access-токенов; не короче 32 символов, иначе сервер не стартует | — |
 | `DATABASE_URL` | `server` | Строка подключения PostgreSQL; параметр `connection_limit` задаёт размер пула на процесс | из compose |
+| `POSTGRES_PASSWORD` | `postgres`, `server`, `backup`, реплика | Пароль учётной записи `vacation` PostgreSQL (буквы и цифры — он входит в адрес подключения). Задаётся до первого запуска; на работающей БД — сначала `ALTER USER vacation PASSWORD '…'`, затем `.env` и перезапуск `server` и `backup` | `vacation` |
+| `VP_VERSION` | `server`, `web` | Версия образов `vacation-planner-server` и `vacation-planner-web` — при установке из дистрибутива (`docker load`) | `local` |
 | `DB_HOST` | `server`, `backup`, `basebackup` | Узел БД в compose; при переключении на реплику — `postgres-replica` | `postgres` |
 | `WEB_CONCURRENCY` | `server` | Число процессов API: число или `auto` — по числу ядер | `auto` в compose |
 | `DB_POOL_SIZE` | `server` | Соединений с БД на процесс, если `connection_limit` не задан в `DATABASE_URL` | min(10, 40 / процессов), не меньше 3 |
 | `METRICS_TOKEN` | `server` | Если задан, `/metrics` требует `Authorization: Bearer <токен>` | — |
 | `EVENTS_POLL_MS` | `server` | Как часто процесс проверяет новые события для потока SSE, мс | 2000 |
-| `JOBS_POLL_SECONDS` | `server` | Как часто каждый процесс проходит плановые задачи: извещения о начале отпуска, эскалацию заявок, напоминания о планировании, очистку журнала входов; `0` — выключено (только для тестов) | 60 |
+| `JOBS_POLL_SECONDS` | `server` | Как часто каждый процесс проходит плановые задачи: извещения о начале отпуска, эскалацию заявок, напоминания о планировании, очистку журнала входов, сроки хранения служебных данных (раздел «Обслуживание»); `0` — выключено (только для тестов) | 60 |
 | `LOG_FORMAT` | `server` | `json` — журнал строками JSON для сборщика журналов организации (Loki, ELK, Vector); иначе — текст | `json` в compose, текст вне его |
 | `REQUEST_LOG` | `server` | Журнал запросов API: `slow` — медленные и ответы 5xx, `all` — каждый запрос (для разбора инцидента), `off` | `slow` |
 | `SLOW_REQUEST_MS` | `server` | Порог медленного запроса API, мс | 1000 |
@@ -163,8 +165,8 @@ curl -s -X POST "https://otpusk.company.ru/api/v1/imports/employees?dryRun=false
 ```bash
 docker compose --profile full ps                                   # все сервисы running/healthy
 curl -s http://localhost/api/v1/employees -o /dev/null -w '%{http_code}\n'   # 401 — API за nginx отвечает
-docker compose exec server wget -qO- http://localhost:8080/readyz  # {"ok":true} — БД доступна
-docker compose exec server wget -qO- http://localhost:8080/metrics | grep -E '^vp_(db_up|process_count)'   # vp_db_up 1, число процессов
+docker compose exec server wget -qO- http://localhost:8080/readyz  # {"ok":true,"db":"up"} — БД доступна
+docker compose exec server sh -c 'wget -qO- --header "Authorization: Bearer $METRICS_TOKEN" http://localhost:8080/metrics' | grep -E '^vp_(db_up|process_count)'   # vp_db_up 1, число процессов
 docker compose logs backup --tail 5                                # backup: /backups/vacation-….dump
 ```
 
@@ -218,7 +220,7 @@ docker compose --profile full start server web
 ```bash
 docker compose exec postgres createdb -U vacation restore_check
 docker compose exec backup sh -c 'pg_restore -d restore_check $(ls -t /backups/*.dump | head -1)'
-docker compose exec postgres psql -U vacation -d restore_check -c 'select count(*) from employees; select count(*) from vacation_requests;'
+docker compose exec postgres psql -U vacation -d restore_check -c 'select count(*) from employees' -c 'select count(*) from vacation_requests'
 docker compose exec postgres dropdb -U vacation restore_check
 ```
 
@@ -294,11 +296,13 @@ docker compose --profile full --profile monitoring up -d     # Prometheus на 1
 | `VacationServerErrors` | предупреждение | Журнал `server`: строки `"msg":"unhandled error"` со стеком и кодом запроса |
 | `VacationReadLatencyHigh`, `VacationWriteLatencyHigh` | предупреждение | Панель «Задержка p95 по маршрутам»; задержка цикла событий и соединения БД |
 | `VacationDatabaseOverloaded`, `VacationConnectionsNearLimit` | предупреждение | Увеличьте `max_connections` или уменьшите `DB_POOL_SIZE`, проверьте долгие запросы в `pg_stat_activity` |
+| `VacationIdleInTransaction` | предупреждение | Зависшая транзакция: `pg_stat_activity` покажет запрос и время начала; `docs/runbooks/alerts.md` |
+| `VacationEventLoopLag` | предупреждение | Процессам API не хватает ядер или идёт долгая синхронная операция: профиль процессора — `docs/runbooks/diagnostics.md` |
 | `VacationReplicaDisconnected`, `VacationReplicaLagging` | предупреждение | Раздел «Реплика и архив WAL» |
 | `VacationWalArchiveFailing` | критично | Место на томе `wal-archive`, журнал `postgres` («archive command failed») |
 | `VacationMailStuck`, `VacationMailFailed`, `VacationDigestNotRun` | предупреждение | Раздел «Почта» |
 
-Разбор замедлений и ошибок по шагам «симптом → метрика → причина → действие», поиск по коду запроса из сообщения пользователя, самые затратные запросы БД, профиль процессора и снимок памяти — `docs/runbooks/diagnostics.md`.
+Пошаговые действия по каждому оповещению — `docs/runbooks/alerts.md`; обновление, резервное копирование, переключение на реплику и разбор инцидента — регламенты `docs/runbooks/`. Разбор замедлений и ошибок по шагам «симптом → метрика → причина → действие», поиск по коду запроса из сообщения пользователя, самые затратные запросы БД, профиль процессора и снимок памяти — `docs/runbooks/diagnostics.md`.
 
 # Реплика и архив WAL
 
