@@ -1,5 +1,6 @@
 // Снимки экрана для руководств (docs/images/ui-*.png) с работающего стенда.
 //   node screenshots.mjs [baseURL]   — по умолчанию http://127.0.0.1:4173 (vite preview + API с демо-данными)
+// API стенда — с JOBS_POLL_SECONDS=3: снимок извещения ждёт плановую задачу.
 // Вход — демо-администратор (README). Снимки делаются в светлой теме, отдельные — в тёмной и на телефоне.
 import { chromium } from 'playwright'
 import { join, resolve } from 'node:path'
@@ -101,8 +102,62 @@ await shot(page, 'calendar-edit')
 await page.getByRole('button', { name: 'Отмена' }).click()
 await go(page, '/settings')
 await shot(page, 'settings')
+await page.locator('[aria-labelledby="sessions-title"]').screenshot({ path: join(out, 'ui-settings-sessions.png') })
+console.log('  ui-settings-sessions.png')
 await go(page, '/audit')
 await shot(page, 'audit')
+await page.getByRole('button', { name: 'Входы' }).click()
+await page.waitForLoadState('networkidle')
+await page.waitForTimeout(500)
+await shot(page, 'audit-logins')
+
+// ── Кадровый учёт (v0.6.0): кампания следующего года открывается, если график ещё не утверждён
+const api = page.request
+const token = (await (await api.post(`${base}/api/v1/auth/login`, { data: LOGIN })).json()).accessToken
+const headers = { Authorization: `Bearer ${token}` }
+const year = new Date().getFullYear() + 1
+const iso = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
+await api.post(`${base}/api/v1/planning/${year}/open`, { headers, data: { deadline: iso(25) } })
+await go(page, '/hr')
+await page.getByRole('button', { name: String(year), exact: true }).click()
+await page.waitForTimeout(600)
+await page.locator('.link-btn').nth(2).click()
+await page.waitForTimeout(600)
+await shot(page, 'hr-planning')
+await go(page, '/hr?tab=notices')
+await shot(page, 'hr-notices')
+
+// ── Первый вход нового сотрудника, извещение и приглашение в «Моём отпуске»
+const newbie = { login: `docs.shot${Date.now() % 10000}`, password: 'Ym3-copper-dawn', fresh: 'Vb5-silent-harbor' }
+const created = await (await api.post(`${base}/api/v1/employees`, { headers, data: { name: 'Новикова Ольга Сергеевна', login: newbie.login, password: newbie.password, position: 'Экономист' } })).json()
+await api.post(`${base}/api/v1/vacation-requests`, { headers, data: { employee: created.employee.id, start: iso(9), end: iso(15) } })
+const first = await session({ colorScheme: 'light' })
+await first.fill('#login', newbie.login)
+await first.fill('#password', newbie.password)
+await first.keyboard.press('Enter')
+await first.waitForURL(/change-password/)
+await first.waitForTimeout(500)
+await shot(first, 'change-password')
+await first.getByLabel('Пароль от кадровой службы').fill(newbie.password)
+await first.getByLabel('Новый пароль', { exact: true }).fill(newbie.fresh)
+await first.getByLabel('Повторите новый пароль').fill(newbie.fresh)
+await first.getByRole('button', { name: 'Сохранить пароль' }).click()
+await first.waitForURL(/login/)
+await first.fill('#login', newbie.login)
+await first.fill('#password', newbie.fresh)
+await first.keyboard.press('Enter')
+await first.waitForSelector('.g-row', { timeout: 15000 })
+// Извещение отправляет плановая задача сервера (стенд документации — JOBS_POLL_SECONDS=3)
+for (let i = 0; i < 20; i++) {
+  await go(first, '/my')
+  if (await first.locator('.notice-card').count()) break
+  await first.waitForTimeout(1000)
+}
+await shot(first, 'my-notice')
+await first.locator('.planning-card').screenshot({ path: join(out, 'ui-my-planning.png') })
+console.log('  ui-my-planning.png')
+await first.close()
+await api.delete(`${base}/api/v1/employees/${created.employee.id}`, { headers })
 await page.close()
 
 // ── Тёмная тема

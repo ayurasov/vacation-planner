@@ -5,27 +5,30 @@
  <div class="cells c4">
   <div class="box gray"><b>Прокси и заголовки</b>trust proxy частных сетей → адрес клиента; nosniff, X-Frame-Options, Referrer-Policy</div>
   <div class="box red"><b>Ограничение частоты</b><code>LoginRateLimitGuard</code>: 10/мин на «адрес + логин», 60/мин на адрес → 429 + Retry-After</div>
-  <div class="box red"><b>Аутентификация</b>глобальный <code>JwtAuthGuard</code>: Bearer JWT 15 мин, сверка <code>pw_version</code>; <code>@Public()</code> — исключения</div>
+  <div class="box red"><b>Аутентификация</b>глобальный <code>JwtAuthGuard</code>: Bearer JWT 15 мин; одним запросом — <code>pw_version</code>, активность, живость сеанса <code>sid</code>, одноразовый пароль; <code>@Public()</code> — исключения</div>
   <div class="box red"><b>Роли</b>глобальный <code>RolesGuard</code>, <code>@Roles('admin')</code>; права на объект — в сервисах</div>
  </div></div>
 <div class="down">▼</div>
 <div class="layer"><div class="lname">API v1<small>12 контроллеров, 47 операций REST/JSON; DTO + ValidationPipe</small></div>
  <div class="cells c5">
-  <div class="box blue"><b>Доступ</b><code>auth</code> <code>employees</code></div>
+  <div class="box blue"><b>Доступ</b><code>auth</code> <code>sessions</code> <code>login-events</code> <code>employees</code></div>
   <div class="box blue"><b>Отпуска</b><code>vacation-requests</code> <code>schedule</code> <code>calendar</code></div>
   <div class="box blue"><b>Структура</b><code>departments</code> <code>projects</code> <code>groups</code></div>
   <div class="box blue"><b>Аналитика</b><code>analytics/overview</code> <code>team</code> <code>suggestions</code></div>
+  <div class="box blue"><b>Кадровый учёт</b><code>planning</code> <code>notices</code> <code>delegations</code> <code>reports/t7</code></div>
   <div class="box blue"><b>Сервис</b><code>notifications</code> <code>settings</code> <code>audit-events</code> <code>reports</code> <code>healthz</code></div>
  </div></div>
 <div class="down">▼</div>
 <div class="layer"><div class="lname">Прикладные сервисы<small>src/&lt;домен&gt;/*.service.ts</small></div>
  <div class="cells c3">
-  <div class="box violet"><b>Сессии</b><code>AuthService</code>, <code>TokenService</code>: scrypt, ротация refresh, отзыв при смене пароля</div>
+  <div class="box violet"><b>Сессии</b><code>AuthService</code>, <code>TokenService</code>: scrypt, сеансы, атомарная ротация, блокировка, политика паролей, журнал входов</div>
   <div class="box violet"><b>Жизненный цикл заявки</b><code>RequestsService</code>: автомат состояний, пересечения, лимиты, перенос и удаление</div>
   <div class="box violet"><b>Сотрудники</b><code>EmployeesService</code>: логины, одноразовые пароли, балансы, режимы работы</div>
   <div class="box violet"><b>Аудит</b><code>AuditService</code>: append-only <code>audit_events</code> в той же транзакции</div>
   <div class="box violet"><b>Аналитика</b><code>AnalyticsService</code>: нагрузка отделов, конфликты, выводы, подбор дат</div>
   <div class="box violet"><b>Уведомления и отчёты</b><code>NotificationsService</code>; выгрузка XLSX (exceljs) с проверкой прав</div>
+  <div class="box violet"><b>Кадровый цикл</b><code>PlanningService</code>: кампания, снимок графика, Т-7; <code>NoticesService</code>; замещение и эскалация</div>
+  <div class="box violet"><b>Плановые задачи</b><code>JobsService</code>: каждый процесс раз в минуту, идемпотентность в БД</div>
  </div></div>
 <div class="down">▼</div>
 <div class="layer"><div class="lname">Домен<small>чистые функции без БД и фреймворка</small></div>
@@ -38,14 +41,14 @@
 <div class="layer"><div class="lname">Данные<small>src/infra, prisma/</small></div>
  <div class="cells c3">
   <div class="box green"><b>PrismaService</b>пул соединений, <code>$transaction</code> для изменений с аудитом</div>
-  <div class="box green"><b>Prisma 6</b>14 таблиц, миграции SQL с ревью, идемпотентный seed</div>
+  <div class="box green"><b>Prisma 6</b>24 таблицы, миграции SQL с ревью и проверкой обновления на данных, идемпотентный seed</div>
   <div class="box green"><b>PostgreSQL 17</b>ограничения целостности, индексы по сотруднику, статусу и датам</div>
  </div></div>
 </div>
 <div style="display:flex;flex-direction:column;gap:10px">
  <div class="box gray" style="flex:1"><b>Ошибки RFC 9457</b><code>ProblemFilter</code>: только коды каталога документа 2, <code>application/problem+json</code></div>
  <div class="box gray" style="flex:1"><b>Контракт</b><code>contracts/openapi-vacation-api-v1.yaml</code> — источник истины; Swagger реализации на <code>/api/docs</code></div>
- <div class="box gray" style="flex:1"><b>Конфигурация</b>переменные окружения: <code>DATABASE_URL</code>, <code>JWT_SECRET</code> ≥ 32 символов, <code>PORT</code></div>
+ <div class="box gray" style="flex:1"><b>Конфигурация</b>переменные окружения: <code>DATABASE_URL</code>, <code>JWT_SECRET</code> ≥ 32 символов, <code>PORT</code>, <code>JOBS_POLL_SECONDS</code></div>
  <div class="box gray" style="flex:1"><b>Миграции при старте</b>контейнер выполняет <code>prisma migrate deploy</code>, затем запускает API</div>
 </div></div>
 </div>

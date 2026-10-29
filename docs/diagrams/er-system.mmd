@@ -2,6 +2,8 @@ erDiagram
   employees |o--o{ audit_events : "актор"
   employees ||--o{ refresh_tokens : "сессии"
   employees |o--o{ email_outbox : "получатель"
+  employees ||--o| login_state : "состояние входа"
+  employees |o--o{ login_events : "попытки входа"
   audit_events {
     int id PK
     timestamp ts
@@ -18,13 +20,33 @@ erDiagram
     string token_hash UK "SHA-256, не сам токен"
     timestamp expires_at
     timestamp revoked_at "ротация"
+    uuid session_id "сеанс: цепочка токенов"
+    string method "password | oidc"
+    string ip
+    string user_agent
+  }
+  login_state {
+    int employee_id PK
+    timestamp last_login_at
+    int failed_logins "подряд"
+    timestamp locked_until "блокировка"
+  }
+  login_events {
+    bigint id PK
+    timestamp ts
+    int employee_id FK
+    string login
+    string result "success, bad_password, locked ..."
+    string method
+    string ip
+    string user_agent
   }
   org_settings {
     int id PK "всегда 1"
     int conflict_threshold "процент отдела"
     string timezone
     string limit_policy "hard | soft"
-    int default_planned_days
+    int default_planned_days "и правила v0.6.0"
   }
   calendars {
     int year PK
@@ -42,7 +64,7 @@ erDiagram
     timestamp next_attempt_at "аренда и повтор"
   }
   job_runs {
-    string name PK "weekly-digest"
+    string name PK "weekly-digest, login-retention"
     string period PK "неделя"
     timestamp ran_at
   }
