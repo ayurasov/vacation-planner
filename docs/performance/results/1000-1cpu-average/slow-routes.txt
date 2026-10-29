@@ -1,0 +1,2 @@
+      3 /api/v1/reports/t7
+      1 /api/v1/reports/vacations
