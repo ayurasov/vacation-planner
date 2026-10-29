@@ -54,6 +54,7 @@ model Employee {
   delegationsReceived ApprovalDelegation[] @relation("DelegationDeputy")
   delegationsCreated  ApprovalDelegation[] @relation("DelegationCreator")
   escalatedRequests   VacationRequest[]    @relation("RequestEscalatedTo")
+  notices             VacationNotice[]
 
   @@index([deptId])
   @@index([managerId])
@@ -137,7 +138,8 @@ model VacationRequest {
   escalatedToEmp Employee? @relation("RequestEscalatedTo", fields: [escalatedTo], references: [id], onDelete: SetNull)
   escalatedAt    DateTime? @map("escalated_at") @db.Timestamptz(6)
 
-  events RequestEvent[]
+  events  RequestEvent[]
+  notices VacationNotice[]
 
   @@index([employeeId, status])
   @@index([startDate, endDate])
@@ -198,6 +200,8 @@ model OrgSettings {
   loginRetentionDays Int    @default(365) @map("login_retention_days")
   // Согласование (v0.6.0): дней без решения до передачи вышестоящему; 0 — не передаётся
   escalationDays     Int    @default(0) @map("escalation_days")
+  // Извещение о начале отпуска (v0.6.0): за сколько дней, не меньше 14 (ТК РФ, ст. 123)
+  noticeDays         Int    @default(14) @map("notice_days")
 
   @@map("org_settings")
 }
@@ -356,4 +360,25 @@ model ApprovalDelegation {
   @@index([deputyId, endDate])
   @@index([managerId, endDate])
   @@map("approval_delegations")
+}
+
+// Извещение о начале отпуска (v0.6.0, E60-03): по согласованному отпуску на конкретные даты
+model VacationNotice {
+  id             Int             @id @default(autoincrement())
+  requestId      Int             @map("request_id")
+  request        VacationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  employeeId     Int             @map("employee_id")
+  employee       Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate      DateTime        @map("start_date") @db.Date
+  endDate        DateTime        @map("end_date") @db.Date
+  days           Float // дни отпуска без праздников (ст. 120)
+  sentAt         DateTime        @default(now()) @map("sent_at") @db.Timestamptz(6)
+  late           Boolean         @default(false) // позже чем за 14 дней: отпуск согласован поздно
+  acknowledgedAt DateTime?       @map("acknowledged_at") @db.Timestamptz(6)
+  withdrawnAt    DateTime?       @map("withdrawn_at") @db.Timestamptz(6) // отпуск отменён или перенесён
+
+  @@unique([requestId, startDate])
+  @@index([startDate])
+  @@index([employeeId])
+  @@map("vacation_notices")
 }

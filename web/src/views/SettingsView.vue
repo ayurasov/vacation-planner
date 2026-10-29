@@ -105,6 +105,7 @@ async function saveOrg(): Promise<void> {
       limitPolicy: settings.value.limitPolicy,
       defaultPlannedDays: Number(settings.value.defaultPlannedDays),
       escalationDays: Number(settings.value.escalationDays),
+      noticeDays: Number(settings.value.noticeDays),
       passwordMinLength: Number(settings.value.passwordMinLength),
       lockoutThreshold: Number(settings.value.lockoutThreshold),
       lockoutMinutes: Number(settings.value.lockoutMinutes),
@@ -493,6 +494,23 @@ onMounted(async () => {
             id="org-esc-hint"
             class="field-hint"
           >0 — не передаётся. Если выше руководителя никого нет, уведомление получает кадровая служба.</span>
+        </div>
+        <div class="field">
+          <label for="org-notice">Извещение о начале отпуска — за, дней</label>
+          <input
+            id="org-notice"
+            v-model.number="settings.noticeDays"
+            type="number"
+            min="14"
+            max="60"
+            class="input"
+            style="max-width: 120px"
+            aria-describedby="org-notice-hint"
+          >
+          <span
+            id="org-notice-hint"
+            class="field-hint"
+          >Не меньше 14 — по ст. 123 ТК РФ сотрудника извещают под подпись не позднее чем за две недели.</span>
         </div>
         <fieldset class="security">
           <legend class="field-label">

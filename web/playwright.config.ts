@@ -6,6 +6,8 @@ const API_ENV = {
   DATABASE_URL: process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://vacation:vacation@localhost:5432/vacation',
   JWT_SECRET: process.env.JWT_SECRET ?? 'e2e-secret-e2e-secret-e2e-secret-32',
   PORT: '8080',
+  // Плановые задачи (извещения, эскалация) — чаще, чем раз в минуту: тест не ждёт минуту
+  JOBS_POLL_SECONDS: '3',
 };
 
 export default defineConfig({

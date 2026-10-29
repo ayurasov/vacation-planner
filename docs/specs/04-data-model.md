@@ -154,6 +154,7 @@
 | `lockout_minutes` | Int |  |  |
 | `login_retention_days` | Int |  |  |
 | `escalation_days` | Int |  |  |
+| `notice_days` | Int |  |  |
 
 **`calendars`** — Производственный календарь по годам
 
@@ -276,6 +277,21 @@
 | `created_by` | Int | null |  |
 | `created_at` | DateTime |  |  |
 | `revoked_at` | DateTime | null |  |
+
+**`vacation_notices`** — Извещения о начале отпуска под подпись (ст. 123 ТК РФ): отправка, ознакомление, отзыв
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `id` | Int | PK |  |
+| `request_id` | Int |  |  |
+| `employee_id` | Int |  |  |
+| `start_date` | DateTime |  |  |
+| `end_date` | DateTime |  |  |
+| `days` | Float |  | дни отпуска без праздников (ст. 120) |
+| `sent_at` | DateTime |  |  |
+| `late` | Boolean |  | позже чем за 14 дней: отпуск согласован поздно |
+| `acknowledged_at` | DateTime | null |  |
+| `withdrawn_at` | DateTime | null | отпуск отменён или перенесён |
 <!-- END:data-dictionary -->
 
 # Инварианты

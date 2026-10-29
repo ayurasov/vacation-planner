@@ -252,8 +252,23 @@ export interface OrgSettings {
   passwordMinLength: number; lockoutThreshold: number; lockoutMinutes: number; loginRetentionDays: number;
   /** Дней без решения до передачи заявки вышестоящему; 0 — не передаётся (v0.6.0). */
   escalationDays: number;
+  /** За сколько дней до начала отпуска извещать; не меньше 14 — ст. 123 ТК РФ (v0.6.0). */
+  noticeDays: number;
   /** Почта настроена на сервере (SMTP_HOST). */
   mailEnabled?: boolean;
+}
+
+// ── Извещение о начале отпуска (с v0.6.0) ──
+export interface VacationNotice {
+  id: number; requestId: number; employeeId: number; employeeName: string; position: string | null; dept: string | null;
+  start: string; end: string; days: number; sentAt: string;
+  /** Извещён позже чем за две недели — вправе попросить перенос (ст. 124). */
+  late: boolean;
+  acknowledgedAt: string | null;
+  /** Отпуск отменён или перенесён на другие даты. */
+  withdrawnAt: string | null;
+  /** Не подтверждено, а до начала три дня и меньше. */
+  overdue: boolean;
 }
 
 // ── Замещение руководителя (с v0.6.0) ──

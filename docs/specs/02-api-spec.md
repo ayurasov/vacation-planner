@@ -124,7 +124,7 @@
 # Каталог операций
 
 <!-- BEGIN:api-catalog -->
-Всего операций: **70** в 54 путях; формат — JSON, ошибки — `application/problem+json`.
+Всего операций: **75** в 59 путях; формат — JSON, ошибки — `application/problem+json`.
 
 **Вход и сессии** (13)
 
@@ -158,6 +158,15 @@
 | GET | `/api/v1/delegations` | Замещения: переданные мной и полученные мной (действующие и будущие) | `listDelegations` |
 | POST | `/api/v1/delegations` | Передать согласование заместителю на период | `createDelegation` |
 | DELETE | `/api/v1/delegations/{id}` | Отменить замещение (руководитель или кадровая служба) | `revokeDelegation` |
+
+**Извещения** (4)
+
+| Метод | Путь | Назначение | Операция |
+|---|---|---|---|
+| GET | `/api/v1/notices/mine` | Мои действующие извещения о начале отпуска (предстоящие и за последние 90 дней) | `listMyNotices` |
+| GET | `/api/v1/notices` | Журнал извещений (кадровая служба, администратор) | `listNotices` |
+| GET | `/api/v1/notices/{id}` | Извещение для печати под подпись (сотрудник — своё, кадровая служба — любое) | `getNotice` |
+| POST | `/api/v1/notices/{id}/acknowledge` | Ознакомлен с извещением (только сам сотрудник) | `acknowledgeNotice` |
 
 **Сотрудники** (10)
 
@@ -256,11 +265,12 @@
 | POST | `/api/v1/events/ticket` | Билет на поток событий (60 секунд) | `getEventsTicket` |
 | GET | `/api/v1/events` | Поток событий (text/event-stream) | `streamEvents` |
 
-**Отчёты** (1)
+**Отчёты** (2)
 
 | Метод | Путь | Назначение | Операция |
 |---|---|---|---|
 | GET | `/api/v1/reports/vacations` | Выгрузка отпусков за период (XLSX) | `exportVacations` |
+| GET | `/api/v1/reports/notices` | Журнал извещений за период (XLSX; кадровая служба, администратор) | `exportNotices` |
 
 **Аналитика** (4)
 

@@ -10,6 +10,7 @@ import {
 } from '@/lib/dates';
 import { barsForYear } from '@/lib/schedule';
 import VacationForm from '@/components/VacationForm.vue';
+import MyNotices from '@/components/MyNotices.vue';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
@@ -196,6 +197,8 @@ onMounted(reload);
           :size="15"
         /> {{ error }}
       </div>
+
+      <MyNotices />
 
       <div
         v-if="loading"

@@ -46,6 +46,10 @@ const ACTIONS: Record<string, { label: string; tone: string; icon: string }> = {
   'report.exported': { label: 'Выгрузка в Excel', tone: 'muted', icon: 'spreadsheet' },
   'employee.unlocked': { label: 'Снята блокировка входа', tone: 'warning', icon: 'key' },
   'employee.sessions_revoked': { label: 'Завершены сеансы сотрудника', tone: 'warning', icon: 'logout' },
+  'delegation.created': { label: 'Назначено замещение', tone: 'info', icon: 'swap' },
+  'delegation.revoked': { label: 'Отменено замещение', tone: 'muted', icon: 'swap' },
+  'request.escalated': { label: 'Заявка передана вышестоящему', tone: 'warning', icon: 'clock' },
+  'notice.acknowledged': { label: 'Ознакомлен с извещением', tone: 'success', icon: 'signature' },
 };
 
 const ENTITIES = [
@@ -58,6 +62,8 @@ const ENTITIES = [
   { key: 'calendar', label: 'Календарь' },
   { key: 'import', label: 'Импорт' },
   { key: 'report', label: 'Выгрузки' },
+  { key: 'delegation', label: 'Замещения' },
+  { key: 'vacation_notice', label: 'Извещения' },
 ];
 
 const FIELD_LABELS: Record<string, string> = {

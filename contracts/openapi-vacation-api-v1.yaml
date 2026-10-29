@@ -55,6 +55,8 @@ tags:
     description: Поток событий сервера (SSE) — живые обновления без опроса
   - name: delegations
     description: Замещение руководителя на время отсутствия (v0.6.0)
+  - name: notices
+    description: Извещение о начале отпуска за две недели под подпись (ТК РФ, ст. 123; v0.6.0)
 
 paths:
   /auth/login:
@@ -293,6 +295,86 @@ paths:
         '204': { description: Замещение отменено; запись в аудите }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /notices/mine:
+    get:
+      tags: [notices]
+      operationId: listMyNotices
+      summary: Мои действующие извещения о начале отпуска (предстоящие и за последние 90 дней)
+      responses:
+        '200':
+          description: Извещения по дате начала отпуска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/VacationNotice' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /notices:
+    get:
+      tags: [notices]
+      operationId: listNotices
+      summary: Журнал извещений (кадровая служба, администратор)
+      description: >-
+        Извещения по отпускам, начинающимся в периоде (не больше года). Извещение отправляется само за
+        noticeDays дней до начала согласованного ежегодного отпуска (не меньше 14); отпуск, согласованный
+        позже, — сразу, с отметкой late. Отпуск отменён или перенесён — извещение отозвано (withdrawnAt).
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - name: status
+          in: query
+          description: 'pending — не подтверждено; acknowledged — подтверждено; overdue — не подтверждено, а до начала 3 дня и меньше'
+          schema: { type: string, enum: [pending, acknowledged, overdue] }
+        - { name: dept, in: query, description: Название отдела, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Страница журнала по дате начала отпуска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/VacationNotice' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+                  unacknowledged: { type: integer, description: Не подтверждённых действующих извещений с учётом фильтров }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /notices/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [notices]
+      operationId: getNotice
+      summary: Извещение для печати под подпись (сотрудник — своё, кадровая служба — любое)
+      responses:
+        '200':
+          description: Извещение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationNotice' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /notices/{id}/acknowledge:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [notices]
+      operationId: acknowledgeNotice
+      summary: Ознакомлен с извещением (только сам сотрудник)
+      description: Повтор ничего не меняет. Отозванное извещение подтвердить нельзя (400).
+      responses:
+        '204': { description: Ознакомление отмечено; запись в аудите (notice.acknowledged) }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
 
   /auth/logout:
@@ -1339,6 +1421,24 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+  /reports/notices:
+    get:
+      tags: [reports, notices]
+      operationId: exportNotices
+      summary: Журнал извещений за период (XLSX; кадровая служба, администратор)
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: XLSX-файл; запись в аудите (report.exported)
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
   /analytics/departments:
     get:
       tags: [analytics]
@@ -1789,6 +1889,7 @@ components:
         lockoutMinutes: { type: integer, minimum: 1, maximum: 1440, default: 15, description: Время блокировки }
         loginRetentionDays: { type: integer, minimum: 30, maximum: 3650, default: 365, description: Срок хранения журнала входов }
         escalationDays: { type: integer, minimum: 0, maximum: 60, default: 0, description: 'Дней без решения до передачи заявки вышестоящему; 0 — не передаётся' }
+        noticeDays: { type: integer, minimum: 14, maximum: 60, default: 14, description: 'За сколько дней до начала отпуска извещать (ст. 123 ТК РФ — не меньше двух недель)' }
         mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
@@ -1804,6 +1905,7 @@ components:
         lockoutMinutes: { type: integer, minimum: 1, maximum: 1440 }
         loginRetentionDays: { type: integer, minimum: 30, maximum: 3650 }
         escalationDays: { type: integer, minimum: 0, maximum: 60 }
+        noticeDays: { type: integer, minimum: 14, maximum: 60 }
 
     Delegation:
       type: object
@@ -1818,6 +1920,24 @@ components:
         active: { type: boolean, description: Действует сегодня }
         createdBy: { type: [integer, 'null'] }
         createdAt: { type: string, format: date-time }
+
+    VacationNotice:
+      type: object
+      properties:
+        id: { type: integer }
+        requestId: { type: integer }
+        employeeId: { type: integer }
+        employeeName: { type: string }
+        position: { type: [string, 'null'] }
+        dept: { type: [string, 'null'] }
+        start: { type: string, format: date }
+        end: { type: string, format: date, description: Включительно }
+        days: { type: number, description: Дней отпуска без праздников (ст. 120) }
+        sentAt: { type: string, format: date-time, description: Извещён }
+        late: { type: boolean, description: 'Извещён позже чем за 14 дней: работник вправе попросить перенос (ст. 124)' }
+        acknowledgedAt: { type: [string, 'null'], format: date-time, description: Ознакомлен }
+        withdrawnAt: { type: [string, 'null'], format: date-time, description: Отпуск отменён или перенесён }
+        overdue: { type: boolean, description: 'Не подтверждено, а до начала отпуска 3 дня и меньше' }
 
     UserSession:
       type: object
