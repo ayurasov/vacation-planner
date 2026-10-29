@@ -279,13 +279,15 @@ async function reload(quiet = false): Promise<void> {
 }
 
 // Живое обновление: не чаще раза в минуту и только в видимой вкладке — при 5000 сотрудниках
-// данные организации меняются постоянно; без изменений сервер отвечает 304 по ETag
+// данные организации меняются постоянно; без изменений сервер отвечает 304 по ETag.
+// Случайная задержка до 10 секунд: событие приходит во все вкладки сразу, и без неё сотни вкладок
+// перечитывали график в одну и ту же секунду (нагрузочный прогон v1.0.0, E51-06)
 const live = useLiveStore();
 let lastLive = Date.now();
 let liveTimer = 0;
 watch(() => live.version, () => {
   if (liveTimer) return;
-  const wait = Math.max(0, 60_000 - (Date.now() - lastLive));
+  const wait = Math.max(0, 60_000 - (Date.now() - lastLive)) + Math.random() * 10_000;
   liveTimer = window.setTimeout(() => {
     liveTimer = 0;
     if (document.visibilityState !== 'visible') return;

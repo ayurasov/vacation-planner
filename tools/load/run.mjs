@@ -56,6 +56,8 @@ const ARRIVALS = Number(arg('arrivals', base.arrivals ?? 0));
 const WINDOW = Number(arg('window', base.window ?? 900)) * 1000;
 const TICK = Number(arg('tick', base.tick ?? 60)) * 1000; // шаг ленты, мс
 const HR_USERS = Number(arg('hr', Math.min(10, Math.max(1, Math.round(USERS * 0.02))))); // кадровая служба среди работающих
+// Клиент до v1.0.0 перечитывал график по событию сразу: --no-jitter воспроизводит прежнее поведение
+const JITTER = !has('no-jitter');
 // Ступени: «пользователей:секунд,…»; без них — одна ступень USERS на DURATION
 const STAGES = arg('stages')
   ? arg('stages').split(',').map((s) => { const [u, sec] = s.split(':').map(Number); return { users: u, sec }; })
@@ -226,6 +228,7 @@ async function stream(vu, deadline, onNotifications = true) {
   const timer = setTimeout(() => abort.abort(), Math.max(0, deadline - performance.now()));
   vu.abort = abort;
   const t0 = performance.now();
+  let pendingSchedule = null;
   try {
     const res = await fetch(`${URL_BASE}/api/v1/events?ticket=${encodeURIComponent(ticket.json.ticket)}`, {
       headers: { 'X-Forwarded-For': vu.ip }, signal: abort.signal,
@@ -246,9 +249,13 @@ async function stream(vu, deadline, onNotifications = true) {
         sse.events[name] = (sse.events[name] ?? 0) + 1;
         if (name === 'hello') record('SSE: подключение до hello', performance.now() - t0, true, 200);
         if (name === 'notifications' && onNotifications) void call(vu, 'GET /notifications', '/notifications?unread=true');
-        if (name === 'data' && visible && performance.now() - lastSchedule > 60_000) {
-          lastSchedule = performance.now();
-          void schedule(vu);
+        // Как ScheduleView: видимая вкладка перечитывает график не чаще раза в минуту, через 0–10 с
+        if (name === 'data' && visible && !pendingSchedule && performance.now() - lastSchedule > 60_000) {
+          pendingSchedule = setTimeout(() => {
+            pendingSchedule = null;
+            lastSchedule = performance.now();
+            if (performance.now() < deadline) void schedule(vu);
+          }, JITTER ? Math.random() * 10_000 : 0);
         }
       }
     }
@@ -256,6 +263,7 @@ async function stream(vu, deadline, onNotifications = true) {
     if (e.name !== 'AbortError') sse.failed++;
   } finally {
     clearTimeout(timer);
+    clearTimeout(pendingSchedule); // вкладка закрыта — отложенного перечитывания нет
     sse.open--;
   }
 }

@@ -29,6 +29,7 @@ export class ScheduleQuery {
 @Controller('api/v1/schedule')
 export class ScheduleController {
   private readonly cache = new ResponseCache(64 * 1024 * 1024);
+  private readonly building = new Map<string, Promise<string>>();
 
   constructor(
     private readonly schedule: ScheduleService,
@@ -54,7 +55,14 @@ export class ScheduleController {
     }
     let body = this.cache.get(key);
     if (body === undefined) {
-      body = JSON.stringify(await this.schedule.build(q));
+      // Одинаковые запросы «в полёте» ждут один расчёт: после изменения данных открытые вкладки
+      // перечитывают график почти одновременно, и без этого каждая считала бы его заново (E51-06)
+      let pending = this.building.get(key);
+      if (!pending) {
+        pending = this.schedule.build(q).then((r) => JSON.stringify(r)).finally(() => this.building.delete(key));
+        this.building.set(key, pending);
+      }
+      body = await pending;
       this.cache.set(key, body);
     }
     res.status(200).type('application/json').send(body);
