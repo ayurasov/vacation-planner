@@ -16,6 +16,8 @@ import { AuditService } from '../audit/audit.service';
 import { calendarDays, toIso } from '../requests/balance';
 import { EmployeesService, assertCanTouch, translitLogin } from './employees.service';
 
+export const PERSONNEL_NUMBER = /^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$/;
+
 export class EmployeeCreateDto {
   @IsString() @MinLength(3) @MaxLength(128)
     name!: string;
@@ -52,6 +54,10 @@ export class EmployeeCreateDto {
 
   @IsOptional() @IsString() @MinLength(8) @MaxLength(128)
     password?: string;
+
+  /** Табельный номер — графа 4 формы Т-7 (v0.6.0). */
+  @IsOptional() @Matches(PERSONNEL_NUMBER, { message: 'Табельный номер: до 20 символов — цифры, буквы, «-» и «/»' })
+    personnelNumber?: string | null;
 
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     plannedDays?: number;
@@ -90,6 +96,10 @@ export class EmployeeUpdateDto {
 
   @IsOptional() @IsInt()
     projectId?: number | null;
+
+  /** Табельный номер — графа 4 формы Т-7 (v0.6.0). */
+  @IsOptional() @Matches(PERSONNEL_NUMBER, { message: 'Табельный номер: до 20 символов — цифры, буквы, «-» и «/»' })
+    personnelNumber?: string | null;
 
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     plannedDays?: number;

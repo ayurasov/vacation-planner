@@ -1,7 +1,7 @@
 // Настройки организации (изменение — только администратор).
 import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
@@ -42,12 +42,35 @@ export class SettingsUpdateDto {
   // Извещение о начале отпуска (v0.6.0): за сколько дней; по ст. 123 ТК РФ — не меньше двух недель
   @IsOptional() @IsInt() @Min(14) @Max(60)
     noticeDays?: number;
+
+  // Реквизиты и подписанты формы Т-7 (v0.6.0); пустая строка — очистить
+  @IsOptional() @IsString() @MaxLength(300)
+    orgName?: string;
+
+  @IsOptional() @Matches(/^(\d{8}|\d{10})?$/, { message: 'ОКПО: 8 или 10 цифр' })
+    orgOkpo?: string;
+
+  @IsOptional() @IsString() @MaxLength(128)
+    headPosition?: string;
+
+  @IsOptional() @IsString() @MaxLength(128)
+    headName?: string;
+
+  @IsOptional() @IsString() @MaxLength(128)
+    hrHeadPosition?: string;
+
+  @IsOptional() @IsString() @MaxLength(128)
+    hrHeadName?: string;
 }
+
+const REQUISITES = ['orgName', 'orgOkpo', 'headPosition', 'headName', 'hrHeadPosition', 'hrHeadName'] as const;
 
 type SettingsView = {
   id: number; conflictThreshold: number; timezone: string; limitPolicy: string; defaultPlannedDays: number;
   passwordMinLength: number; lockoutThreshold: number; lockoutMinutes: number; loginRetentionDays: number;
   escalationDays: number; noticeDays: number;
+  orgName: string | null; orgOkpo: string | null; headPosition: string | null; headName: string | null;
+  hrHeadPosition: string | null; hrHeadName: string | null;
 };
 
 @ApiTags('settings')
@@ -69,6 +92,8 @@ export class SettingsController {
       passwordMinLength: s.passwordMinLength, lockoutThreshold: s.lockoutThreshold,
       lockoutMinutes: s.lockoutMinutes, loginRetentionDays: s.loginRetentionDays,
       escalationDays: s.escalationDays, noticeDays: s.noticeDays,
+      orgName: s.orgName, orgOkpo: s.orgOkpo, headPosition: s.headPosition, headName: s.headName,
+      hrHeadPosition: s.hrHeadPosition, hrHeadName: s.hrHeadName,
     };
   }
 
@@ -82,6 +107,8 @@ export class SettingsController {
       passwordMinLength: s.passwordMinLength, lockoutThreshold: s.lockoutThreshold,
       lockoutMinutes: s.lockoutMinutes, loginRetentionDays: s.loginRetentionDays,
       escalationDays: s.escalationDays, noticeDays: s.noticeDays,
+      orgName: s.orgName, orgOkpo: s.orgOkpo, headPosition: s.headPosition, headName: s.headName,
+      hrHeadPosition: s.hrHeadPosition, hrHeadName: s.hrHeadName,
       mailEnabled: this.mail.config.enabled,
     };
   }
@@ -114,7 +141,9 @@ export class SettingsController {
       throw new ProblemException('validation/invalid-field', 'Блокировка — после 3 и более неудачных попыток или 0 (без блокировки)');
     }
     const before = await this.ensure();
-    await this.prisma.orgSettings.update({ where: { id: 1 }, data: dto });
+    const data: Record<string, unknown> = { ...dto };
+    for (const k of REQUISITES) if (typeof data[k] === 'string') data[k] = (data[k] as string).trim() || null;
+    await this.prisma.orgSettings.update({ where: { id: 1 }, data });
     await this.audit.record(this.prisma, {
       actorId: user.sub, action: 'settings.updated', entity: 'org_settings', entityId: '1',
       before, after: dto,

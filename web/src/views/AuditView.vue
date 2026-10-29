@@ -50,6 +50,11 @@ const ACTIONS: Record<string, { label: string; tone: string; icon: string }> = {
   'delegation.revoked': { label: 'Отменено замещение', tone: 'muted', icon: 'swap' },
   'request.escalated': { label: 'Заявка передана вышестоящему', tone: 'warning', icon: 'clock' },
   'notice.acknowledged': { label: 'Ознакомлен с извещением', tone: 'success', icon: 'signature' },
+  'planning.opened': { label: 'Открыто планирование', tone: 'info', icon: 'schedule' },
+  'planning.updated': { label: 'Изменён срок планирования', tone: 'muted', icon: 'schedule' },
+  'planning.closed': { label: 'Закрыто планирование', tone: 'muted', icon: 'schedule' },
+  'planning.reminded': { label: 'Напоминание о планировании', tone: 'muted', icon: 'bell' },
+  'schedule.approved': { label: 'Утверждён график отпусков', tone: 'success', icon: 'check' },
 };
 
 const ENTITIES = [
@@ -64,6 +69,8 @@ const ENTITIES = [
   { key: 'report', label: 'Выгрузки' },
   { key: 'delegation', label: 'Замещения' },
   { key: 'vacation_notice', label: 'Извещения' },
+  { key: 'planning_campaign', label: 'Планирование' },
+  { key: 'schedule_approval', label: 'Утверждение графика' },
 ];
 
 const FIELD_LABELS: Record<string, string> = {
@@ -71,6 +78,7 @@ const FIELD_LABELS: Record<string, string> = {
   plannedDays: 'норма', carryOver: 'перенос', deptId: 'отдел', position: 'должность', role: 'роль',
   email: 'email', emailNotifications: 'письма', create: 'новых', update: 'изменено', unchanged: 'без изменений', error: 'ошибок', newDepartments: 'новые отделы', source: 'источник',
   isAdmin: 'администратор', isHr: 'кадровая служба', holidays: 'праздники', transfers: 'переносы', empType: 'тип', conflictThreshold: 'порог', limitPolicy: 'лимит', period: 'период',
+  personnelNumber: 'табельный номер', deadline: 'срок', open: 'открыто', sent: 'отправлено', docNumber: 'номер документа', docDate: 'дата документа', rows: 'строк',
 };
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)));

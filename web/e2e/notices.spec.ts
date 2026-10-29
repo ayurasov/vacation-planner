@@ -58,6 +58,7 @@ test('извещение: отпуск через 5 дней — карточк�
     try {
       await login(hrPage, HR);
       await hrPage.getByRole('complementary', { name: 'Главное меню' }).getByRole('link', { name: 'Кадровый учёт' }).click();
+      await hrPage.getByRole('button', { name: 'Извещения' }).click();
       // Прошлые прогоны на той же БД: их сотрудники уволены, извещения отозваны
       const row = hrPage.getByRole('row').filter({ hasText: 'Извещенцева Ирина Игоревна' }).filter({ hasNotText: 'Отозвано' });
       await expect(row).toContainText('Ознакомлен');

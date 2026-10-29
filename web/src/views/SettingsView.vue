@@ -106,6 +106,10 @@ async function saveOrg(): Promise<void> {
       defaultPlannedDays: Number(settings.value.defaultPlannedDays),
       escalationDays: Number(settings.value.escalationDays),
       noticeDays: Number(settings.value.noticeDays),
+      // Реквизиты формы Т-7: пустая строка на сервере очищает поле
+      orgName: settings.value.orgName ?? '', orgOkpo: settings.value.orgOkpo ?? '',
+      headPosition: settings.value.headPosition ?? '', headName: settings.value.headName ?? '',
+      hrHeadPosition: settings.value.hrHeadPosition ?? '', hrHeadName: settings.value.hrHeadName ?? '',
       passwordMinLength: Number(settings.value.passwordMinLength),
       lockoutThreshold: Number(settings.value.lockoutThreshold),
       lockoutMinutes: Number(settings.value.lockoutMinutes),
@@ -568,6 +572,73 @@ onMounted(async () => {
             class="field-hint"
           >Блокировка — после стольких неудачных попыток подряд (0 — без блокировки, иначе от 3); снимает кадровая служба в карточке сотрудника или она истекает сама. Политика паролей действует для новых паролей.</span>
         </fieldset>
+        <fieldset class="security">
+          <legend class="field-label">
+            Реквизиты для графика отпусков (форма Т-7)
+          </legend>
+          <div class="field legend-gap">
+            <label for="org-name">Наименование организации</label>
+            <input
+              id="org-name"
+              v-model="settings.orgName"
+              class="input"
+              maxlength="300"
+            >
+          </div>
+          <div class="security-grid">
+            <div class="field">
+              <label for="org-okpo">Код по ОКПО</label>
+              <input
+                id="org-okpo"
+                v-model="settings.orgOkpo"
+                class="input"
+                inputmode="numeric"
+                pattern="\d{8}|\d{10}"
+                maxlength="10"
+                style="max-width: 160px"
+              >
+            </div>
+            <span />
+            <div class="field">
+              <label for="org-head-pos">Утверждает: должность руководителя</label>
+              <input
+                id="org-head-pos"
+                v-model="settings.headPosition"
+                class="input"
+                maxlength="128"
+                placeholder="Генеральный директор"
+              >
+            </div>
+            <div class="field">
+              <label for="org-head">Утверждает: фамилия и инициалы</label>
+              <input
+                id="org-head"
+                v-model="settings.headName"
+                class="input"
+                maxlength="128"
+              >
+            </div>
+            <div class="field">
+              <label for="org-hr-pos">Руководитель кадровой службы: должность</label>
+              <input
+                id="org-hr-pos"
+                v-model="settings.hrHeadPosition"
+                class="input"
+                maxlength="128"
+                placeholder="Начальник отдела кадров"
+              >
+            </div>
+            <div class="field">
+              <label for="org-hr">Руководитель кадровой службы: фамилия и инициалы</label>
+              <input
+                id="org-hr"
+                v-model="settings.hrHeadName"
+                class="input"
+                maxlength="128"
+              >
+            </div>
+          </div>
+        </fieldset>
         <button
           class="btn btn-primary"
           type="submit"
@@ -648,6 +719,10 @@ onMounted(async () => {
   border: none;
   padding: 0;
   margin: 4px 0 16px;
+}
+
+.legend-gap {
+  margin-top: 8px;
 }
 
 .security-grid {

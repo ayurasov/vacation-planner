@@ -57,6 +57,7 @@
 | `email_notifications` | Boolean |  | отписка — в профиле |
 | `must_change_password` | Boolean |  | пароль выдан при создании или сбросе (v0.6.0) |
 | `password_changed_at` | DateTime | null |  |
+| `personnel_number` | String | UK null | табельный номер — графа 4 формы Т-7 (v0.6.0) |
 | `created_at` | DateTime |  |  |
 | `updated_at` | DateTime |  |  |
 
@@ -155,6 +156,12 @@
 | `login_retention_days` | Int |  |  |
 | `escalation_days` | Int |  |  |
 | `notice_days` | Int |  |  |
+| `org_name` | String | null |  |
+| `org_okpo` | String | null |  |
+| `head_position` | String | null |  |
+| `head_name` | String | null |  |
+| `hr_head_position` | String | null |  |
+| `hr_head_name` | String | null |  |
 
 **`calendars`** — Производственный календарь по годам
 
@@ -292,6 +299,32 @@
 | `late` | Boolean |  | позже чем за 14 дней: отпуск согласован поздно |
 | `acknowledged_at` | DateTime | null |  |
 | `withdrawn_at` | DateTime | null | отпуск отменён или перенесён |
+
+**`planning_campaigns`** — Кампания планирования отпусков на год: срок, открытие и закрытие, напоминания
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `year` | Int | PK |  |
+| `deadline` | DateTime |  |  |
+| `opened_at` | DateTime |  |  |
+| `opened_by` | Int | null |  |
+| `closed_at` | DateTime | null |  |
+| `closed_by` | Int | null |  |
+| `reminded_at` | DateTime | null |  |
+| `auto_reminded` | Boolean |  |  |
+
+**`schedule_approvals`** — Утверждённый график отпусков: реквизиты документа, мнение профсоюза, снимок строк для формы Т-7
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `year` | Int | PK |  |
+| `doc_number` | String |  |  |
+| `doc_date` | DateTime |  |  |
+| `union_opinion_date` | DateTime | null |  |
+| `union_opinion_number` | String | null |  |
+| `approved_at` | DateTime |  |  |
+| `approved_by` | Int | null |  |
+| `rows` | Json |  |  |
 <!-- END:data-dictionary -->
 
 # Инварианты

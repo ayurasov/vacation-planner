@@ -43,6 +43,7 @@ const managers = ref<Employee[]>([]);
 const emptyForm = () => ({
   name: '', email: '', position: '', deptId: null as number | null, managerId: null as number | null,
   role: 'employee', empType: 'staff', isAdmin: false, isHr: false, plannedDays: 28, carryOver: 0, login: '', password: '',
+  personnelNumber: '',
 });
 const form = ref(emptyForm());
 const secret = ref<{ title: string; login: string; password: string } | null>(null);
@@ -104,7 +105,7 @@ function openEdit(e: Employee): void {
   form.value = {
     name: e.name, email: e.email ?? '', position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
     role: e.role, empType: e.empType, isAdmin: e.isAdmin, isHr: e.isHr, plannedDays: e.plannedDays, carryOver: e.carryOver,
-    login: e.login, password: '',
+    login: e.login, password: '', personnelNumber: e.personnelNumber ?? '',
   };
   formError.value = '';
   formOpen.value = true;
@@ -168,6 +169,8 @@ async function save(): Promise<void> {
     ...(auth.isAdmin ? { isAdmin: f.isAdmin, isHr: f.isHr } : {}),
     // Дни — до сотых, как в импорте: округление до целых меняло перенос 3,5 → 4 при любой правке карточки
     plannedDays: Math.round(Number(f.plannedDays) * 100) / 100, carryOver: Math.round(Number(f.carryOver) * 100) / 100,
+    // Пустое поле в карточке — очистить номер; при создании — не передавать
+    personnelNumber: f.personnelNumber.trim() || (editing.value ? null : undefined),
   };
   try {
     if (editing.value) {
@@ -578,16 +581,33 @@ onMounted(async () => {
               placeholder="Иванов Иван Иванович"
             >
           </div>
-          <div class="field">
-            <label for="e-email">Email <span class="soft">(для писем о заявках)</span></label>
-            <input
-              id="e-email"
-              v-model="form.email"
-              class="input"
-              type="email"
-              autocomplete="off"
-              placeholder="ivanov@company.ru"
-            >
+          <div class="field-row">
+            <div class="field">
+              <label for="e-email">Email <span class="soft">(для писем о заявках)</span></label>
+              <input
+                id="e-email"
+                v-model="form.email"
+                class="input"
+                type="email"
+                autocomplete="off"
+                placeholder="ivanov@company.ru"
+              >
+            </div>
+            <div class="field">
+              <label for="e-tab">Табельный номер</label>
+              <input
+                id="e-tab"
+                v-model="form.personnelNumber"
+                class="input"
+                maxlength="20"
+                autocomplete="off"
+                aria-describedby="e-tab-hint"
+              >
+              <span
+                id="e-tab-hint"
+                class="field-hint"
+              >Графа 4 формы Т-7 «График отпусков».</span>
+            </div>
           </div>
           <div class="field-row">
             <div class="field">

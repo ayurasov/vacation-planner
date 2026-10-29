@@ -33,6 +33,7 @@ model Employee {
   emailNotifications Boolean     @default(true) @map("email_notifications") // отписка — в профиле
   mustChangePassword Boolean     @default(false) @map("must_change_password") // пароль выдан при создании или сбросе (v0.6.0)
   passwordChangedAt  DateTime?   @map("password_changed_at") @db.Timestamptz(6)
+  personnelNumber    String?     @unique @map("personnel_number") // табельный номер — графа 4 формы Т-7 (v0.6.0)
   createdAt          DateTime    @default(now()) @map("created_at")
   updatedAt          DateTime    @updatedAt @map("updated_at")
 
@@ -55,6 +56,9 @@ model Employee {
   delegationsCreated  ApprovalDelegation[] @relation("DelegationCreator")
   escalatedRequests   VacationRequest[]    @relation("RequestEscalatedTo")
   notices             VacationNotice[]
+  campaignsOpened     PlanningCampaign[]   @relation("CampaignOpenedBy")
+  campaignsClosed     PlanningCampaign[]   @relation("CampaignClosedBy")
+  scheduleApprovals   ScheduleApproval[]
 
   @@index([deptId])
   @@index([managerId])
@@ -188,20 +192,27 @@ model WorkOverride {
 }
 
 model OrgSettings {
-  id                 Int    @id @default(1)
-  conflictThreshold  Int    @default(50) @map("conflict_threshold")
-  timezone           String @default("Europe/Moscow")
-  limitPolicy        String @default("hard") @map("limit_policy") // hard | soft
-  defaultPlannedDays Int    @default(28) @map("default_planned_days")
+  id                 Int     @id @default(1)
+  conflictThreshold  Int     @default(50) @map("conflict_threshold")
+  timezone           String  @default("Europe/Moscow")
+  limitPolicy        String  @default("hard") @map("limit_policy") // hard | soft
+  defaultPlannedDays Int     @default(28) @map("default_planned_days")
   // Безопасность (v0.6.0)
-  passwordMinLength  Int    @default(8) @map("password_min_length")
-  lockoutThreshold   Int    @default(10) @map("lockout_threshold") // неудачных попыток подряд; 0 — без блокировки
-  lockoutMinutes     Int    @default(15) @map("lockout_minutes")
-  loginRetentionDays Int    @default(365) @map("login_retention_days")
+  passwordMinLength  Int     @default(8) @map("password_min_length")
+  lockoutThreshold   Int     @default(10) @map("lockout_threshold") // неудачных попыток подряд; 0 — без блокировки
+  lockoutMinutes     Int     @default(15) @map("lockout_minutes")
+  loginRetentionDays Int     @default(365) @map("login_retention_days")
   // Согласование (v0.6.0): дней без решения до передачи вышестоящему; 0 — не передаётся
-  escalationDays     Int    @default(0) @map("escalation_days")
+  escalationDays     Int     @default(0) @map("escalation_days")
   // Извещение о начале отпуска (v0.6.0): за сколько дней, не меньше 14 (ТК РФ, ст. 123)
-  noticeDays         Int    @default(14) @map("notice_days")
+  noticeDays         Int     @default(14) @map("notice_days")
+  // Реквизиты и подписанты формы Т-7 (v0.6.0)
+  orgName            String? @map("org_name")
+  orgOkpo            String? @map("org_okpo")
+  headPosition       String? @map("head_position")
+  headName           String? @map("head_name")
+  hrHeadPosition     String? @map("hr_head_position")
+  hrHeadName         String? @map("hr_head_name")
 
   @@map("org_settings")
 }
@@ -381,4 +392,35 @@ model VacationNotice {
   @@index([startDate])
   @@index([employeeId])
   @@map("vacation_notices")
+}
+
+// Кампания планирования отпусков на год (v0.6.0, E60-01)
+model PlanningCampaign {
+  year         Int       @id
+  deadline     DateTime  @db.Date
+  openedAt     DateTime  @default(now()) @map("opened_at") @db.Timestamptz(6)
+  openedBy     Int?      @map("opened_by")
+  opener       Employee? @relation("CampaignOpenedBy", fields: [openedBy], references: [id], onDelete: SetNull)
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy     Int?      @map("closed_by")
+  closer       Employee? @relation("CampaignClosedBy", fields: [closedBy], references: [id], onDelete: SetNull)
+  remindedAt   DateTime? @map("reminded_at") @db.Timestamptz(6)
+  autoReminded Boolean   @default(false) @map("auto_reminded")
+
+  @@map("planning_campaigns")
+}
+
+// Утверждённый график отпусков: реквизиты документа и снимок строк (v0.6.0, E60-02)
+model ScheduleApproval {
+  year               Int       @id
+  docNumber          String    @map("doc_number")
+  docDate            DateTime  @map("doc_date") @db.Date
+  unionOpinionDate   DateTime? @map("union_opinion_date") @db.Date
+  unionOpinionNumber String?   @map("union_opinion_number")
+  approvedAt         DateTime  @default(now()) @map("approved_at") @db.Timestamptz(6)
+  approvedBy         Int?      @map("approved_by")
+  approver           Employee? @relation(fields: [approvedBy], references: [id], onDelete: SetNull)
+  rows               Json
+
+  @@map("schedule_approvals")
 }

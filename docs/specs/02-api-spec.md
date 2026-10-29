@@ -124,7 +124,7 @@
 # Каталог операций
 
 <!-- BEGIN:api-catalog -->
-Всего операций: **75** в 59 путях; формат — JSON, ошибки — `application/problem+json`.
+Всего операций: **83** в 67 путях; формат — JSON, ошибки — `application/problem+json`.
 
 **Вход и сессии** (13)
 
@@ -167,6 +167,18 @@
 | GET | `/api/v1/notices` | Журнал извещений (кадровая служба, администратор) | `listNotices` |
 | GET | `/api/v1/notices/{id}` | Извещение для печати под подпись (сотрудник — своё, кадровая служба — любое) | `getNotice` |
 | POST | `/api/v1/notices/{id}/acknowledge` | Ознакомлен с извещением (только сам сотрудник) | `acknowledgeNotice` |
+
+**Планирование и форма Т-7** (7)
+
+| Метод | Путь | Назначение | Операция |
+|---|---|---|---|
+| GET | `/api/v1/planning/mine` | Открытая кампания планирования и мой прогресс | `getMyPlanning` |
+| GET | `/api/v1/planning/{year}` | Кампания, утверждение и прогресс по отделам (кадровая служба, администратор) | `getPlanning` |
+| GET | `/api/v1/planning/{year}/employees` | Прогресс планирования по сотрудникам (кадровая служба) | `listPlanningEmployees` |
+| POST | `/api/v1/planning/{year}/open` | Открыть планирование на год, открыть снова или изменить срок | `openPlanning` |
+| POST | `/api/v1/planning/{year}/close` | Закрыть планирование (planning.closed в аудите) | `closePlanning` |
+| POST | `/api/v1/planning/{year}/remind` | Напомнить не спланировавшим отпуск | `remindPlanning` |
+| POST | `/api/v1/planning/{year}/approve` | Утвердить график отпусков на год | `approveSchedule` |
 
 **Сотрудники** (10)
 
@@ -265,11 +277,12 @@
 | POST | `/api/v1/events/ticket` | Билет на поток событий (60 секунд) | `getEventsTicket` |
 | GET | `/api/v1/events` | Поток событий (text/event-stream) | `streamEvents` |
 
-**Отчёты** (2)
+**Отчёты** (3)
 
 | Метод | Путь | Назначение | Операция |
 |---|---|---|---|
 | GET | `/api/v1/reports/vacations` | Выгрузка отпусков за период (XLSX) | `exportVacations` |
+| GET | `/api/v1/reports/t7` | График отпусков по унифицированной форме Т-7 (XLSX; кадровая служба) | `exportT7` |
 | GET | `/api/v1/reports/notices` | Журнал извещений за период (XLSX; кадровая служба, администратор) | `exportNotices` |
 
 **Аналитика** (4)

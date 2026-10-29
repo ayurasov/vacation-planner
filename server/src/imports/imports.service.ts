@@ -34,7 +34,7 @@ export class ImportsService {
       employees: employees.map((e) => ({
         id: e.id, login: e.login, name: e.name, position: e.position, deptName: e.dept?.name ?? null,
         managerId: e.managerId, plannedDays: e.plannedDays, carryOver: e.carryOver, empType: e.empType,
-        email: e.email, isAdmin: e.isAdmin, isHr: e.isHr, isActive: e.isActive,
+        email: e.email, personnelNumber: e.personnelNumber, isAdmin: e.isAdmin, isHr: e.isHr, isActive: e.isActive,
       })),
       departments: departments.map((d) => d.name),
       actorIsAdmin: actor.isAdmin,
@@ -83,6 +83,7 @@ export class ImportsService {
             login: v.login, passwordHash: hash, name: v.name, email: v.email ?? null,
             position: v.position ?? null, deptId: deptId(v.dept) ?? null,
             plannedDays: v.plannedDays ?? 28, carryOver: v.carryOver ?? 0, empType: v.empType ?? 'staff',
+            personnelNumber: v.personnelNumber ?? null,
             mustChangePassword: true, // выданный при импорте пароль меняется при первом входе (v0.6.0)
           },
         });
@@ -104,6 +105,7 @@ export class ImportsService {
             ...('carryOver' in r.changes ? { carryOver: v.carryOver } : {}),
             ...('empType' in r.changes ? { empType: v.empType } : {}),
             ...('email' in r.changes ? { email: v.email } : {}),
+            ...('personnelNumber' in r.changes ? { personnelNumber: v.personnelNumber } : {}),
           } : {}),
           ...(v.manager && (r.action === 'create' || 'manager' in r.changes) ? { managerId: managerId(v.manager) } : {}),
         };

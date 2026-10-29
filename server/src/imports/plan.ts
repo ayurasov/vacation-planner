@@ -14,6 +14,7 @@ export interface ExistingEmployee {
   carryOver: number;
   empType: string;
   email: string | null;
+  personnelNumber: string | null;
   isAdmin: boolean;
   isHr: boolean;
   isActive: boolean;
@@ -32,6 +33,7 @@ export interface EmployeeValues {
   carryOver?: number;
   empType?: 'staff' | 'ipsz';
   email?: string;
+  personnelNumber?: string;
 }
 
 export interface PlannedRow {
@@ -64,6 +66,7 @@ export interface PlanContext {
 export const MAX_ROWS = 5000;
 const LOGIN = /^[a-z0-9._-]{2,64}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PERSONNEL_NUMBER = /^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$/;
 const lower = (s: string) => s.toLowerCase();
 const normName = (s: string) => s.replace(/\s+/g, ' ').trim();
 const nameKey = (s: string) => lower(normName(s)).replace(/ё/g, 'е');
@@ -98,6 +101,9 @@ export function buildImportPlan(input: ImportRow[], ctx: PlanContext): ImportPla
   const takenLogins = new Set(ctx.employees.map((e) => lower(e.login)));
   const seenLogins = new Set<string>();
   const seenNames = new Set<string>();
+  // Табельный номер уникален во всей организации, включая уволенных
+  const byNumber = new Map(ctx.employees.filter((e) => e.personnelNumber).map((e) => [e.personnelNumber!, e]));
+  const seenNumbers = new Set<string>();
 
   // Первый проход: строка → существующий сотрудник или новый логин
   for (const r of input) {
@@ -140,6 +146,15 @@ export function buildImportPlan(input: ImportRow[], ctx: PlanContext): ImportPla
     values.empType = empType(r.empType, errors);
     if (r.email !== undefined) {
       if (EMAIL.test(r.email)) values.email = lower(r.email); else errors.push(`Email «${r.email}» указан неверно`);
+    }
+    if (r.personnelNumber !== undefined) {
+      const num = r.personnelNumber.replace(/\s+/g, '');
+      const owner = byNumber.get(num);
+      if (!PERSONNEL_NUMBER.test(num)) errors.push(`Табельный номер «${r.personnelNumber}»: до 20 символов — цифры, буквы, «-» и «/»`);
+      else if (seenNumbers.has(num)) errors.push(`Табельный номер ${num} повторяется в файле`);
+      else if (owner && owner.id !== target?.id) errors.push(`Табельный номер ${num} уже у сотрудника ${owner.name}`);
+      else values.personnelNumber = num;
+      seenNumbers.add(num);
     }
     rows.push({ line: r.line, action: errors.length ? 'error' : target ? 'update' : 'create', name, login, employeeId: target?.id, values, changes: {}, errors });
   }
@@ -196,6 +211,7 @@ export function buildImportPlan(input: ImportRow[], ctx: PlanContext): ImportPla
     cmp('carryOver', cur.carryOver, v.carryOver);
     cmp('empType', cur.empType, v.empType);
     cmp('email', cur.email ?? undefined, v.email);
+    cmp('personnelNumber', cur.personnelNumber ?? undefined, v.personnelNumber);
     row.changes = diff;
     if (!Object.keys(diff).length) { row.action = 'unchanged'; return; }
     if (!ctx.actorIsAdmin && (cur.isAdmin || (cur.isHr && cur.id !== ctx.actorId))) {

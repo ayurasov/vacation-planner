@@ -189,6 +189,8 @@ export interface Employee {
   email: string | null; deptId: number | null; deptName?: string | null; role: string; isAdmin: boolean; isHr: boolean;
   empType: string; managerId: number | null; projectId: number | null;
   plannedDays: number; carryOver: number; isActive: boolean;
+  /** Табельный номер — графа 4 формы Т-7 (v0.6.0). */
+  personnelNumber?: string | null;
 }
 
 export type ImportAction = 'create' | 'update' | 'unchanged' | 'error';
@@ -254,8 +256,46 @@ export interface OrgSettings {
   escalationDays: number;
   /** За сколько дней до начала отпуска извещать; не меньше 14 — ст. 123 ТК РФ (v0.6.0). */
   noticeDays: number;
+  /** Реквизиты и подписанты формы Т-7 (v0.6.0). */
+  orgName: string | null; orgOkpo: string | null; headPosition: string | null; headName: string | null;
+  hrHeadPosition: string | null; hrHeadName: string | null;
   /** Почта настроена на сервере (SMTP_HOST). */
   mailEnabled?: boolean;
+}
+
+// ── Кампания планирования и утверждение графика (с v0.6.0) ──
+export type PlanStatus = 'none' | 'partial' | 'done';
+
+export interface EmployeePlan {
+  id: number; name: string; position: string | null; deptId: number | null; dept: string | null; personnelNumber: string | null;
+  norm: number; plannedDays: number; approvedDays: number; pendingDays: number; parts: number; hasFourteen: boolean;
+  status: PlanStatus;
+}
+
+export interface PlanningProgress {
+  employees: number; planned: number; done: number; withFourteen: number; plannedDays: number; normDays: number;
+}
+
+export interface PlanningOverview {
+  year: number;
+  campaign: {
+    year: number; deadline: string; open: boolean; openedAt: string; openedBy: string | null;
+    closedAt: string | null; remindedAt: string | null;
+  } | null;
+  approval: {
+    year: number; docNumber: string; docDate: string; unionOpinionDate: string | null; unionOpinionNumber: string | null;
+    approvedAt: string; approvedBy: string | null; rows: number;
+  } | null;
+  /** Согласованных отпусков года — столько строк войдёт в график при утверждении сейчас. */
+  approvedParts: number;
+  totals: PlanningProgress;
+  departments: Array<PlanningProgress & { deptId: number | null; dept: string | null }>;
+  warnings: { pendingRequests: number; missingPersonnelNumbers: number; missingRequisites: string[] };
+}
+
+export interface MyPlanning {
+  campaign: { year: number; deadline: string; overdue: boolean } | null;
+  plan: EmployeePlan | null;
 }
 
 // ── Извещение о начале отпуска (с v0.6.0) ──
