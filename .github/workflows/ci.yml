@@ -102,6 +102,19 @@ jobs:
             || { tail -40 /tmp/api.log; exit 1; }
         working-directory: server
 
+  docs:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
+    name: 'Документы: таблицы сверены с кодом'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: 'Каталог операций, словарь данных, коды ошибок, показатели кода (gen_tables.py --check)'
+        run: |
+          pip install -q pyyaml
+          python3 tools/docs/gen_tables.py --check
+
   web:
     if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
     name: 'Клиент: линтер, тесты, сборка'
