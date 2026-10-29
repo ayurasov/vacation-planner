@@ -8,7 +8,7 @@
 Для номеров страниц в оглавлении DOCX — LibreOffice (необязательно: без него Word
 обновит оглавление при открытии).
 
-Источники — docs/specs, docs/manuals, docs/registry, docs/performance, docs/runbooks и docs/versions.md;
+Источники — docs/specs, docs/manuals, docs/registry, docs/performance, docs/runbooks, docs/release-notes и docs/versions.md;
 схемы — docs/images (их рендерит render_diagrams.mjs). Результат — docs/pdf/<имя>.pdf и
 docs/docx/<имя>.docx; комплект для реестра — в docs/pdf/registry и docs/docx/registry.
 PDF собирается в два прохода: после первого номера страниц разделов читаются из ссылок
@@ -69,6 +69,8 @@ DOCS = {
     # Эксплуатация и нагрузка (v1.0.0)
     "workday-model": ("performance", "Модель нагрузки", "Организация на 1000–2000 сотрудников"),
     "runbook": ("performance", "Регламент нагрузочного прогона", "Стенд, данные, доказательства и критерии"),
+    "report-v1.0.0": ("performance", "Отчёт о нагрузочных испытаниях", "Версия 1.0.0: организация на 1000–2000 сотрудников"),
+    "v1.0.0": ("release-notes", "Заметки к выпуску 1.0.0", "Что изменится для сотрудников, кадровой службы и администратора"),
     "diagnostics": ("runbooks", "Диагностика замедлений и ошибок", "Симптом, метрика, причина, действие"),
     "update": ("runbooks", "Регламент обновления", "Подготовка, обновление, проверка и откат"),
     "backup-restore": ("runbooks", "Регламент резервного копирования", "Копии, восстановление и ежемесячная проверка"),
