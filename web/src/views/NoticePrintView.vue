@@ -3,7 +3,7 @@
 // извещается под подпись не позднее чем за две недели до начала отпуска.
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, type VacationNotice } from '@/api/client';
+import { api, type OrgSettings, type VacationNotice } from '@/api/client';
 import { fmtDate, fmtNumber, localIso, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 
@@ -11,6 +11,7 @@ const route = useRoute();
 const router = useRouter();
 const notice = ref<VacationNotice | null>(null);
 const error = ref('');
+const orgName = ref('');
 
 /** Для документа — полная дата: «29 октября 2026 г., 10:25». */
 function stamp(ts: string): string {
@@ -36,6 +37,8 @@ function back(): void {
 onMounted(async () => {
   try {
     notice.value = await api.get<VacationNotice>(`/notices/${Number(route.params.id)}`);
+    // Наименование организации — из реквизитов формы Т-7 (правила организации)
+    try { orgName.value = (await api.get<OrgSettings>('/settings')).orgName ?? ''; } catch { /* без наименования */ }
     document.title = `Извещение — ${notice.value.employeeName}`;
   } catch (e) {
     error.value = (e as Error).message;
@@ -84,6 +87,12 @@ onMounted(async () => {
       v-if="notice"
       class="sheet"
     >
+      <div
+        v-if="orgName"
+        class="org"
+      >
+        {{ orgName }}
+      </div>
       <header class="addressee">
         <div>
           {{ notice.position ?? 'Работнику' }}<template v-if="notice.dept">
@@ -164,6 +173,11 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.org {
+  margin-bottom: 24px;
+  font-weight: 600;
 }
 
 .addressee {
