@@ -20,6 +20,10 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { ImportsModule } from './imports/imports.module';
 import { MailModule } from './mail/mail.module';
 import { EventsModule } from './events/events.module';
+import { JobsModule } from './jobs/jobs.module';
+import { DelegationsModule } from './delegations/delegations.module';
+import { NoticesModule } from './notices/notices.module';
+import { PlanningModule } from './planning/planning.module';
 
 @Module({
   imports: [
@@ -27,6 +31,10 @@ import { EventsModule } from './events/events.module';
     PrismaModule,
     AuditModule,
     AuthModule,
+    JobsModule,
+    DelegationsModule,
+    NoticesModule,
+    PlanningModule,
     EmployeesModule,
     RequestsModule,
     DirectoriesModule,

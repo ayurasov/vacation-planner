@@ -67,6 +67,24 @@ export class MailService implements OnApplicationBootstrap, OnApplicationShutdow
     await this.enqueue(tx, employeeId, e.email, kind, letterFor(kind, text, e.name, cfg.appUrl));
   }
 
+  /** Письма многим сотрудникам одним запросом (кампания планирования: тысяча адресатов). */
+  async enqueueMany(tx: Db, items: Array<{ employeeId: number; text: string }>, kind: string): Promise<void> {
+    const cfg = this.config;
+    if (!cfg.enabled || !items.length) return;
+    const recipients = await tx.employee.findMany({
+      where: { id: { in: items.map((i) => i.employeeId) }, isActive: true, emailNotifications: true, email: { not: null } },
+      select: { id: true, name: true, email: true },
+    });
+    const byId = new Map(recipients.map((r) => [r.id, r]));
+    const data = items.flatMap((i) => {
+      const r = byId.get(i.employeeId);
+      if (!r?.email) return [];
+      const letter = letterFor(kind, i.text, r.name, cfg.appUrl);
+      return [{ employeeId: r.id, to: r.email, kind, subject: letter.subject, body: letter.body }];
+    });
+    if (data.length) await tx.emailOutbox.createMany({ data });
+  }
+
   async enqueue(tx: Db, employeeId: number | null, to: string, kind: string, letter: Letter): Promise<void> {
     await tx.emailOutbox.create({ data: { employeeId, to, kind, subject: letter.subject, body: letter.body } });
   }

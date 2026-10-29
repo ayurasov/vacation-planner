@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { api, type Department, type Employee, type Page } from '@/api/client';
+import { api, type AccountSecurity, type Department, type Employee, type Page } from '@/api/client';
 import { useUiStore } from '@/stores/ui';
 import { useAuthStore } from '@/stores/auth';
-import { fmtNumber } from '@/lib/dates';
+import { fmtDateTime, fmtNumber } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import VacationForm from '@/components/VacationForm.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
+import DelegationEditor from '@/components/DelegationEditor.vue';
 import { vDialog } from '@/directives/dialog';
 
 const ui = useUiStore();
@@ -27,6 +28,11 @@ const loading = ref(true);
 const error = ref('');
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)));
+// Политика паролей организации (v0.6.0): подсказка в форме; проверяет сервер
+const passwordMin = ref(8);
+// Учётная запись в карточке: последний вход, блокировка, одноразовый пароль, сеансы (v0.6.0)
+const security = ref<AccountSecurity | null>(null);
+const securityBusy = ref(false);
 
 // ── Форма сотрудника
 const formOpen = ref(false);
@@ -37,6 +43,7 @@ const managers = ref<Employee[]>([]);
 const emptyForm = () => ({
   name: '', email: '', position: '', deptId: null as number | null, managerId: null as number | null,
   role: 'employee', empType: 'staff', isAdmin: false, isHr: false, plannedDays: 28, carryOver: 0, login: '', password: '',
+  personnelNumber: '',
 });
 const form = ref(emptyForm());
 const secret = ref<{ title: string; login: string; password: string } | null>(null);
@@ -98,11 +105,57 @@ function openEdit(e: Employee): void {
   form.value = {
     name: e.name, email: e.email ?? '', position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
     role: e.role, empType: e.empType, isAdmin: e.isAdmin, isHr: e.isHr, plannedDays: e.plannedDays, carryOver: e.carryOver,
-    login: e.login, password: '',
+    login: e.login, password: '', personnelNumber: e.personnelNumber ?? '',
   };
   formError.value = '';
   formOpen.value = true;
   void loadManagers(e.deptId);
+  void loadSecurity(e);
+}
+
+async function loadSecurity(e: Employee): Promise<void> {
+  security.value = null;
+  if (!canTouch(e)) return;
+  try {
+    security.value = await api.get<AccountSecurity>(`/employees/${e.id}/security`);
+  } catch { /* блок учётной записи не показывается */ }
+}
+
+async function unlock(): Promise<void> {
+  const e = editing.value;
+  if (!e) return;
+  securityBusy.value = true;
+  try {
+    await api.post(`/employees/${e.id}/unlock`);
+    ui.toast(`${e.name}: блокировка входа снята`);
+    await loadSecurity(e);
+  } catch (err) {
+    ui.error(err);
+  } finally {
+    securityBusy.value = false;
+  }
+}
+
+async function endSessions(): Promise<void> {
+  const e = editing.value;
+  if (!e) return;
+  const answer = await ui.ask({
+    title: `Завершить все сеансы — ${e.name}?`,
+    text: 'Сотрудник выйдет на всех устройствах в течение 10 секунд; пароль не меняется.',
+    confirmLabel: 'Завершить сеансы',
+    danger: true,
+  });
+  if (!answer.ok) return;
+  securityBusy.value = true;
+  try {
+    const r = await api.post<{ revoked: number }>(`/employees/${e.id}/sessions/revoke`);
+    ui.toast(`Завершено сеансов: ${r.revoked}`);
+    await loadSecurity(e);
+  } catch (err) {
+    ui.error(err);
+  } finally {
+    securityBusy.value = false;
+  }
 }
 
 async function save(): Promise<void> {
@@ -116,6 +169,8 @@ async function save(): Promise<void> {
     ...(auth.isAdmin ? { isAdmin: f.isAdmin, isHr: f.isHr } : {}),
     // Дни — до сотых, как в импорте: округление до целых меняло перенос 3,5 → 4 при любой правке карточки
     plannedDays: Math.round(Number(f.plannedDays) * 100) / 100, carryOver: Math.round(Number(f.carryOver) * 100) / 100,
+    // Пустое поле в карточке — очистить номер; при создании — не передавать
+    personnelNumber: f.personnelNumber.trim() || (editing.value ? null : undefined),
   };
   try {
     if (editing.value) {
@@ -144,23 +199,17 @@ async function save(): Promise<void> {
   }
 }
 
-function randomPassword(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = crypto.getRandomValues(new Uint8Array(12));
-  return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
-}
-
 async function resetPassword(e: Employee): Promise<void> {
   const answer = await ui.ask({
     title: `Сбросить пароль — ${e.name}?`,
-    text: 'Будет создан новый одноразовый пароль; текущие сеансы сотрудника завершатся.',
+    text: 'Будет выдан новый одноразовый пароль — сотрудник сменит его при первом входе; текущие сеансы завершатся.',
     confirmLabel: 'Сбросить пароль',
   });
   if (!answer.ok) return;
-  const password = randomPassword();
   try {
-    await api.put(`/employees/${e.id}/password`, { newPassword: password });
-    secret.value = { title: 'Пароль сброшен', login: e.login, password };
+    // Пароль выдаёт сервер: не короче политики организации и с требованием сменить при первом входе
+    const r = await api.post<{ temporaryPassword: string }>(`/employees/${e.id}/password-reset`);
+    secret.value = { title: 'Пароль сброшен', login: e.login, password: r.temporaryPassword };
   } catch (err) {
     ui.error(err);
   }
@@ -195,6 +244,7 @@ async function copySecret(): Promise<void> {
 
 onMounted(async () => {
   void reload();
+  api.get<{ minLength: number }>('/auth/password-policy').then((p) => { passwordMin.value = p.minLength; }).catch(() => undefined);
   try {
     departments.value = await api.get<Department[]>('/departments');
   } catch { /* фильтр необязателен */ }
@@ -531,16 +581,33 @@ onMounted(async () => {
               placeholder="Иванов Иван Иванович"
             >
           </div>
-          <div class="field">
-            <label for="e-email">Email <span class="soft">(для писем о заявках)</span></label>
-            <input
-              id="e-email"
-              v-model="form.email"
-              class="input"
-              type="email"
-              autocomplete="off"
-              placeholder="ivanov@company.ru"
-            >
+          <div class="field-row">
+            <div class="field">
+              <label for="e-email">Email <span class="soft">(для писем о заявках)</span></label>
+              <input
+                id="e-email"
+                v-model="form.email"
+                class="input"
+                type="email"
+                autocomplete="off"
+                placeholder="ivanov@company.ru"
+              >
+            </div>
+            <div class="field">
+              <label for="e-tab">Табельный номер</label>
+              <input
+                id="e-tab"
+                v-model="form.personnelNumber"
+                class="input"
+                maxlength="20"
+                autocomplete="off"
+                aria-describedby="e-tab-hint"
+              >
+              <span
+                id="e-tab-hint"
+                class="field-hint"
+              >Графа 4 формы Т-7 «График отпусков».</span>
+            </div>
           </div>
           <div class="field-row">
             <div class="field">
@@ -685,12 +752,93 @@ onMounted(async () => {
                 v-model="form.password"
                 class="input"
                 type="password"
-                minlength="8"
+                :minlength="passwordMin"
                 autocomplete="new-password"
-                placeholder="не короче 8 символов"
+                :placeholder="`не короче ${passwordMin} символов`"
+                aria-describedby="e-pass-hint"
               >
+              <span
+                id="e-pass-hint"
+                class="field-hint"
+              >Одноразовый: сотрудник сменит его при первом входе. Без логина и фамилии, не из распространённых.</span>
             </div>
           </div>
+          <section
+            v-if="editing && editing.role === 'manager'"
+            class="account"
+            aria-labelledby="deleg-card-title"
+          >
+            <div
+              id="deleg-card-title"
+              class="field-label"
+            >
+              Замещение руководителя
+            </div>
+            <DelegationEditor :manager-id="editing.id" />
+          </section>
+          <section
+            v-if="editing && security"
+            class="account"
+            aria-labelledby="acc-title"
+          >
+            <div
+              id="acc-title"
+              class="field-label"
+            >
+              Учётная запись
+            </div>
+            <dl class="account-grid">
+              <div>
+                <dt>Последний вход</dt>
+                <dd>{{ security.lastLoginAt ? fmtDateTime(security.lastLoginAt) : 'ещё не входил' }}</dd>
+              </div>
+              <div>
+                <dt>Пароль</dt>
+                <dd>{{ security.mustChangePassword ? 'одноразовый — сменит при первом входе' : security.passwordChangedAt ? `сменён ${fmtDateTime(security.passwordChangedAt)}` : 'задан' }}</dd>
+              </div>
+              <div>
+                <dt>Вход</dt>
+                <dd>
+                  <span
+                    v-if="security.lockedUntil"
+                    class="badge badge-danger"
+                  >заблокирован до {{ fmtDateTime(security.lockedUntil) }}</span>
+                  <template v-else>
+                    доступен<template v-if="security.failedLogins">
+                      · неудачных попыток подряд: {{ security.failedLogins }}
+                    </template>
+                  </template>
+                </dd>
+              </div>
+              <div>
+                <dt>Активные сеансы</dt>
+                <dd>{{ security.activeSessions }}</dd>
+              </div>
+            </dl>
+            <div
+              v-if="security.lockedUntil || security.activeSessions"
+              class="account-actions"
+            >
+              <button
+                v-if="security.lockedUntil"
+                class="btn btn-sm"
+                type="button"
+                :disabled="securityBusy"
+                @click="unlock"
+              >
+                Снять блокировку
+              </button>
+              <button
+                v-if="security.activeSessions"
+                class="btn btn-sm btn-danger"
+                type="button"
+                :disabled="securityBusy"
+                @click="endSessions"
+              >
+                Завершить все сеансы
+              </button>
+            </div>
+          </section>
         </div>
         <div class="modal-actions">
           <button
@@ -777,6 +925,42 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.account {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 8px 0 0;
+}
+
+.account-grid dt {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.account-grid dd {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+}
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+@media (max-width: 600px) {
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .table-card {
   overflow: hidden;
 }

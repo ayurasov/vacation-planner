@@ -46,13 +46,19 @@ tags:
   - name: notifications
     description: Уведомления пользователя
   - name: audit
-    description: Журнал изменений (только чтение)
+    description: Журнал изменений и журнал входов (только чтение)
   - name: reports
     description: Выгрузки и отчёты
   - name: imports
     description: Импорт сотрудников и остатков (кадровая служба, администратор)
   - name: events
     description: Поток событий сервера (SSE) — живые обновления без опроса
+  - name: delegations
+    description: Замещение руководителя на время отсутствия (v0.6.0)
+  - name: notices
+    description: Извещение о начале отпуска за две недели под подпись (ТК РФ, ст. 123; v0.6.0)
+  - name: planning
+    description: 'Кампания планирования на год, утверждение графика отпусков, форма Т-7 (ТК РФ, ст. 123; v0.6.0)'
 
 paths:
   /auth/login:
@@ -79,6 +85,18 @@ paths:
               schema: { $ref: '#/components/schemas/Session' }
         '401':
           $ref: '#/components/responses/Problem'
+        '403':
+          description: 'Вход по паролю отключён (единый вход, LOCAL_LOGIN=false)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '423':
+          description: >-
+            auth/account-locked — учётная запись заблокирована после неудачных попыток подряд (порог и время —
+            правила организации). Отвечается только на верный пароль; с неверным — обычный 401.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '429':
           $ref: '#/components/responses/Problem'
     x-rate-limit: 10 запросов в минуту с одного адреса
@@ -88,6 +106,10 @@ paths:
       tags: [auth]
       operationId: refresh
       summary: Новый access-токен по refresh-cookie (ротация; старый refresh отзывается)
+      description: >-
+        Ротация атомарна. Отозванный ротацией токен ещё 30 секунд принимается в том же сеансе (две вкладки
+        с одной cookie); предъявленный позже — признак кражи: сеанс завершается целиком, в журнал входов
+        пишется refresh_reuse.
       security: []
       responses:
         '200':
@@ -106,6 +128,10 @@ paths:
       tags: [auth]
       operationId: changeOwnPassword
       summary: Смена своего пароля (все сессии завершаются)
+      description: >-
+        Новый пароль проверяется политикой (validation/weak-password): длина из правил организации, без логина
+        и фамилии, не из списка распространённых, не последовательность, не совпадает с текущим. Доступна
+        и до смены одноразового пароля.
       requestBody:
         required: true
         content:
@@ -120,6 +146,405 @@ paths:
         '204': { description: Пароль изменён }
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/password-policy:
+    get:
+      tags: [auth]
+      operationId: getPasswordPolicy
+      summary: Требования к паролю — минимальная длина (для форм смены пароля)
+      security: []
+      responses:
+        '200':
+          description: Политика паролей
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [minLength]
+                properties:
+                  minLength: { type: integer, minimum: 8, maximum: 64 }
+
+  /auth/sessions:
+    get:
+      tags: [auth]
+      operationId: listMySessions
+      summary: Мои активные сеансы
+      responses:
+        '200':
+          description: Сеансы; текущий отмечен current
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/UserSession' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/sessions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [auth]
+      operationId: revokeMySession
+      summary: Завершить свой сеанс (текущий — как выход)
+      description: Завершённый сеанс перестаёт работать не позже чем через 10 секунд во всех процессах; чужой сеанс не затрагивается.
+      responses:
+        '204': { description: Сеанс завершён }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/sessions/revoke-others:
+    post:
+      tags: [auth]
+      operationId: revokeOtherSessions
+      summary: Завершить все свои сеансы, кроме текущего
+      responses:
+        '200':
+          description: Сколько сеансов завершено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: integer }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /login-events:
+    get:
+      tags: [audit]
+      operationId: listLoginEvents
+      summary: Журнал входов (администратор, кадровая служба)
+      description: Срок хранения — правило организации loginRetentionDays; старые записи удаляет ежедневная задача.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - { name: employee, in: query, schema: { type: integer } }
+        - { name: login, in: query, description: Часть логина без учёта регистра, schema: { type: string, maxLength: 64 } }
+        - { name: result, in: query, schema: { $ref: '#/components/schemas/LoginResult' } }
+        - { name: failed, in: query, description: Только неуспешные попытки, schema: { type: boolean } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Страница журнала, новые сверху
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LoginEvent' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /delegations:
+    get:
+      tags: [delegations]
+      operationId: listDelegations
+      summary: 'Замещения: переданные мной и полученные мной (действующие и будущие)'
+      parameters:
+        - { name: manager, in: query, description: 'Замещения другого руководителя — кадровая служба', schema: { type: integer } }
+      responses:
+        '200':
+          description: given — передал руководитель, received — получил сотрудник
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  given: { type: array, items: { $ref: '#/components/schemas/Delegation' } }
+                  received: { type: array, items: { $ref: '#/components/schemas/Delegation' } }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [delegations]
+      operationId: createDelegation
+      summary: Передать согласование заместителю на период
+      description: >-
+        Руководитель — себе (managerId не указан) или кадровая служба — за руководителя. На период заместитель
+        видит заявки команды руководителя в очереди (scope=approvals), согласует и отклоняет их, получает
+        уведомления о новых; свои заявки не согласует. Одно замещение руководителя на любой день; не дольше года.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deputyId, start, end]
+              properties:
+                managerId: { type: integer }
+                deputyId: { type: integer }
+                start: { type: string, format: date }
+                end: { type: string, format: date }
+      responses:
+        '201':
+          description: Замещение назначено; заместитель уведомлён; запись в аудите
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Delegation' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /delegations/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [delegations]
+      operationId: revokeDelegation
+      summary: Отменить замещение (руководитель или кадровая служба)
+      responses:
+        '204': { description: Замещение отменено; запись в аудите }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /notices/mine:
+    get:
+      tags: [notices]
+      operationId: listMyNotices
+      summary: Мои действующие извещения о начале отпуска (предстоящие и за последние 90 дней)
+      responses:
+        '200':
+          description: Извещения по дате начала отпуска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/VacationNotice' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /notices:
+    get:
+      tags: [notices]
+      operationId: listNotices
+      summary: Журнал извещений (кадровая служба, администратор)
+      description: >-
+        Извещения по отпускам, начинающимся в периоде (не больше года). Извещение отправляется само за
+        noticeDays дней до начала согласованного ежегодного отпуска (не меньше 14); отпуск, согласованный
+        позже, — сразу, с отметкой late. Отпуск отменён или перенесён — извещение отозвано (withdrawnAt).
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - name: status
+          in: query
+          description: 'pending — не подтверждено; acknowledged — подтверждено; overdue — не подтверждено, а до начала 3 дня и меньше'
+          schema: { type: string, enum: [pending, acknowledged, overdue] }
+        - { name: dept, in: query, description: Название отдела, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Страница журнала по дате начала отпуска
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/VacationNotice' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+                  unacknowledged: { type: integer, description: Не подтверждённых действующих извещений с учётом фильтров }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /notices/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [notices]
+      operationId: getNotice
+      summary: Извещение для печати под подпись (сотрудник — своё, кадровая служба — любое)
+      responses:
+        '200':
+          description: Извещение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VacationNotice' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /notices/{id}/acknowledge:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [notices]
+      operationId: acknowledgeNotice
+      summary: Ознакомлен с извещением (только сам сотрудник)
+      description: Повтор ничего не меняет. Отозванное извещение подтвердить нельзя (400).
+      responses:
+        '204': { description: Ознакомление отмечено; запись в аудите (notice.acknowledged) }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /planning/mine:
+    get:
+      tags: [planning]
+      operationId: getMyPlanning
+      summary: Открытая кампания планирования и мой прогресс
+      description: Ближайшая открытая кампания текущего или следующего года; ИП и самозанятым — campaign null.
+      responses:
+        '200':
+          description: Приглашение и прогресс
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign:
+                    type: [object, 'null']
+                    properties:
+                      year: { type: integer }
+                      deadline: { type: string, format: date }
+                      overdue: { type: boolean, description: Срок прошёл, а кампания ещё открыта }
+                  plan:
+                    oneOf:
+                      - $ref: '#/components/schemas/EmployeePlan'
+                      - type: 'null'
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /planning/{year}:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer, minimum: 2000, maximum: 2100 } }
+    get:
+      tags: [planning]
+      operationId: getPlanning
+      summary: Кампания, утверждение и прогресс по отделам (кадровая служба, администратор)
+      responses:
+        '200':
+          description: Состояние года
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanningOverview' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /planning/{year}/employees:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [planning]
+      operationId: listPlanningEmployees
+      summary: Прогресс планирования по сотрудникам (кадровая служба)
+      parameters:
+        - { name: deptId, in: query, description: 'Отдел; 0 — без отдела', schema: { type: integer, minimum: 0 } }
+        - { name: status, in: query, schema: { type: string, enum: [none, partial, done] } }
+      responses:
+        '200':
+          description: Сотрудники по ФИО
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/EmployeePlan' } }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /planning/{year}/open:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [planning]
+      operationId: openPlanning
+      summary: Открыть планирование на год, открыть снова или изменить срок
+      description: >-
+        Текущий или следующий год, срок — с сегодняшнего дня до конца года; после утверждения графика — нельзя.
+        Открытие (и повторное открытие) приглашает всех штатных сотрудников — уведомление и письмо; изменение
+        срока открытой кампании не рассылает ничего. В аудите planning.opened / planning.updated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deadline]
+              properties:
+                deadline: { type: string, format: date }
+      responses:
+        '200':
+          description: Состояние года
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanningOverview' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /planning/{year}/close:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [planning]
+      operationId: closePlanning
+      summary: Закрыть планирование (planning.closed в аудите)
+      responses:
+        '200':
+          description: Состояние года
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanningOverview' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /planning/{year}/remind:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [planning]
+      operationId: remindPlanning
+      summary: Напомнить не спланировавшим отпуск
+      description: >-
+        Тем, у кого запланировано меньше нормы или нет части не короче 14 календарных дней, — уведомление и
+        письмо с их цифрами. Вручную — не чаще раза в час; автоматически — один раз за 3 дня до срока.
+      responses:
+        '200':
+          description: Сколько напоминаний отправлено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: integer }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /planning/{year}/approve:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [planning]
+      operationId: approveSchedule
+      summary: Утвердить график отпусков на год
+      description: >-
+        Один раз и до начала года. Фиксирует снимок согласованных отпусков действующих штатных сотрудников
+        (по дате начала) с номером и датой документа и отметкой о мнении профсоюза; закрывает кампанию;
+        schedule.approved в аудите. Заявки на согласовании в снимок не входят; без согласованных отпусков — 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [docNumber, docDate]
+              properties:
+                docNumber: { type: string, minLength: 1, maxLength: 30 }
+                docDate: { type: string, format: date, description: Дата составления — не позже сегодняшней }
+                unionOpinionDate: { type: string, format: date }
+                unionOpinionNumber: { type: string, maxLength: 30 }
+      responses:
+        '201':
+          description: Состояние года с утверждением
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanningOverview' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
 
   /auth/logout:
     post:
@@ -303,7 +728,11 @@ paths:
     put:
       tags: [employees]
       operationId: changePassword
-      summary: Смена пароля (свой — со старым, чужой — только администратор)
+      summary: Смена пароля (свой — со старым; чужой — кадровая служба, пароль одноразовый)
+      description: >-
+        Пароль проверяется политикой (validation/weak-password). Пароль, заданный кадровой службой, сотрудник
+        меняет при первом входе: до смены API отвечает auth/password-change-required на всё, кроме профиля,
+        смены пароля и выхода.
       requestBody:
         required: true
         content:
@@ -319,6 +748,78 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    post:
+      tags: [employees]
+      operationId: resetPassword
+      summary: Сброс пароля — сервер выдаёт одноразовый пароль (кадровая служба)
+      description: Пароль случайный, не короче политики; все сеансы сотрудника завершаются; сброс — в аудите без самого пароля.
+      responses:
+        '200':
+          description: Одноразовый пароль — показать сотруднику один раз
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [temporaryPassword]
+                properties:
+                  temporaryPassword: { type: string }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/security:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [employees]
+      operationId: getEmployeeSecurity
+      summary: 'Учётная запись: последний вход, блокировка, одноразовый пароль, сеансы (кадровая служба)'
+      responses:
+        '200':
+          description: Состояние учётной записи
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountSecurity' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/unlock:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    post:
+      tags: [employees]
+      operationId: unlockEmployee
+      summary: Снять блокировку после неудачных попыток входа (кадровая служба)
+      responses:
+        '204': { description: Блокировка снята, счётчик неудач обнулён }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/sessions/revoke:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    post:
+      tags: [employees]
+      operationId: revokeEmployeeSessions
+      summary: Завершить все сеансы сотрудника (кадровая служба)
+      responses:
+        '200':
+          description: Сколько сеансов завершено; действие — в аудите
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: integer }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 
   /employees/{id}/balance:
     parameters:
@@ -431,7 +932,13 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
-        - { name: scope, in: query, schema: { type: string, enum: [mine, subordinates, all], default: mine } }
+        - name: scope
+          in: query
+          description: >-
+            mine — свои; subordinates — прямых подчинённых; approvals (v0.6.0) — ждут моего решения: подчинённые
+            и сотрудники руководимого отдела без своего руководителя, команда замещаемого руководителя,
+            переданные мне эскалацией (своих нет); all — все (администратор)
+          schema: { type: string, enum: [mine, subordinates, approvals, all], default: mine }
         - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, cancelled] } }
         - { name: employee, in: query, schema: { type: integer }, description: Идентификатор сотрудника }
       responses:
@@ -1083,6 +1590,46 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+  /reports/t7:
+    get:
+      tags: [reports, planning]
+      operationId: exportT7
+      summary: График отпусков по унифицированной форме Т-7 (XLSX; кадровая служба)
+      description: >-
+        ОКУД 0301020, графы 1–10. Утверждённый график — строки снимка с номером и датой документа; перенос после
+        утверждения — графы 8–9 (основание — согласованная заявка, дата предполагаемого отпуска), отмена — в
+        примечании; графа 7 — фактическое начало начавшегося отпуска. До утверждения — проект по согласованным
+        отпускам на сегодня. report.exported в аудите.
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer, minimum: 2000, maximum: 2100 } }
+      responses:
+        '200':
+          description: XLSX-файл
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /reports/notices:
+    get:
+      tags: [reports, notices]
+      operationId: exportNotices
+      summary: Журнал извещений за период (XLSX; кадровая служба, администратор)
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: XLSX-файл; запись в аудите (report.exported)
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
   /analytics/departments:
     get:
       tags: [analytics]
@@ -1317,6 +1864,7 @@ components:
           type: object
           properties:
             approveSubordinates: { type: array, items: { type: integer }, description: Идентификаторы подчинённых }
+            approvals: { type: boolean, description: 'Есть что согласовывать: команда, замещение руководителя или эскалированные заявки — раздел «Заявки» (v0.6.0)' }
             isAdmin: { type: boolean }
             isHr: { type: boolean, description: Кадровая служба }
             manageStaff: { type: boolean, description: 'Сотрудники, импорт, календарь, выгрузки, аудит (администратор или кадровая служба)' }
@@ -1343,6 +1891,8 @@ components:
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
         isActive: { type: boolean }
+        personnelNumber: { type: [string, 'null'], pattern: '^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$', description: 'Табельный номер — графа 4 формы Т-7; уникален (v0.6.0)' }
+        mustChangePassword: { type: boolean, description: 'Только в /auth/me: пароль выдан кадровой службой — сменить до работы (v0.6.0)' }
 
     EmployeeCreate:
       type: object
@@ -1362,6 +1912,7 @@ components:
         password: { type: string, minLength: 8, description: 'Не задан — генерируется, возвращается один раз' }
         plannedDays: { type: number, minimum: 0, default: 28 }
         carryOver: { type: number, minimum: 0, default: 0 }
+        personnelNumber: { type: [string, 'null'], pattern: '^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$', description: 'Табельный номер — графа 4 формы Т-7; уникален (v0.6.0)' }
 
     EmployeeUpdate:
       type: object
@@ -1379,6 +1930,7 @@ components:
         projectId: { type: [integer, 'null'] }
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
+        personnelNumber: { type: [string, 'null'], pattern: '^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$', description: 'null или пустая строка — очистить' }
 
     PageMeta:
       type: object
@@ -1408,6 +1960,9 @@ components:
         changeFrom: { type: object, properties: { start: { type: string, format: date }, end: { type: string, format: date } }, description: 'Прежние даты при переносе' }
         comment: { type: string }
         rejectionComment: { type: string }
+        pendingSince: { type: [string, 'null'], format: date-time, description: 'С какого момента ждёт решения (v0.6.0): создание, перенос, запрос удаления' }
+        escalatedTo: { type: [integer, 'null'], description: 'Кому передана эскалацией (v0.6.0); null при escalatedAt — уведомлена кадровая служба' }
+        escalatedAt: { type: [string, 'null'], format: date-time, description: 'Когда передана эскалацией; новый запрос сбрасывает' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         history:
@@ -1521,7 +2076,20 @@ components:
       properties:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80, description: 'Порог доли отсутствующих в отделе для конфликта, %' }
         timezone: { type: string, default: 'Europe/Moscow' }
+        limitPolicy: { type: string, enum: [hard, soft] }
         defaultPlannedDays: { type: integer, default: 28 }
+        passwordMinLength: { type: integer, minimum: 8, maximum: 64, default: 8, description: Минимальная длина пароля }
+        lockoutThreshold: { type: integer, minimum: 0, maximum: 50, default: 10, description: 'Неудачных попыток входа подряд до блокировки; 0 — без блокировки' }
+        lockoutMinutes: { type: integer, minimum: 1, maximum: 1440, default: 15, description: Время блокировки }
+        loginRetentionDays: { type: integer, minimum: 30, maximum: 3650, default: 365, description: Срок хранения журнала входов }
+        escalationDays: { type: integer, minimum: 0, maximum: 60, default: 0, description: 'Дней без решения до передачи заявки вышестоящему; 0 — не передаётся' }
+        noticeDays: { type: integer, minimum: 14, maximum: 60, default: 14, description: 'За сколько дней до начала отпуска извещать (ст. 123 ТК РФ — не меньше двух недель)' }
+        orgName: { type: [string, 'null'], description: Наименование организации — шапка формы Т-7 }
+        orgOkpo: { type: [string, 'null'], description: Код по ОКПО }
+        headPosition: { type: [string, 'null'], description: 'Должность руководителя, утверждающего график («УТВЕРЖДАЮ»)' }
+        headName: { type: [string, 'null'] }
+        hrHeadPosition: { type: [string, 'null'], description: 'Руководитель кадровой службы — подпись под графиком' }
+        hrHeadName: { type: [string, 'null'] }
         mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
@@ -1530,7 +2098,161 @@ components:
       properties:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80 }
         timezone: { type: string }
+        limitPolicy: { type: string, enum: [hard, soft] }
         defaultPlannedDays: { type: integer, minimum: 20, maximum: 60 }
+        passwordMinLength: { type: integer, minimum: 8, maximum: 64 }
+        lockoutThreshold: { type: integer, minimum: 0, maximum: 50, description: '0 или от 3' }
+        lockoutMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        loginRetentionDays: { type: integer, minimum: 30, maximum: 3650 }
+        escalationDays: { type: integer, minimum: 0, maximum: 60 }
+        noticeDays: { type: integer, minimum: 14, maximum: 60 }
+        orgName: { type: string, maxLength: 300, description: Пустая строка — очистить (так же остальные реквизиты) }
+        orgOkpo: { type: string, pattern: '^(\d{8}|\d{10})?$' }
+        headPosition: { type: string, maxLength: 128 }
+        headName: { type: string, maxLength: 128 }
+        hrHeadPosition: { type: string, maxLength: 128 }
+        hrHeadName: { type: string, maxLength: 128 }
+
+    Delegation:
+      type: object
+      properties:
+        id: { type: integer }
+        managerId: { type: integer }
+        managerName: { type: string }
+        deputyId: { type: integer }
+        deputyName: { type: string }
+        start: { type: string, format: date }
+        end: { type: string, format: date, description: Включительно }
+        active: { type: boolean, description: Действует сегодня }
+        createdBy: { type: [integer, 'null'] }
+        createdAt: { type: string, format: date-time }
+
+    EmployeePlan:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        position: { type: [string, 'null'] }
+        deptId: { type: [integer, 'null'] }
+        dept: { type: [string, 'null'] }
+        personnelNumber: { type: [string, 'null'] }
+        norm: { type: number, description: Норма дней в году }
+        plannedDays: { type: number, description: 'Дней отпуска (без праздников) в частях, начинающихся в году' }
+        approvedDays: { type: number }
+        pendingDays: { type: number }
+        parts: { type: integer }
+        hasFourteen: { type: boolean, description: 'Есть часть не короче 14 календарных дней (ст. 125)' }
+        status: { type: string, enum: [none, partial, done], description: 'done — норма запланирована и есть часть ≥ 14 дней' }
+
+    PlanningProgress:
+      type: object
+      properties:
+        employees: { type: integer }
+        planned: { type: integer, description: Запланировали хотя бы одну часть }
+        done: { type: integer, description: Запланировали полностью }
+        withFourteen: { type: integer }
+        plannedDays: { type: number }
+        normDays: { type: number }
+
+    PlanningOverview:
+      type: object
+      properties:
+        year: { type: integer }
+        campaign:
+          type: [object, 'null']
+          properties:
+            year: { type: integer }
+            deadline: { type: string, format: date }
+            open: { type: boolean }
+            openedAt: { type: string, format: date-time }
+            openedBy: { type: [string, 'null'] }
+            closedAt: { type: [string, 'null'], format: date-time }
+            remindedAt: { type: [string, 'null'], format: date-time }
+        approval:
+          type: [object, 'null']
+          properties:
+            year: { type: integer }
+            docNumber: { type: string }
+            docDate: { type: string, format: date }
+            unionOpinionDate: { type: [string, 'null'], format: date }
+            unionOpinionNumber: { type: [string, 'null'] }
+            approvedAt: { type: string, format: date-time }
+            approvedBy: { type: [string, 'null'] }
+            rows: { type: integer, description: Строк в утверждённом графике }
+        approvedParts: { type: integer, description: 'Согласованных отпусков года — столько строк войдёт в график при утверждении сейчас' }
+        totals: { $ref: '#/components/schemas/PlanningProgress' }
+        departments:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/PlanningProgress'
+              - type: object
+                properties:
+                  deptId: { type: [integer, 'null'] }
+                  dept: { type: [string, 'null'] }
+        warnings:
+          type: object
+          properties:
+            pendingRequests: { type: integer, description: 'Заявки года на согласовании — в утверждённый график не войдут' }
+            missingPersonnelNumbers: { type: integer, description: Сотрудники с согласованным отпуском без табельного номера }
+            missingRequisites: { type: array, items: { type: string }, description: Незаполненные реквизиты формы Т-7 }
+
+    VacationNotice:
+      type: object
+      properties:
+        id: { type: integer }
+        requestId: { type: integer }
+        employeeId: { type: integer }
+        employeeName: { type: string }
+        position: { type: [string, 'null'] }
+        dept: { type: [string, 'null'] }
+        start: { type: string, format: date }
+        end: { type: string, format: date, description: Включительно }
+        days: { type: number, description: Дней отпуска без праздников (ст. 120) }
+        sentAt: { type: string, format: date-time, description: Извещён }
+        late: { type: boolean, description: 'Извещён позже чем за 14 дней: работник вправе попросить перенос (ст. 124)' }
+        acknowledgedAt: { type: [string, 'null'], format: date-time, description: Ознакомлен }
+        withdrawnAt: { type: [string, 'null'], format: date-time, description: Отпуск отменён или перенесён }
+        overdue: { type: boolean, description: 'Не подтверждено, а до начала отпуска 3 дня и меньше' }
+
+    UserSession:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        current: { type: boolean, description: Сеанс, из которого сделан запрос }
+        method: { type: string, enum: [password, oidc] }
+        startedAt: { type: string, format: date-time, description: Вход }
+        lastActiveAt: { type: string, format: date-time, description: 'Последнее обновление токена (≈ раз в 15 минут работы)' }
+        ip: { type: [string, 'null'] }
+        device: { type: string, description: 'Браузер и система, например «Chrome 130 · Windows»' }
+
+    AccountSecurity:
+      type: object
+      properties:
+        lastLoginAt: { type: [string, 'null'], format: date-time }
+        lockedUntil: { type: [string, 'null'], format: date-time, description: Заблокирована до (null — не заблокирована) }
+        failedLogins: { type: integer, description: Неудачных попыток подряд }
+        mustChangePassword: { type: boolean, description: Пароль выдан кадровой службой и ещё не сменён }
+        passwordChangedAt: { type: [string, 'null'], format: date-time }
+        activeSessions: { type: integer }
+        sessions: { type: array, items: { $ref: '#/components/schemas/UserSession' } }
+
+    LoginResult:
+      type: string
+      enum: [success, bad_password, unknown_login, locked, rate_limited, password_disabled, sso_success, sso_unknown, refresh_reuse]
+
+    LoginEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        ts: { type: string, format: date-time }
+        employeeId: { type: [integer, 'null'], description: null — неизвестный логин }
+        employeeName: { type: [string, 'null'] }
+        login: { type: string }
+        result: { $ref: '#/components/schemas/LoginResult' }
+        method: { type: string, enum: [password, oidc, refresh] }
+        ip: { type: [string, 'null'] }
+        device: { type: string }
 
     ImportRowInput:
       type: object
@@ -1545,6 +2267,7 @@ components:
         carryOver: { type: [number, string] }
         empType: { type: string, description: '«штат» или «ИП/самозанятый»' }
         email: { type: string, format: email }
+        personnelNumber: { type: string, description: 'Табельный номер (колонка «Табельный номер»)' }
 
     ImportResult:
       type: object

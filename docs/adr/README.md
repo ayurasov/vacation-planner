@@ -18,3 +18,6 @@
 | [ADR-012](ADR-012-shared-state-postgres.md) | Кластер процессов и общее состояние только в PostgreSQL | Принято |
 | [ADR-013](ADR-013-sse-postgres-polling.md) | Живые обновления — SSE и опрос PostgreSQL | Принято |
 | [ADR-014](ADR-014-replica-wal-archive.md) | Потоковая реплика и архив WAL средствами PostgreSQL | Принято |
+| [ADR-015](ADR-015-sessions-lockout.md) | Сеансы как цепочки refresh-токенов, блокировка и журнал входов в PostgreSQL | Принято |
+| [ADR-016](ADR-016-schedule-snapshot.md) | Утверждённый график — неизменяемый снимок, переносы — по текущим заявкам | Принято |
+| [ADR-017](ADR-017-scheduled-jobs.md) | Плановые задачи в каждом процессе, идемпотентность в PostgreSQL | Принято |

@@ -22,20 +22,27 @@ export function translitLogin(name: string): string {
   return `${last}.${initials.join('')}`;
 }
 
-export function generatePassword(): string {
-  return randomBytes(6).toString('base64url');
+/** Случайный пароль для выдачи сотруднику; не короче 10 символов (base64url — 6 бит на символ). */
+export function generatePassword(length = 10): string {
+  const n = Math.max(length, 10);
+  return randomBytes(Math.ceil((n * 3) / 4)).toString('base64url').slice(0, n);
+}
+
+/** Длина выдаваемого пароля — не меньше минимальной по политике организации (v0.6.0). */
+export async function oneTimePasswordLength(prisma: { orgSettings: { findUnique: (a: { where: { id: number } }) => Promise<{ passwordMinLength: number } | null> } }): Promise<number> {
+  return (await prisma.orgSettings.findUnique({ where: { id: 1 } }))?.passwordMinLength ?? 10;
 }
 
 export function toPublic(e: {
   id: number; login: string; name: string; email: string | null; position: string | null; deptId: number | null;
   role: string; isAdmin: boolean; isHr: boolean; empType: string; managerId: number | null; projectId: number | null;
-  plannedDays: number; carryOver: number; isActive: boolean;
+  plannedDays: number; carryOver: number; isActive: boolean; personnelNumber: string | null;
 }) {
   return {
     id: e.id, login: e.login, name: e.name, email: e.email, position: e.position, deptId: e.deptId,
     role: e.role, isAdmin: e.isAdmin, isHr: e.isHr, empType: e.empType, managerId: e.managerId,
     projectId: e.projectId, plannedDays: e.plannedDays, carryOver: e.carryOver,
-    isActive: e.isActive,
+    isActive: e.isActive, personnelNumber: e.personnelNumber,
   };
 }
 
@@ -76,6 +83,7 @@ export class EmployeesService {
         OR: [
           { name: { contains: params.search, mode: 'insensitive' as const } },
           { position: { contains: params.search, mode: 'insensitive' as const } },
+          { personnelNumber: params.search.trim() },
         ],
       } : {}),
     };
@@ -103,7 +111,7 @@ export class EmployeesService {
   async create(actor: StaffActor, input: {
     name: string; email?: string; position?: string; deptId?: number; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number; projectId?: number; login?: string;
-    password?: string; plannedDays?: number; carryOver?: number;
+    password?: string; plannedDays?: number; carryOver?: number; personnelNumber?: string | null;
   }): Promise<{ employee: ReturnType<typeof toPublic>; generatedPassword?: string }> {
     assertGrants(actor, input, { isAdmin: false, isHr: false });
     const actorId = actor.id;
@@ -111,7 +119,8 @@ export class EmployeesService {
     const dup = await this.prisma.employee.findFirst({ where: { login } });
     if (dup) throw new ProblemException('validation/invalid-field', `Логин «${login}» уже занят`);
     await this.assertEmailFree(input.email);
-    const generated = input.password ? undefined : generatePassword();
+    await this.assertPersonnelNumberFree(input.personnelNumber);
+    const generated = input.password ? undefined : generatePassword(await oneTimePasswordLength(this.prisma));
     const passwordHash = await hashPassword(input.password ?? generated!);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -131,6 +140,9 @@ export class EmployeesService {
           projectId: input.projectId ?? null,
           plannedDays: input.plannedDays ?? 28,
           carryOver: input.carryOver ?? 0,
+          personnelNumber: input.personnelNumber?.trim() || null,
+          // Пароль выдаёт кадровая служба — сотрудник меняет его при первом входе (v0.6.0)
+          mustChangePassword: true,
         },
       });
       await this.audit.record(tx, {
@@ -145,7 +157,7 @@ export class EmployeesService {
   async update(actor: StaffActor, id: number, input: {
     name?: string; email?: string | null; position?: string; deptId?: number | null; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number | null; projectId?: number | null;
-    plannedDays?: number; carryOver?: number;
+    plannedDays?: number; carryOver?: number; personnelNumber?: string | null;
   }) {
     const actorId = actor.id;
     const before = await this.prisma.employee.findUnique({ where: { id } });
@@ -153,6 +165,7 @@ export class EmployeesService {
     assertCanTouch(actor, before);
     assertGrants(actor, input, before);
     await this.assertEmailFree(input.email ?? undefined, id);
+    await this.assertPersonnelNumberFree(input.personnelNumber, id);
     if ((input.isAdmin === false) && before.isAdmin) {
       await this.assertNotLastAdmin(id);
     }
@@ -167,6 +180,8 @@ export class EmployeesService {
           empType: input.empType, managerId: input.managerId === undefined ? undefined : input.managerId,
           projectId: input.projectId === undefined ? undefined : input.projectId,
           plannedDays: input.plannedDays, carryOver: input.carryOver,
+          // null или пустая строка — очистить
+          personnelNumber: input.personnelNumber === undefined ? undefined : input.personnelNumber?.trim() || null,
         },
       });
       await this.audit.record(tx, {
@@ -205,6 +220,14 @@ export class EmployeesService {
       where: { email: { equals: email, mode: 'insensitive' }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     });
     if (other) throw new ProblemException('validation/invalid-field', `Адрес ${email} уже указан у другого сотрудника`);
+  }
+
+  private async assertPersonnelNumberFree(num: string | null | undefined, exceptId?: number): Promise<void> {
+    if (!num?.trim()) return;
+    const other = await this.prisma.employee.findFirst({
+      where: { personnelNumber: num.trim(), ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { name: true },
+    });
+    if (other) throw new ProblemException('validation/invalid-field', `Табельный номер ${num.trim()} уже у сотрудника ${other.name}`);
   }
 
   private async assertNotLastAdmin(id: number): Promise<void> {

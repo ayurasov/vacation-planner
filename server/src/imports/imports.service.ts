@@ -6,7 +6,7 @@ import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/passwords';
 import type { StaffActor } from '../auth/access';
-import { generatePassword, toPublic, translitLogin } from '../employees/employees.service';
+import { generatePassword, oneTimePasswordLength, toPublic, translitLogin } from '../employees/employees.service';
 import { buildImportPlan, MAX_ROWS, type ImportPlan } from './plan';
 import type { ImportRow } from './parse';
 
@@ -34,7 +34,7 @@ export class ImportsService {
       employees: employees.map((e) => ({
         id: e.id, login: e.login, name: e.name, position: e.position, deptName: e.dept?.name ?? null,
         managerId: e.managerId, plannedDays: e.plannedDays, carryOver: e.carryOver, empType: e.empType,
-        email: e.email, isAdmin: e.isAdmin, isHr: e.isHr, isActive: e.isActive,
+        email: e.email, personnelNumber: e.personnelNumber, isAdmin: e.isAdmin, isHr: e.isHr, isActive: e.isActive,
       })),
       departments: departments.map((d) => d.name),
       actorIsAdmin: actor.isAdmin,
@@ -55,9 +55,10 @@ export class ImportsService {
     // 5000 scrypt внутри транзакции не укладывались в её срок и держали соединение БД
     const creates = plan.rows.filter((x) => x.action === 'create');
     const secrets = new Map<string, { password: string; hash: string }>();
+    const length = await oneTimePasswordLength(this.prisma);
     for (let i = 0; i < creates.length; i += 64) {
       await Promise.all(creates.slice(i, i + 64).map(async (r) => {
-        const password = generatePassword();
+        const password = generatePassword(length);
         secrets.set(r.login, { password, hash: await hashPassword(password) });
       }));
     }
@@ -82,6 +83,8 @@ export class ImportsService {
             login: v.login, passwordHash: hash, name: v.name, email: v.email ?? null,
             position: v.position ?? null, deptId: deptId(v.dept) ?? null,
             plannedDays: v.plannedDays ?? 28, carryOver: v.carryOver ?? 0, empType: v.empType ?? 'staff',
+            personnelNumber: v.personnelNumber ?? null,
+            mustChangePassword: true, // выданный при импорте пароль меняется при первом входе (v0.6.0)
           },
         });
         idByLogin.set(v.login, e.id);
@@ -102,6 +105,7 @@ export class ImportsService {
             ...('carryOver' in r.changes ? { carryOver: v.carryOver } : {}),
             ...('empType' in r.changes ? { empType: v.empType } : {}),
             ...('email' in r.changes ? { email: v.email } : {}),
+            ...('personnelNumber' in r.changes ? { personnelNumber: v.personnelNumber } : {}),
           } : {}),
           ...(v.manager && (r.action === 'create' || 'manager' in r.changes) ? { managerId: managerId(v.manager) } : {}),
         };

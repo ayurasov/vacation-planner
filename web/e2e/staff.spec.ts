@@ -89,7 +89,53 @@ test('сброс пароля: открытая вкладка сотрудни�
     await expect(tab).toHaveURL(/\/login\?ended=1/, { timeout: 20000 });
     await expect(tab.getByRole('alert')).toContainText('Сеанс завершён');
   } finally {
-    await request.put(`/api/v1/employees/${id}/password`, { headers, data: { newPassword: employee.password } });
+    // Пароль от кадровой службы одноразовый (v0.6.0): сотрудник сам возвращает свой прежний пароль
+    const once = await (await request.post('/api/v1/auth/login', { data: { login: employee.login, password: 'e2e-temp-password-1' } })).json();
+    await request.post('/api/v1/auth/password', {
+      headers: { Authorization: `Bearer ${once.accessToken}` },
+      data: { oldPassword: 'e2e-temp-password-1', newPassword: employee.password },
+    });
+    await ctx.close();
+  }
+});
+
+test('одноразовый пароль: первый вход ведёт на смену пароля, после смены — обычная работа', async ({ browser, request }) => {
+  const hr = await (await request.post('/api/v1/auth/login', { data: { login: HR.login, password: HR.password } })).json();
+  const headers = { Authorization: `Bearer ${hr.accessToken}` };
+  const login = `e2e.once${Date.now() % 100000}`;
+  const created = await request.post('/api/v1/employees', { headers, data: { name: 'Первовходов Пётр Петрович', login, password: 'Ym3-copper-dawn' } });
+  expect(created.status()).toBe(201);
+  const ctx = await browser.newContext();
+  const tab = await ctx.newPage();
+  try {
+    await tab.goto('/login');
+    await tab.getByLabel('Логин').fill(login);
+    await tab.getByLabel('Пароль', { exact: true }).fill('Ym3-copper-dawn');
+    await tab.getByRole('button', { name: 'Войти' }).click();
+    await expect(tab).toHaveURL(/\/change-password$/);
+    await expect(tab.getByRole('heading', { name: 'Придумайте свой пароль' })).toBeVisible();
+    // Другие разделы недоступны, пока пароль не сменён
+    await tab.goto('/schedule');
+    await expect(tab).toHaveURL(/\/change-password$/);
+
+    await tab.getByLabel('Пароль от кадровой службы').fill('Ym3-copper-dawn');
+    await tab.getByLabel('Новый пароль', { exact: true }).fill('qwerty123456');
+    await tab.getByLabel('Повторите новый пароль').fill('qwerty123456');
+    await tab.getByRole('button', { name: 'Сохранить пароль' }).click();
+    await expect(tab.getByRole('alert')).toContainText('распространён');
+
+    await tab.getByLabel('Новый пароль', { exact: true }).fill('Vb5-silent-harbor');
+    await tab.getByLabel('Повторите новый пароль').fill('Vb5-silent-harbor');
+    await tab.getByRole('button', { name: 'Сохранить пароль' }).click();
+    await expect(tab).toHaveURL(/\/login\?changed=1/);
+    await expect(tab.getByRole('status').filter({ hasText: 'Пароль изменён' })).toBeVisible();
+
+    await tab.getByLabel('Логин').fill(login);
+    await tab.getByLabel('Пароль', { exact: true }).fill('Vb5-silent-harbor');
+    await tab.getByRole('button', { name: 'Войти' }).click();
+    await expect(tab.getByRole('heading', { level: 1, name: 'График отпусков' })).toBeVisible();
+  } finally {
+    await request.delete(`/api/v1/employees/${(await created.json()).employee.id}`, { headers });
     await ctx.close();
   }
 });

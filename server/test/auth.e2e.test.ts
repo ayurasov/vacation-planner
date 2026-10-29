@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 // E2E: аутентификация и сессии (критерии историй E01-xx, docs/specs/03-backlog.md).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createExtraApp, createTestApp, destroyTestApp, login, type TestApp } from './helpers';
@@ -89,9 +90,34 @@ describe('POST /api/v1/auth/refresh', () => {
     expect(first.body.accessToken).toBeTypeOf('string');
     expect(cookieDays(first.headers['set-cookie'] as unknown as string[])).toBeGreaterThan(29);
 
-    // Повторное использование старого refresh отклоняется (ротация)
-    const second = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
-    expect(second.status).toBe(401);
+    // Старый refresh в первые 30 секунд после ротации ещё принимается — так работают две вкладки
+    // с одной cookie (v0.6.0); сеанс тот же
+    const parallel = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
+    expect(parallel.status).toBe(200);
+    const fresh = (parallel.headers['set-cookie'] as unknown as string[]).find((c) => c.startsWith('vp_refresh='))!;
+
+    // Позже повторное предъявление старого токена — признак кражи: сеанс завершается целиком,
+    // и даже последний выданный токен больше не работает
+    const hash = createHash('sha256').update(cookie!.split(';')[0].slice('vp_refresh='.length)).digest('hex');
+    await t.prisma.refreshToken.update({ where: { tokenHash: hash }, data: { revokedAt: new Date(Date.now() - 60_000) } });
+    const reuse = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
+    expect(reuse.status).toBe(401);
+    expect((await t.http().post('/api/v1/auth/refresh').set('Cookie', fresh)).status).toBe(401);
+    const journal = await t.prisma.loginEvent.findFirst({ where: { employeeId: t.employee.id, result: 'refresh_reuse' } });
+    expect(journal).not.toBeNull();
+  });
+
+  it('два одновременных обновления одним токеном не выдают две независимые пары: ротация атомарна', async () => {
+    const loginRes = await t.http().post('/api/v1/auth/login').send({ login: t.employee.login, password: t.employee.password });
+    const cookie = (loginRes.headers['set-cookie'] as string[]).find((c) => c.startsWith('vp_refresh='))!;
+    const [a, b] = await Promise.all([
+      t.http().post('/api/v1/auth/refresh').set('Cookie', cookie),
+      t.http().post('/api/v1/auth/refresh').set('Cookie', cookie),
+    ]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    // Оба ответа — в одном сеансе: завершение сеанса гасит оба
+    const sid = (tok: string) => JSON.parse(Buffer.from(tok.split('.')[1], 'base64url').toString()).sid as string;
+    expect(sid(a.body.accessToken)).toBe(sid(b.body.accessToken));
   });
 });
 
@@ -99,8 +125,9 @@ describe('смена пароля', () => {
   it('увольнение сразу закрывает доступ по выданному токену', async () => {
     const adm = await login(t, t.admin);
     const created = await t.http().post('/api/v1/employees').set('Authorization', `Bearer ${adm}`)
-      .send({ name: 'Уходящий Иван Иванович', login: 'leaving.ii', password: 'leaving-pass-123' });
-    const token = await login(t, { login: 'leaving.ii', password: 'leaving-pass-123' });
+      .send({ name: 'Уходящий Иван Иванович', login: 'leaving.ii', password: 'Kq7-river-stone' });
+    expect(created.status).toBe(201);
+    const token = await login(t, { login: 'leaving.ii', password: 'Kq7-river-stone' });
     expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`)).status).toBe(200);
     await t.http().delete(`/api/v1/employees/${created.body.employee.id}`).set('Authorization', `Bearer ${adm}`);
     expect((await t.http().get('/api/v1/schedule?from=2027-01-01&to=2027-01-31').set('Authorization', `Bearer ${token}`)).status).toBe(401);

@@ -16,6 +16,10 @@ export const useAuthStore = defineStore('auth', {
     /** Кадровые разделы: администратор или кадровая служба. */
     isStaff: (s) => s.me?.permissions.manageStaff ?? false,
     isApprover: (s) => (s.me?.permissions.approveSubordinates.length ?? 0) > 0,
+    /** Раздел «Заявки»: своя команда, замещение руководителя или эскалированные заявки (v0.6.0). */
+    hasApprovals: (s) => s.me?.permissions.approvals ?? (s.me?.permissions.approveSubordinates.length ?? 0) > 0,
+    /** Пароль выдан кадровой службой и ещё не сменён: доступна только смена пароля (v0.6.0). */
+    mustChangePassword: (s) => s.me?.employee.mustChangePassword ?? false,
     displayName: (s) => {
       const name = s.me?.employee.name ?? '';
       const parts = name.split(' ');

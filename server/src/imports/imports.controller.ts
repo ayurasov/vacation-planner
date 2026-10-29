@@ -13,7 +13,7 @@ import { ImportsService } from './imports.service';
 import { ImportFormatError, parseImportFile, TEMPLATE_HEADERS, type ImportRow } from './parse';
 
 const MAX_FILE = 2 * 1024 * 1024;
-const FIELDS = ['name', 'login', 'position', 'dept', 'manager', 'plannedDays', 'carryOver', 'empType', 'email'] as const;
+const FIELDS = ['name', 'login', 'position', 'dept', 'manager', 'plannedDays', 'carryOver', 'empType', 'email', 'personnelNumber'] as const;
 
 interface UploadedImport { buffer: Buffer; originalname: string; size: number }
 
@@ -74,7 +74,7 @@ export class ImportsController {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Сотрудники');
     ws.addRow(TEMPLATE_HEADERS);
-    ws.addRow(['Иванов Иван Иванович', 'ivanov.ii', 'Инженер', 'ИТ служба', 'petrov.pp', 28, 3, 'штат', 'ivanov@example.ru']);
+    ws.addRow(['Иванов Иван Иванович', 'ivanov.ii', 'Инженер', 'ИТ служба', 'petrov.pp', 28, 3, 'штат', 'ivanov@example.ru', '00042']);
     ws.getRow(1).font = { bold: true };
     ws.columns.forEach((c) => { c.width = 22; });
     ws.views = [{ state: 'frozen', ySplit: 1 }];
@@ -89,6 +89,7 @@ export class ImportsController {
       ['Перенос', 'Неиспользованный остаток прошлых лет'],
       ['Тип занятости', '«штат» или «ИП/самозанятый»'],
       ['Email', 'Для писем о решениях'],
+      ['Табельный номер', 'Графа 4 формы Т-7 «График отпусков»; уникален в организации'],
       ['', 'Пустая ячейка — значение не меняется. Повторная загрузка того же файла ничего не меняет.'],
     ].forEach((r) => help.addRow(r));
     help.getColumn(1).width = 18;

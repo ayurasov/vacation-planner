@@ -16,6 +16,13 @@ const TARGET: Record<string, string> = {
   request_approved: '/my',
   request_rejected: '/my',
   request_cancelled: '/my',
+  request_escalated: '/approvals',
+  delegation_assigned: '/approvals',
+  request_stalled: '/employees',
+  account_locked: '/settings',
+  vacation_notice: '/my',
+  planning_open: '/my',
+  planning_reminder: '/my',
 };
 
 function open(n: { id: number; kind: string }): void {
@@ -34,6 +41,13 @@ const KIND_ICON: Record<string, { icon: string; tone: string }> = {
   request_rejected: { icon: 'close', tone: 'danger' },
   request_cancelled: { icon: 'trash', tone: 'muted' },
   request_created: { icon: 'approvals', tone: 'info' },
+  request_escalated: { icon: 'clock', tone: 'warning' },
+  request_stalled: { icon: 'clock', tone: 'warning' },
+  delegation_assigned: { icon: 'swap', tone: 'info' },
+  account_locked: { icon: 'shield', tone: 'danger' },
+  vacation_notice: { icon: 'vacation', tone: 'info' },
+  planning_open: { icon: 'schedule', tone: 'info' },
+  planning_reminder: { icon: 'schedule', tone: 'warning' },
 };
 
 function meta(kind: string) {

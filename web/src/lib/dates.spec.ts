@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addDays, calendarDays, dayIndex, daysInYear, fmtDays, fmtNumber, fmtRange, holidaysIn, isWeekend, monthsOf, plural,
+  addDays, calendarDays, dayIndex, daysInYear, fmtDateTime, fmtDays, fmtNumber, fmtRange, holidaysIn, isWeekend, monthsOf, plural,
   relativeToToday, vacationDays,
 } from './dates';
 
@@ -42,6 +42,12 @@ describe('дни отпуска (ТК РФ ст. 120)', () => {
 });
 
 describe('форматирование', () => {
+  it('момент времени: без года в текущем году, с годом — в другом', () => {
+    const now = new Date(2026, 9, 29, 12, 0);
+    expect(fmtDateTime(new Date(2026, 9, 28, 10, 12).toISOString(), now)).toMatch(/^28 окт\.?,? 10:12$/);
+    expect(fmtDateTime(new Date(2025, 9, 28, 10, 12).toISOString(), now)).toMatch(/2025/);
+  });
+
   it('склонения', () => {
     expect(plural(1, ['день', 'дня', 'дней'])).toBe('день');
     expect(plural(3, ['день', 'дня', 'дней'])).toBe('дня');

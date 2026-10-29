@@ -10,6 +10,8 @@ import {
 } from '@/lib/dates';
 import { barsForYear } from '@/lib/schedule';
 import VacationForm from '@/components/VacationForm.vue';
+import MyNotices from '@/components/MyNotices.vue';
+import PlanningBanner from '@/components/PlanningBanner.vue';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
@@ -29,6 +31,7 @@ const error = ref('');
 const formOpen = ref(false);
 const editing = ref<VacationRequest | null>(null);
 const showArchive = ref(false);
+const banner = ref<InstanceType<typeof PlanningBanner> | null>(null);
 
 const me = computed(() => auth.me?.employee);
 const isIpsz = computed(() => me.value?.empType === 'ipsz');
@@ -89,6 +92,12 @@ function openCreate(): void {
   formOpen.value = true;
 }
 
+/** Из приглашения кампании: год кампании и форма новой заявки. */
+function planFor(y: number): void {
+  year.value = y;
+  openCreate();
+}
+
 function openMove(r: VacationRequest): void {
   editing.value = r;
   formOpen.value = true;
@@ -104,6 +113,7 @@ async function cancel(r: VacationRequest): Promise<void> {
     await api.del(`/vacation-requests/${r.id}`);
     ui.toast(approved ? 'Запрос на удаление отправлен руководителю' : 'Заявка отменена');
     await reload();
+    void banner.value?.load();
   } catch (e) {
     ui.error(e);
   }
@@ -115,6 +125,7 @@ async function onSaved(): Promise<void> {
   editing.value = null;
   ui.toast(move ? 'Перенос отправлен на согласование' : 'Заявка отправлена руководителю');
   await reload();
+  void banner.value?.load();
   void approvals.refresh(auth.isAdmin);
 }
 
@@ -196,6 +207,12 @@ onMounted(reload);
           :size="15"
         /> {{ error }}
       </div>
+
+      <MyNotices />
+      <PlanningBanner
+        ref="banner"
+        @plan="planFor"
+      />
 
       <div
         v-if="loading"

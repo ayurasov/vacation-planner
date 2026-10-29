@@ -5,6 +5,7 @@ erDiagram
   employees ||--o{ notifications : "получает"
   employees ||--o{ work_patterns : "недельный шаблон"
   employees ||--o{ work_overrides : "исключения"
+  employees |o--o{ vacation_requests : "эскалация"
   vacation_requests {
     int id PK
     int employee_id FK
@@ -18,6 +19,9 @@ erDiagram
     string comment
     string rejection_comment
     int created_by
+    timestamp pending_since "ждёт решения с"
+    int escalated_to FK "передана вышестоящему"
+    timestamp escalated_at
   }
   request_events {
     int id PK

@@ -26,6 +26,21 @@ export class NotificationsService {
     return n;
   }
 
+  /** Одно и то же событие многим сотрудникам: уведомления и письма пачкой, в той же транзакции. */
+  async notifyMany(
+    tx: Prisma.TransactionClient,
+    items: Array<{ employeeId: number; text: string }>,
+    kind: string,
+    payload?: Record<string, unknown>,
+  ): Promise<number> {
+    if (!items.length) return 0;
+    await tx.notification.createMany({
+      data: items.map((i) => ({ employeeId: i.employeeId, kind, text: i.text, payload: payload as Prisma.InputJsonValue | undefined })),
+    });
+    await this.mail.enqueueMany(tx, items, kind);
+    return items.length;
+  }
+
   list(userId: number, params: { page: number; perPage: number; unread?: boolean }) {
     const where = { employeeId: userId, ...(params.unread ? { isRead: false } : {}) };
     return this.prisma.$transaction([

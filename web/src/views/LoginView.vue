@@ -27,6 +27,7 @@ onMounted(async () => {
   const code = route.query.sso;
   if (typeof code === 'string') error.value = SSO_ERRORS[code] ?? SSO_ERRORS.invalid;
   if (route.query.ended) error.value = 'Сеанс завершён: пароль изменён, учётная запись отключена или вы долго не входили. Войдите снова.';
+  if (route.query.changed) notice.value = 'Пароль изменён. Войдите с новым паролем.';
   try {
     sso.value = await api.get('/auth/oidc/config');
   } catch { /* без единого входа — только пароль */ }
@@ -36,6 +37,7 @@ const login = ref('');
 const password = ref('');
 const showPassword = ref(false);
 const error = ref('');
+const notice = ref('');
 const busy = ref(false);
 const version = __APP_VERSION__;
 
@@ -54,15 +56,15 @@ async function submit(): Promise<void> {
   } catch (e) {
     // «Неверный пароль» — только на 401: при перегрузке (503) или обрыве сети человек иначе
     // вводил бы верный пароль заново
+    // 423 — учётная запись заблокирована после неудачных попыток: до какого времени, сообщает сервер
+    const byStatus: Record<number, string> = {
+      401: 'Неверный логин или пароль. Проверьте раскладку и Caps Lock.',
+      429: 'Слишком много попыток входа. Подождите минуту и попробуйте снова.',
+      403: 'Вход по паролю отключён — войдите через корпоративную учётную запись.',
+    };
     error.value = !(e instanceof ApiError)
       ? 'Нет связи с сервером. Проверьте подключение и попробуйте снова.'
-      : e.status === 401
-        ? 'Неверный логин или пароль. Проверьте раскладку и Caps Lock.'
-        : e.status === 429
-          ? 'Слишком много попыток входа. Подождите минуту и попробуйте снова.'
-          : e.status === 403
-            ? 'Вход по паролю отключён — войдите через корпоративную учётную запись.'
-            : e.message;
+      : byStatus[e.status] ?? e.message;
   } finally {
     busy.value = false;
   }
@@ -129,6 +131,17 @@ async function submit(): Promise<void> {
           {{ sso?.enabled ? 'Корпоративная учётная запись — без отдельного пароля.' : 'Корпоративный логин и пароль. Нет доступа — обратитесь к администратору.' }}
         </p>
 
+        <div
+          v-if="notice && !error"
+          class="banner banner-success"
+          role="status"
+        >
+          <AppIcon
+            name="check"
+            :size="15"
+          />
+          <span>{{ notice }}</span>
+        </div>
         <div
           v-if="error"
           class="banner banner-error"

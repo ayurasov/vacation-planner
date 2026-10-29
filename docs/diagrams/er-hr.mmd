@@ -1,0 +1,51 @@
+erDiagram
+  employees ||--o{ approval_delegations : "передаёт согласование"
+  employees ||--o{ approval_delegations : "замещает"
+  employees ||--o{ vacation_requests : "подаёт"
+  vacation_requests ||--o{ vacation_notices : "извещения"
+  employees ||--o{ vacation_notices : "ознакомление"
+  employees |o--o{ planning_campaigns : "открывает"
+  employees |o--o{ schedule_approvals : "утверждает"
+  approval_delegations {
+    int id PK
+    int manager_id FK "руководитель"
+    int deputy_id FK "заместитель"
+    date start_date
+    date end_date "включительно"
+    timestamp revoked_at "отменено"
+  }
+  vacation_notices {
+    int id PK
+    int request_id FK
+    date start_date UK "с request_id"
+    date end_date
+    bool late "позже 14 дней"
+    timestamp acknowledged_at "ознакомлен"
+    timestamp withdrawn_at "перенос, отмена"
+  }
+  planning_campaigns {
+    int year PK
+    date deadline
+    timestamp closed_at
+    timestamp reminded_at
+    bool auto_reminded
+  }
+  schedule_approvals {
+    int year PK
+    string doc_number
+    date doc_date
+    string union_opinion_number
+    json rows "снимок графика, Т-7"
+  }
+  vacation_requests {
+    int id PK
+    int employee_id FK
+    date start_date
+    date end_date
+    enum status
+  }
+  employees {
+    int id PK
+    string name
+    string personnel_number UK
+  }

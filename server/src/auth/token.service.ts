@@ -9,6 +9,8 @@ export interface AccessClaims {
   login: string;
   isAdmin: boolean;
   pwv: number; // версия пароля: смена пароля убивает все access-токены
+  sid?: string; // сеанс (v0.6.0): завершённый сеанс перестаёт работать; в токенах до v0.6.0 нет
+  amr?: 'pwd' | 'sso'; // способ входа: смену одноразового пароля требует только вход по паролю
 }
 
 const ACCESS_TTL = '15m';

@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type OrgSettings } from '@/api/client';
+import { api, type OrgSettings, type UserSession } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import { useTheme, type ThemeChoice } from '@/composables/useTheme';
-import { fmtNumber } from '@/lib/dates';
+import { fmtDateTime, fmtNumber } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import DelegationEditor from '@/components/DelegationEditor.vue';
 
 const auth = useAuthStore();
 const ui = useUiStore();
@@ -22,6 +23,44 @@ const newPassword2 = ref('');
 const savingPw = ref(false);
 const savingMail = ref(false);
 const testingMail = ref(false);
+// Минимальная длина пароля — правило организации (v0.6.0); до загрузки — 8, как в ТЗ
+const minLength = computed(() => settings.value?.passwordMinLength ?? 8);
+
+// ── Сеансы (v0.6.0): где выполнен вход, завершение чужих устройств ──
+const sessions = ref<UserSession[]>([]);
+const sessionsBusy = ref(false);
+
+async function loadSessions(): Promise<void> {
+  try {
+    sessions.value = (await api.get<{ items: UserSession[] }>('/auth/sessions')).items;
+  } catch { /* список не загрузился — карточка покажет пустое состояние */ }
+}
+
+async function endSession(s: UserSession): Promise<void> {
+  sessionsBusy.value = true;
+  try {
+    await api.del(`/auth/sessions/${s.id}`);
+    ui.toast(`Сеанс «${s.device}» завершён`);
+    await loadSessions();
+  } catch (e) {
+    ui.error(e);
+  } finally {
+    sessionsBusy.value = false;
+  }
+}
+
+async function endOthers(): Promise<void> {
+  sessionsBusy.value = true;
+  try {
+    const r = await api.post<{ revoked: number }>('/auth/sessions/revoke-others');
+    ui.toast(r.revoked ? `Завершено сеансов: ${r.revoked}` : 'Других сеансов нет');
+    await loadSessions();
+  } catch (e) {
+    ui.error(e);
+  } finally {
+    sessionsBusy.value = false;
+  }
+}
 
 async function toggleLetters(ev: Event): Promise<void> {
   const box = ev.target as HTMLInputElement;
@@ -65,6 +104,16 @@ async function saveOrg(): Promise<void> {
       conflictThreshold: Number(settings.value.conflictThreshold),
       limitPolicy: settings.value.limitPolicy,
       defaultPlannedDays: Number(settings.value.defaultPlannedDays),
+      escalationDays: Number(settings.value.escalationDays),
+      noticeDays: Number(settings.value.noticeDays),
+      // Реквизиты формы Т-7: пустая строка на сервере очищает поле
+      orgName: settings.value.orgName ?? '', orgOkpo: settings.value.orgOkpo ?? '',
+      headPosition: settings.value.headPosition ?? '', headName: settings.value.headName ?? '',
+      hrHeadPosition: settings.value.hrHeadPosition ?? '', hrHeadName: settings.value.hrHeadName ?? '',
+      passwordMinLength: Number(settings.value.passwordMinLength),
+      lockoutThreshold: Number(settings.value.lockoutThreshold),
+      lockoutMinutes: Number(settings.value.lockoutMinutes),
+      loginRetentionDays: Number(settings.value.loginRetentionDays),
     });
     ui.toast('Настройки организации сохранены');
   } catch (e) {
@@ -96,6 +145,7 @@ async function changePassword(): Promise<void> {
 }
 
 onMounted(async () => {
+  void loadSessions();
   try {
     settings.value = await api.get<OrgSettings>('/settings');
   } catch { /* блок организации скрыт */ }
@@ -203,10 +253,10 @@ onMounted(async () => {
               type="password"
               class="input"
               autocomplete="new-password"
-              minlength="8"
+              :minlength="minLength"
               required
             >
-            <span class="field-hint">Не короче 8 символов. После смены все сеансы завершатся.</span>
+            <span class="field-hint">Не короче {{ minLength }} символов, без логина и фамилии, не из распространённых вроде «qwerty123». После смены все сеансы завершатся.</span>
           </div>
           <div class="field">
             <label for="pw-new2">Повторите новый пароль</label>
@@ -222,13 +272,105 @@ onMounted(async () => {
           <button
             class="btn btn-primary"
             type="submit"
-            :disabled="savingPw || newPassword.length < 8 || !oldPassword"
+            :disabled="savingPw || newPassword.length < minLength || !oldPassword"
           >
             Сменить пароль
           </button>
         </div>
       </form>
     </div>
+
+    <section
+      class="card"
+      aria-labelledby="sessions-title"
+    >
+      <div class="card-header">
+        <span
+          id="sessions-title"
+          class="section-title"
+        ><AppIcon
+          name="monitor"
+          :size="16"
+        /> Активные сеансы</span>
+        <button
+          v-if="sessions.length > 1"
+          class="btn btn-sm"
+          type="button"
+          :disabled="sessionsBusy"
+          @click="endOthers"
+        >
+          Завершить остальные
+        </button>
+      </div>
+      <ul
+        v-if="sessions.length"
+        class="sessions"
+      >
+        <li
+          v-for="s in sessions"
+          :key="s.id"
+          class="session"
+        >
+          <div class="session-main">
+            <div class="session-device">
+              {{ s.device }}
+              <span
+                v-if="s.current"
+                class="badge badge-success"
+              >это устройство</span>
+              <span
+                v-if="s.method === 'oidc'"
+                class="badge badge-muted"
+              >единый вход</span>
+            </div>
+            <div class="soft small">
+              вход {{ fmtDateTime(s.startedAt) }} · активен {{ fmtDateTime(s.lastActiveAt) }}<template v-if="s.ip">
+                · {{ s.ip }}
+              </template>
+            </div>
+          </div>
+          <button
+            v-if="!s.current"
+            class="btn btn-sm btn-danger"
+            type="button"
+            :disabled="sessionsBusy"
+            :aria-label="`Завершить сеанс ${s.device}`"
+            @click="endSession(s)"
+          >
+            Завершить
+          </button>
+        </li>
+      </ul>
+      <div
+        v-else
+        class="card-body soft small"
+      >
+        Список сеансов не загрузился.
+      </div>
+      <div class="card-body field-hint sessions-hint">
+        Не узнаёте устройство — завершите сеанс и смените пароль. Завершённый сеанс перестаёт работать в течение 10 секунд.
+      </div>
+    </section>
+
+    <section
+      v-if="auth.hasApprovals"
+      class="card"
+      aria-labelledby="deleg-title"
+    >
+      <div class="card-header">
+        <span
+          id="deleg-title"
+          class="section-title"
+        ><AppIcon
+          name="swap"
+          :size="16"
+        /> Замещение на время отсутствия</span>
+        <span class="soft small">заместитель согласует заявки ваших сотрудников</span>
+      </div>
+      <div class="card-body">
+        <DelegationEditor />
+      </div>
+    </section>
 
     <section class="card">
       <div class="card-header">
@@ -340,6 +482,163 @@ onMounted(async () => {
             style="max-width: 120px"
           >
         </div>
+        <div class="field">
+          <label for="org-esc">Заявка без решения передаётся вышестоящему руководителю через, дней</label>
+          <input
+            id="org-esc"
+            v-model.number="settings.escalationDays"
+            type="number"
+            min="0"
+            max="60"
+            class="input"
+            style="max-width: 120px"
+            aria-describedby="org-esc-hint"
+          >
+          <span
+            id="org-esc-hint"
+            class="field-hint"
+          >0 — не передаётся. Если выше руководителя никого нет, уведомление получает кадровая служба.</span>
+        </div>
+        <div class="field">
+          <label for="org-notice">Извещение о начале отпуска — за, дней</label>
+          <input
+            id="org-notice"
+            v-model.number="settings.noticeDays"
+            type="number"
+            min="14"
+            max="60"
+            class="input"
+            style="max-width: 120px"
+            aria-describedby="org-notice-hint"
+          >
+          <span
+            id="org-notice-hint"
+            class="field-hint"
+          >Не меньше 14 — по ст. 123 ТК РФ сотрудника извещают под подпись не позднее чем за две недели.</span>
+        </div>
+        <fieldset class="security">
+          <legend class="field-label">
+            Безопасность входа
+          </legend>
+          <div class="security-grid">
+            <div class="field">
+              <label for="org-pwlen">Минимальная длина пароля</label>
+              <input
+                id="org-pwlen"
+                v-model.number="settings.passwordMinLength"
+                type="number"
+                min="8"
+                max="64"
+                class="input"
+              >
+            </div>
+            <div class="field">
+              <label for="org-lock">Неудачных попыток до блокировки</label>
+              <input
+                id="org-lock"
+                v-model.number="settings.lockoutThreshold"
+                type="number"
+                min="0"
+                max="50"
+                class="input"
+                aria-describedby="org-lock-hint"
+              >
+            </div>
+            <div class="field">
+              <label for="org-lockmin">Блокировка, минут</label>
+              <input
+                id="org-lockmin"
+                v-model.number="settings.lockoutMinutes"
+                type="number"
+                min="1"
+                max="1440"
+                class="input"
+              >
+            </div>
+            <div class="field">
+              <label for="org-retention">Журнал входов хранится, дней</label>
+              <input
+                id="org-retention"
+                v-model.number="settings.loginRetentionDays"
+                type="number"
+                min="30"
+                max="3650"
+                class="input"
+              >
+            </div>
+          </div>
+          <span
+            id="org-lock-hint"
+            class="field-hint"
+          >Блокировка — после стольких неудачных попыток подряд (0 — без блокировки, иначе от 3); снимает кадровая служба в карточке сотрудника или она истекает сама. Политика паролей действует для новых паролей.</span>
+        </fieldset>
+        <fieldset class="security">
+          <legend class="field-label">
+            Реквизиты для графика отпусков (форма Т-7)
+          </legend>
+          <div class="field legend-gap">
+            <label for="org-name">Наименование организации</label>
+            <input
+              id="org-name"
+              v-model="settings.orgName"
+              class="input"
+              maxlength="300"
+            >
+          </div>
+          <div class="security-grid">
+            <div class="field">
+              <label for="org-okpo">Код по ОКПО</label>
+              <input
+                id="org-okpo"
+                v-model="settings.orgOkpo"
+                class="input"
+                inputmode="numeric"
+                pattern="\d{8}|\d{10}"
+                maxlength="10"
+                style="max-width: 160px"
+              >
+            </div>
+            <span />
+            <div class="field">
+              <label for="org-head-pos">Утверждает: должность руководителя</label>
+              <input
+                id="org-head-pos"
+                v-model="settings.headPosition"
+                class="input"
+                maxlength="128"
+                placeholder="Генеральный директор"
+              >
+            </div>
+            <div class="field">
+              <label for="org-head">Утверждает: фамилия и инициалы</label>
+              <input
+                id="org-head"
+                v-model="settings.headName"
+                class="input"
+                maxlength="128"
+              >
+            </div>
+            <div class="field">
+              <label for="org-hr-pos">Руководитель кадровой службы: должность</label>
+              <input
+                id="org-hr-pos"
+                v-model="settings.hrHeadPosition"
+                class="input"
+                maxlength="128"
+                placeholder="Начальник отдела кадров"
+              >
+            </div>
+            <div class="field">
+              <label for="org-hr">Руководитель кадровой службы: фамилия и инициалы</label>
+              <input
+                id="org-hr"
+                v-model="settings.hrHeadName"
+                class="input"
+                maxlength="128"
+              >
+            </div>
+          </div>
+        </fieldset>
         <button
           class="btn btn-primary"
           type="submit"
@@ -383,6 +682,64 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 14px;
+}
+
+.sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.session:first-child {
+  border-top: none;
+}
+
+.session-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.sessions-hint {
+  border-top: 1px solid var(--color-border);
+}
+
+.security {
+  border: none;
+  padding: 0;
+  margin: 4px 0 16px;
+}
+
+.legend-gap {
+  margin-top: 8px;
+}
+
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+  margin-top: 8px;
+}
+
+@media (max-width: 600px) {
+  .security-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .session {
+    padding: 12px 16px;
+  }
 }
 
 .mail {

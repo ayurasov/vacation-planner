@@ -116,7 +116,7 @@ test('график работы: шаблон меняется и сохраня
 });
 
 test('CSP стенда не нарушается ни на одном экране', async () => {
-  for (const path of ['/schedule', '/my', '/approvals', '/employees', '/directories', '/settings', '/audit']) {
+  for (const path of ['/schedule', '/my', '/approvals', '/employees', '/directories', '/settings', '/audit', '/hr', '/hr?tab=notices']) {
     await page.goto(path);
     await page.waitForLoadState('networkidle');
   }

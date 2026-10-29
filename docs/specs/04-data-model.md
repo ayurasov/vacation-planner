@@ -6,29 +6,44 @@
 
 # Обзор
 
-Данные хранятся в PostgreSQL 17 в 18 таблицах трёх групп:
+Данные хранятся в PostgreSQL 17 в 24 таблицах четырёх групп:
 
 | Группа | Таблицы | Назначение |
 |---|---|---|
 | Организация | `employees`, `departments`, `projects`, `groups`, `group_members` | Кто работает, в каком отделе и проекте, кто чей руководитель |
 | Отпуска и режим | `vacation_requests`, `request_events`, `notifications`, `work_patterns`, `work_overrides` | Заявки с историей, уведомления, офис и удалёнка |
-| Служебные | `audit_events`, `refresh_tokens`, `org_settings`, `calendars`, `email_outbox`, `job_runs`, `data_version`, `login_attempts` | Журнал изменений, сессии, правила организации, праздники, очередь писем, плановые задачи, версия данных графика, окна лимита входа |
+| Кадровый учёт | `approval_delegations`, `vacation_notices`, `planning_campaigns`, `schedule_approvals` | Замещение руководителя, извещения о начале отпуска, кампания планирования и утверждённый график (с v0.6.0) |
+| Служебные | `audit_events`, `refresh_tokens`, `login_state`, `login_events`, `org_settings`, `calendars`, `email_outbox`, `job_runs`, `data_version`, `login_attempts` | Журнал изменений, сеансы, состояние и журнал входов, правила организации, праздники, очередь писем, плановые задачи, версия данных графика, окна лимита входа |
 
 ## Организация
 
 ![ER: сотрудники, отделы, проекты, группы](../images/er-org.png)
 
-Руководитель сотрудника (`employees.manager_id`) согласует его заявки и управляет его режимом работы. Признак `is_hr` даёт права кадровой службы, `email` и `email_notifications` — адрес и согласие на письма. Руководитель отдела (`departments.manager_id`) выгружает отпуска отдела. Сотрудник не удаляется физически: увольнение снимает признак `is_active`, история отпусков и журнал сохраняются.
+Руководитель сотрудника (`employees.manager_id`) согласует его заявки и управляет его режимом работы. Признак `is_hr` даёт права кадровой службы, `email` и `email_notifications` — адрес и согласие на письма. Руководитель отдела (`departments.manager_id`) выгружает отпуска отдела. Сотрудник не удаляется физически: увольнение снимает признак `is_active`, история отпусков и журнал сохраняются. Табельный номер `personnel_number` (графа 4 формы Т-7) уникален во всей организации, включая уволенных. `must_change_password` — пароль выдан кадровой службой и должен быть сменён при первом входе.
 
 ## Отпуска и режим работы
 
 ![ER: заявки, история, уведомления, режим работы](../images/er-requests.png)
 
-Заявка хранит актуальные даты; при переносе согласованного отпуска прежние даты лежат в `change_from_start/end` до решения руководителя. Запрос удаления — флаг `pending_deletion`. История действий по заявке — `request_events` (только дополняется). Режим работы: недельный шаблон `work_patterns` (день недели → офис/удалёнка/не работает) и разовые исключения `work_overrides` на даты.
+Заявка хранит актуальные даты; при переносе согласованного отпуска прежние даты лежат в `change_from_start/end` до решения руководителя. Запрос удаления — флаг `pending_deletion`. История действий по заявке — `request_events` (только дополняется). `pending_since` — с какого момента заявка ждёт решения (создание, перенос, запрос удаления); `escalated_to` и `escalated_at` — кому и когда она передана эскалацией. Режим работы: недельный шаблон `work_patterns` (день недели → офис/удалёнка/не работает) и разовые исключения `work_overrides` на даты.
 
 ## Служебные данные
 
 ![ER: аудит, сессии, настройки, календарь](../images/er-system.png)
+
+Сеанс — цепочка строк `refresh_tokens` с общим `session_id`, способом входа, адресом и браузером. Состояние входа (последний вход, неудачные попытки подряд, блокировка) — в `login_state`, отдельно от `employees`: запись в `employees` меняет версию данных графика и сбрасывала бы кэш графика при каждом входе. Журнал входов `login_events` хранится `login_retention_days` дней. Реквизиты организации и подписанты формы Т-7 — в `org_settings`.
+
+## Кадровый учёт
+
+![ER: замещение, извещения, кампания и утверждённый график](../images/er-hr.png)
+
+**Замещение (`approval_delegations`).** Руководитель (или кадровая служба за него) передаёт права согласующего заместителю на период включительно; отменённое замещение (`revoked_at`) остаётся в истории.
+
+**Извещения (`vacation_notices`).** Строка на согласованный отпуск и дату его начала: когда извещён, позже ли двух недель (`late`), когда сотрудник подтвердил ознакомление, когда извещение отозвано (перенос, отмена, увольнение). Перенос на другие даты — новая строка; прежняя остаётся в журнале как история.
+
+**Кампания планирования (`planning_campaigns`).** Одна строка на год: срок, кто и когда открыл и закрыл, последнее напоминание, отметка автоматического напоминания перед сроком.
+
+**Утверждённый график (`schedule_approvals`).** Одна строка на год: номер и дата документа, мнение профсоюза, кто и когда утвердил и снимок строк графика в JSONB — сотрудник, должность, отдел, табельный номер, даты и дни каждого согласованного отпуска на момент утверждения (ADR-016). Снимок не меняется; переносы и отмены после утверждения форма Т-7 берёт из текущих заявок.
 
 # Словарь данных
 
@@ -55,6 +70,9 @@
 | `carry_over` | Float |  |  |
 | `is_active` | Boolean |  |  |
 | `email_notifications` | Boolean |  | отписка — в профиле |
+| `must_change_password` | Boolean |  | пароль выдан при создании или сбросе (v0.6.0) |
+| `password_changed_at` | DateTime | null |  |
+| `personnel_number` | String | UK null | табельный номер — графа 4 формы Т-7 (v0.6.0) |
 | `created_at` | DateTime |  |  |
 | `updated_at` | DateTime |  |  |
 
@@ -107,6 +125,9 @@
 | `created_by` | Int |  |  |
 | `created_at` | DateTime |  |  |
 | `updated_at` | DateTime |  |  |
+| `pending_since` | DateTime | null |  |
+| `escalated_to` | Int | null |  |
+| `escalated_at` | DateTime | null |  |
 
 **`request_events`** — История действий по заявке
 
@@ -144,6 +165,18 @@
 | `timezone` | String |  |  |
 | `limit_policy` | String |  | hard \| soft |
 | `default_planned_days` | Int |  |  |
+| `password_min_length` | Int |  |  |
+| `lockout_threshold` | Int |  | неудачных попыток подряд; 0 — без блокировки |
+| `lockout_minutes` | Int |  |  |
+| `login_retention_days` | Int |  |  |
+| `escalation_days` | Int |  |  |
+| `notice_days` | Int |  |  |
+| `org_name` | String | null |  |
+| `org_okpo` | String | null |  |
+| `head_position` | String | null |  |
+| `head_name` | String | null |  |
+| `hr_head_position` | String | null |  |
+| `hr_head_name` | String | null |  |
 
 **`calendars`** — Производственный календарь по годам
 
@@ -178,7 +211,7 @@
 | `before` | Json | null |  |
 | `after` | Json | null |  |
 
-**`refresh_tokens`** — Хеши refresh-токенов (ротация, отзыв)
+**`refresh_tokens`** — Хеши refresh-токенов (ротация, отзыв); цепочка одного входа — сеанс
 
 | Поле | Тип | Признаки | Примечание |
 |---|---|---|---|
@@ -188,6 +221,32 @@
 | `expires_at` | DateTime |  |  |
 | `revoked_at` | DateTime | null |  |
 | `created_at` | DateTime |  |  |
+| `session_id` | String |  |  |
+| `session_started_at` | DateTime |  |  |
+| `method` | String |  | password \| oidc |
+| `ip` | String | null |  |
+| `user_agent` | String | null |  |
+
+**`login_state`** — Состояние входа сотрудника: последний вход, неудачные попытки подряд, блокировка
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `employee_id` | Int | PK |  |
+| `last_login_at` | DateTime | null |  |
+| `failed_logins` | Int |  |  |
+| `locked_until` | DateTime | null |  |
+
+**`login_events`** — Журнал входов: успешные и неуспешные попытки, блокировки; срок хранения — правило организации
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `ts` | DateTime |  |  |
+| `employee_id` | Int | null |  |
+| `login` | String |  |  |
+| `result` | String |  |  |
+| `method` | String |  |  |
+| `ip` | String | null |  |
+| `user_agent` | String | null |  |
 
 **`email_outbox`** — Очередь писем (outbox): пишется в транзакции события, отправляется фоном с повторами
 
@@ -227,6 +286,60 @@
 | `key` | String |  |  |
 | `window_start` | DateTime |  |  |
 | `hits` | Int |  |  |
+
+**`approval_delegations`** — Замещение руководителя: заместитель согласует заявки его команды на период
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `id` | Int | PK |  |
+| `manager_id` | Int |  |  |
+| `deputy_id` | Int |  |  |
+| `start_date` | DateTime |  |  |
+| `end_date` | DateTime |  |  |
+| `created_by` | Int | null |  |
+| `created_at` | DateTime |  |  |
+| `revoked_at` | DateTime | null |  |
+
+**`vacation_notices`** — Извещения о начале отпуска под подпись (ст. 123 ТК РФ): отправка, ознакомление, отзыв
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `id` | Int | PK |  |
+| `request_id` | Int |  |  |
+| `employee_id` | Int |  |  |
+| `start_date` | DateTime |  |  |
+| `end_date` | DateTime |  |  |
+| `days` | Float |  | дни отпуска без праздников (ст. 120) |
+| `sent_at` | DateTime |  |  |
+| `late` | Boolean |  | позже чем за 14 дней: отпуск согласован поздно |
+| `acknowledged_at` | DateTime | null |  |
+| `withdrawn_at` | DateTime | null | отпуск отменён или перенесён |
+
+**`planning_campaigns`** — Кампания планирования отпусков на год: срок, открытие и закрытие, напоминания
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `year` | Int | PK |  |
+| `deadline` | DateTime |  |  |
+| `opened_at` | DateTime |  |  |
+| `opened_by` | Int | null |  |
+| `closed_at` | DateTime | null |  |
+| `closed_by` | Int | null |  |
+| `reminded_at` | DateTime | null |  |
+| `auto_reminded` | Boolean |  |  |
+
+**`schedule_approvals`** — Утверждённый график отпусков: реквизиты документа, мнение профсоюза, снимок строк для формы Т-7
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `year` | Int | PK |  |
+| `doc_number` | String |  |  |
+| `doc_date` | DateTime |  |  |
+| `union_opinion_date` | DateTime | null |  |
+| `union_opinion_number` | String | null |  |
+| `approved_at` | DateTime |  |  |
+| `approved_by` | Int | null |  |
+| `rows` | Json |  |  |
 <!-- END:data-dictionary -->
 
 # Инварианты
@@ -247,6 +360,14 @@
 | В системе остаётся хотя бы один администратор | Сервис сотрудников | `409 last-admin` |
 | Отдел с сотрудниками не удаляется | Контроллер справочников | `409 department-not-empty` |
 | Изменение данных и запись журнала неразделимы | Одна транзакция Prisma; в API нет изменения и удаления журнала | — |
+| Табельный номер уникален | Уникальный индекс `personnel_number`; проверка в сервисе и плане импорта | `400 validation/invalid-field` |
+| Refresh-токен обменивается один раз | `UPDATE … SET revoked_at … WHERE revoked_at IS NULL RETURNING` в транзакции обновления; повтор в течение 30 секунд — пара того же сеанса, позже — завершение сеанса | `401` |
+| Счётчик неудачных попыток не теряет попытки при параллельных входах | Атомарный `INSERT … ON CONFLICT DO UPDATE` в `login_state` | — |
+| Замещения руководителя не пересекаются по датам | Сервис под блокировкой строки руководителя (`FOR NO KEY UPDATE`) | `400 validation/invalid-field` |
+| Заявка передаётся эскалацией один раз | `UPDATE … WHERE escalated_at IS NULL` перед уведомлением | — |
+| Одно извещение на заявку и дату начала, в том числе из разных процессов | Уникальный индекс `(request_id, start_date)`, `INSERT … ON CONFLICT DO NOTHING` | — |
+| Одна кампания и одно утверждение графика на год; утверждение — до начала года и не пустое | Первичный ключ `year`; сервис планирования | `400 validation/invalid-field` |
+| Автоматическое напоминание о планировании — одно | `UPDATE … SET auto_reminded = true WHERE NOT auto_reminded` в транзакции рассылки | — |
 | Пароль не хранится и не возвращается | Только scrypt-хеш; DTO ответа без хеша | — |
 | Версия данных растёт при любом изменении графика | Отложенные триггеры `AFTER INSERT/UPDATE/DELETE … DEFERRABLE INITIALLY DEFERRED FOR EACH ROW` (и `AFTER TRUNCATE` на оператор) на `vacation_requests`, `employees`, `departments`, `projects`, `work_patterns`, `work_overrides`, `org_settings` вызывают `bump_data_version()` при фиксации той же транзакции | — |
 | Кэшированный ответ графика не опережает данные | Сервер читает версию до данных; кэш и ETag — по прочитанной версии | — |
@@ -264,6 +385,12 @@
 | `email_outbox` | `(status, next_attempt_at)` | Выбор писем к отправке |
 | `employees` | `lower(email)` уникальный частичный | Поиск и уникальность адреса |
 | `login_attempts` | `(key, window_start)` первичный, `(window_start)` | Счётчик окна при входе; очистка старых окон |
+| `login_events` | `(ts DESC)`, `(employee_id, ts DESC)` | Журнал входов по времени и по сотруднику; очистка по сроку |
+| `refresh_tokens` | `(session_id)` | Сеансы сотрудника, проверка живости сеанса в guard |
+| `approval_delegations` | `(manager_id, end_date)`, `(deputy_id, end_date)` | Действующие замещения руководителя и заместителя |
+| `vacation_requests` | `(escalated_to)` | Очередь эскалированных заявок |
+| `vacation_notices` | `(request_id, start_date)` уникальный, `(start_date)`, `(employee_id)` | Повтор задачи, журнал за период, свои извещения |
+| `employees` | `(personnel_number)` уникальный | Табельный номер в карточке, импорте и поиске |
 
 # Служебные таблицы масштабирования
 
@@ -308,5 +435,6 @@ Seed идемпотентен: повторный запуск не дублир
 1. Изменение `schema.prisma` → `npx prisma migrate dev --name <суть>`; SQL миграции проходит ревью человека (CODEOWNERS).
 2. Деструктивные изменения — в два выпуска: сначала новое поле и перенос данных, затем удаление старого.
 3. Миграции применяются автоматически при старте контейнера `server` (`prisma migrate deploy`); откат — восстановление резервной копии (руководство по развёртыванию).
-4. CI применяет миграции к чистой PostgreSQL перед тестами: рассинхронизация схемы и миграций ломает сборку.
-5. После изменения схемы обновляются ER-схемы (`docs/diagrams/er-*.mmd`) и словарь данных (`tools/docs/gen_tables.py`).
+4. CI применяет миграции к чистой PostgreSQL перед тестами: рассинхронизация схемы и миграций ломает сборку. Отдельный шаг (`scripts/upgrade-check.sh`) применяет миграции `main`, наполняет базу данными прошлого выпуска (`scripts/upgrade-fixture.sql`), применяет новые миграции ветки и сверяет схему: так ловятся миграции, падающие только на данных.
+5. Изменение данных таблицы с отложенным триггером версии (`UPDATE vacation_requests …`) в миграции ставится последним: после него `ALTER TABLE` и `CREATE INDEX` той же таблицы в той же транзакции падают с «pending trigger events».
+6. После изменения схемы обновляются ER-схемы (`docs/diagrams/er-*.mmd`) и словарь данных (`tools/docs/gen_tables.py`).

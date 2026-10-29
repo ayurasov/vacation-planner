@@ -9,43 +9,56 @@ datasource db {
 }
 
 model Employee {
-  id           Int        @id @default(autoincrement())
-  login        String     @unique
-  passwordHash String     @map("password_hash")
-  pwVersion    Int        @default(0) @map("pw_version")
-  name         String
-  email        String? // уникальность без учёта регистра — частичным индексом в миграции employee_email
-  position     String?
-  deptId       Int?       @map("dept_id")
-  dept         Department? @relation("DeptMembers", fields: [deptId], references: [id], onDelete: SetNull)
-  role         String     @default("employee") // employee | manager
-  isAdmin      Boolean    @default(false) @map("is_admin")
-  isHr         Boolean    @default(false) @map("is_hr") // кадровая служба: сотрудники, календарь, импорт, выгрузки, аудит
-  empType      String     @default("staff") @map("emp_type") // staff | ipsz
-  managerId    Int?       @map("manager_id")
-  manager      Employee?  @relation("Subordinates", fields: [managerId], references: [id], onDelete: SetNull)
-  subordinates Employee[] @relation("Subordinates")
-  projectId    Int?
-  project      Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  plannedDays  Float      @default(28) @map("planned_days")
-  carryOver    Float      @default(0) @map("carry_over")
-  isActive     Boolean    @default(true) @map("is_active")
-  emailNotifications Boolean @default(true) @map("email_notifications") // отписка — в профиле
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  id                 Int         @id @default(autoincrement())
+  login              String      @unique
+  passwordHash       String      @map("password_hash")
+  pwVersion          Int         @default(0) @map("pw_version")
+  name               String
+  email              String? // уникальность без учёта регистра — частичным индексом в миграции employee_email
+  position           String?
+  deptId             Int?        @map("dept_id")
+  dept               Department? @relation("DeptMembers", fields: [deptId], references: [id], onDelete: SetNull)
+  role               String      @default("employee") // employee | manager
+  isAdmin            Boolean     @default(false) @map("is_admin")
+  isHr               Boolean     @default(false) @map("is_hr") // кадровая служба: сотрудники, календарь, импорт, выгрузки, аудит
+  empType            String      @default("staff") @map("emp_type") // staff | ipsz
+  managerId          Int?        @map("manager_id")
+  manager            Employee?   @relation("Subordinates", fields: [managerId], references: [id], onDelete: SetNull)
+  subordinates       Employee[]  @relation("Subordinates")
+  projectId          Int?
+  project            Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  plannedDays        Float       @default(28) @map("planned_days")
+  carryOver          Float       @default(0) @map("carry_over")
+  isActive           Boolean     @default(true) @map("is_active")
+  emailNotifications Boolean     @default(true) @map("email_notifications") // отписка — в профиле
+  mustChangePassword Boolean     @default(false) @map("must_change_password") // пароль выдан при создании или сбросе (v0.6.0)
+  passwordChangedAt  DateTime?   @map("password_changed_at") @db.Timestamptz(6)
+  personnelNumber    String?     @unique @map("personnel_number") // табельный номер — графа 4 формы Т-7 (v0.6.0)
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
 
-  vacationRequests VacationRequest[]
-  requestEvents    RequestEvent[]    @relation("RequestActor")
-  managedDepts     Department[]      @relation("DeptManager")
-  managedProjects  Project[]         @relation("ProjectManager")
-  workPatterns     WorkPattern[]
-  workOverrides    WorkOverride[]
-  notifications    Notification[]
-  auditEvents      AuditEvent[]      @relation("AuditActor")
-  groups           GroupMember[]
-  ownedGroups      Group[]           @relation("GroupOwner")
-  refreshTokens    RefreshToken[]
-  emails           EmailOutbox[]
+  vacationRequests    VacationRequest[]
+  requestEvents       RequestEvent[]       @relation("RequestActor")
+  managedDepts        Department[]         @relation("DeptManager")
+  managedProjects     Project[]            @relation("ProjectManager")
+  workPatterns        WorkPattern[]
+  workOverrides       WorkOverride[]
+  notifications       Notification[]
+  auditEvents         AuditEvent[]         @relation("AuditActor")
+  groups              GroupMember[]
+  ownedGroups         Group[]              @relation("GroupOwner")
+  refreshTokens       RefreshToken[]
+  emails              EmailOutbox[]
+  loginState          LoginState?
+  loginEvents         LoginEvent[]
+  delegationsGiven    ApprovalDelegation[] @relation("DelegationManager")
+  delegationsReceived ApprovalDelegation[] @relation("DelegationDeputy")
+  delegationsCreated  ApprovalDelegation[] @relation("DelegationCreator")
+  escalatedRequests   VacationRequest[]    @relation("RequestEscalatedTo")
+  notices             VacationNotice[]
+  campaignsOpened     PlanningCampaign[]   @relation("CampaignOpenedBy")
+  campaignsClosed     PlanningCampaign[]   @relation("CampaignClosedBy")
+  scheduleApprovals   ScheduleApproval[]
 
   @@index([deptId])
   @@index([managerId])
@@ -54,29 +67,29 @@ model Employee {
 }
 
 model Department {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique
-  managerId Int?      @map("manager_id")
-  manager   Employee? @relation("DeptManager", fields: [managerId], references: [id], onDelete: SetNull)
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  managerId Int?       @map("manager_id")
+  manager   Employee?  @relation("DeptManager", fields: [managerId], references: [id], onDelete: SetNull)
   members   Employee[] @relation("DeptMembers")
 
   @@map("departments")
 }
 
 model Project {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique
-  managerId Int?      @map("manager_id")
-  manager   Employee? @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  managerId Int?       @map("manager_id")
+  manager   Employee?  @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
   members   Employee[]
 
   @@map("projects")
 }
 
 model Group {
-  id      Int            @id @default(autoincrement())
-  ownerId Int            @map("owner_id")
-  owner   Employee       @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  id      Int           @id @default(autoincrement())
+  ownerId Int           @map("owner_id")
+  owner   Employee      @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   name    String
   members GroupMember[]
 
@@ -107,36 +120,44 @@ enum RequestType {
 }
 
 model VacationRequest {
-  id                Int           @id @default(autoincrement())
-  employeeId        Int           @map("employee_id")
-  employee          Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  startDate         DateTime      @map("start_date") @db.Date
-  endDate           DateTime      @map("end_date") @db.Date
-  type              RequestType   @default(vacation)
-  status            RequestStatus @default(pending)
-  pendingDeletion   Boolean       @default(false) @map("pending_deletion")
-  changeFromStart   DateTime?     @map("change_from_start") @db.Date
-  changeFromEnd     DateTime?     @map("change_from_end") @db.Date
-  comment           String?
-  rejectionComment  String?       @map("rejection_comment")
-  createdBy         Int           @map("created_by")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
+  id               Int           @id @default(autoincrement())
+  employeeId       Int           @map("employee_id")
+  employee         Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate        DateTime      @map("start_date") @db.Date
+  endDate          DateTime      @map("end_date") @db.Date
+  type             RequestType   @default(vacation)
+  status           RequestStatus @default(pending)
+  pendingDeletion  Boolean       @default(false) @map("pending_deletion")
+  changeFromStart  DateTime?     @map("change_from_start") @db.Date
+  changeFromEnd    DateTime?     @map("change_from_end") @db.Date
+  comment          String?
+  rejectionComment String?       @map("rejection_comment")
+  createdBy        Int           @map("created_by")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
-  events RequestEvent[]
+  // Эскалация (v0.6.0): с какого момента ждёт решения и кому передана
+  pendingSince   DateTime? @map("pending_since") @db.Timestamptz(6)
+  escalatedTo    Int?      @map("escalated_to")
+  escalatedToEmp Employee? @relation("RequestEscalatedTo", fields: [escalatedTo], references: [id], onDelete: SetNull)
+  escalatedAt    DateTime? @map("escalated_at") @db.Timestamptz(6)
+
+  events  RequestEvent[]
+  notices VacationNotice[]
 
   @@index([employeeId, status])
   @@index([startDate, endDate])
+  @@index([escalatedTo])
   @@map("vacation_requests")
 }
 
 model RequestEvent {
-  id        Int            @id @default(autoincrement())
-  requestId Int            @map("request_id")
+  id        Int             @id @default(autoincrement())
+  requestId Int             @map("request_id")
   request   VacationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  ts        DateTime       @default(now())
-  actorId   Int?           @map("actor_id")
-  actor     Employee?      @relation("RequestActor", fields: [actorId], references: [id], onDelete: SetNull)
+  ts        DateTime        @default(now())
+  actorId   Int?            @map("actor_id")
+  actor     Employee?       @relation("RequestActor", fields: [actorId], references: [id], onDelete: SetNull)
   action    String
   comment   String?
 
@@ -171,17 +192,33 @@ model WorkOverride {
 }
 
 model OrgSettings {
-  id                 Int    @id @default(1)
-  conflictThreshold  Int    @default(50) @map("conflict_threshold")
-  timezone           String @default("Europe/Moscow")
-  limitPolicy        String @default("hard") @map("limit_policy") // hard | soft
-  defaultPlannedDays Int    @default(28) @map("default_planned_days")
+  id                 Int     @id @default(1)
+  conflictThreshold  Int     @default(50) @map("conflict_threshold")
+  timezone           String  @default("Europe/Moscow")
+  limitPolicy        String  @default("hard") @map("limit_policy") // hard | soft
+  defaultPlannedDays Int     @default(28) @map("default_planned_days")
+  // Безопасность (v0.6.0)
+  passwordMinLength  Int     @default(8) @map("password_min_length")
+  lockoutThreshold   Int     @default(10) @map("lockout_threshold") // неудачных попыток подряд; 0 — без блокировки
+  lockoutMinutes     Int     @default(15) @map("lockout_minutes")
+  loginRetentionDays Int     @default(365) @map("login_retention_days")
+  // Согласование (v0.6.0): дней без решения до передачи вышестоящему; 0 — не передаётся
+  escalationDays     Int     @default(0) @map("escalation_days")
+  // Извещение о начале отпуска (v0.6.0): за сколько дней, не меньше 14 (ТК РФ, ст. 123)
+  noticeDays         Int     @default(14) @map("notice_days")
+  // Реквизиты и подписанты формы Т-7 (v0.6.0)
+  orgName            String? @map("org_name")
+  orgOkpo            String? @map("org_okpo")
+  headPosition       String? @map("head_position")
+  headName           String? @map("head_name")
+  hrHeadPosition     String? @map("hr_head_position")
+  hrHeadName         String? @map("hr_head_name")
 
   @@map("org_settings")
 }
 
 model ProductionCalendar {
-  year      Int    @id
+  year      Int  @id
   holidays  Json // ["2026-01-01", …]
   transfers Json // [{"from":"2026-01-03","to":"2026-01-09"}, …]
 
@@ -189,14 +226,14 @@ model ProductionCalendar {
 }
 
 model Notification {
-  id          Int      @id @default(autoincrement())
-  employeeId  Int      @map("employee_id")
-  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  kind        String
-  text        String
-  payload     Json?
-  isRead      Boolean  @default(false) @map("is_read")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         Int      @id @default(autoincrement())
+  employeeId Int      @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  kind       String
+  text       String
+  payload    Json?
+  isRead     Boolean  @default(false) @map("is_read")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([employeeId, isRead, createdAt])
   @@map("notifications")
@@ -219,16 +256,52 @@ model AuditEvent {
 }
 
 model RefreshToken {
-  id        Int       @id @default(autoincrement())
-  userId    Int       @map("user_id")
-  user      Employee  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  user             Employee  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash        String    @unique @map("token_hash")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  // Сеанс (v0.6.0): цепочка токенов одного входа, ротация переносит session_id
+  sessionId        String    @default(dbgenerated("gen_random_uuid()")) @map("session_id") @db.Uuid
+  sessionStartedAt DateTime  @default(now()) @map("session_started_at") @db.Timestamptz(6)
+  method           String    @default("password") // password | oidc
+  ip               String?
+  userAgent        String?   @map("user_agent")
 
   @@index([userId])
+  @@index([sessionId])
   @@map("refresh_tokens")
+}
+
+// Состояние входа (v0.6.0): отдельно от employees — у неё триггер версии данных графика
+model LoginState {
+  employeeId   Int       @id @map("employee_id")
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  failedLogins Int       @default(0) @map("failed_logins")
+  lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(6)
+
+  @@map("login_state")
+}
+
+// Журнал входов (v0.6.0): result — success | bad_password | unknown_login | locked | rate_limited |
+// password_disabled | sso_success | sso_unknown | refresh_reuse; method — password | oidc | refresh
+model LoginEvent {
+  id         BigInt    @id @default(autoincrement())
+  ts         DateTime  @default(now()) @db.Timestamptz(6)
+  employeeId Int?      @map("employee_id")
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  login      String
+  result     String
+  method     String
+  ip         String?
+  userAgent  String?   @map("user_agent")
+
+  @@index([ts(sort: Desc)])
+  @@index([employeeId, ts(sort: Desc)])
+  @@map("login_events")
 }
 
 // Очередь писем (outbox, v0.4.0): пишется в транзакции события, отправляется фоном с повторами.
@@ -279,4 +352,75 @@ model LoginAttempt {
   @@id([key, windowStart])
   @@index([windowStart])
   @@map("login_attempts")
+}
+
+// Замещение руководителя (v0.6.0, E61-01): на период заместитель согласует заявки его сотрудников
+model ApprovalDelegation {
+  id        Int       @id @default(autoincrement())
+  managerId Int       @map("manager_id")
+  manager   Employee  @relation("DelegationManager", fields: [managerId], references: [id], onDelete: Cascade)
+  deputyId  Int       @map("deputy_id")
+  deputy    Employee  @relation("DelegationDeputy", fields: [deputyId], references: [id], onDelete: Cascade)
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime  @map("end_date") @db.Date
+  createdBy Int?      @map("created_by")
+  creator   Employee? @relation("DelegationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@index([deputyId, endDate])
+  @@index([managerId, endDate])
+  @@map("approval_delegations")
+}
+
+// Извещение о начале отпуска (v0.6.0, E60-03): по согласованному отпуску на конкретные даты
+model VacationNotice {
+  id             Int             @id @default(autoincrement())
+  requestId      Int             @map("request_id")
+  request        VacationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  employeeId     Int             @map("employee_id")
+  employee       Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate      DateTime        @map("start_date") @db.Date
+  endDate        DateTime        @map("end_date") @db.Date
+  days           Float // дни отпуска без праздников (ст. 120)
+  sentAt         DateTime        @default(now()) @map("sent_at") @db.Timestamptz(6)
+  late           Boolean         @default(false) // позже чем за 14 дней: отпуск согласован поздно
+  acknowledgedAt DateTime?       @map("acknowledged_at") @db.Timestamptz(6)
+  withdrawnAt    DateTime?       @map("withdrawn_at") @db.Timestamptz(6) // отпуск отменён или перенесён
+
+  @@unique([requestId, startDate])
+  @@index([startDate])
+  @@index([employeeId])
+  @@map("vacation_notices")
+}
+
+// Кампания планирования отпусков на год (v0.6.0, E60-01)
+model PlanningCampaign {
+  year         Int       @id
+  deadline     DateTime  @db.Date
+  openedAt     DateTime  @default(now()) @map("opened_at") @db.Timestamptz(6)
+  openedBy     Int?      @map("opened_by")
+  opener       Employee? @relation("CampaignOpenedBy", fields: [openedBy], references: [id], onDelete: SetNull)
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy     Int?      @map("closed_by")
+  closer       Employee? @relation("CampaignClosedBy", fields: [closedBy], references: [id], onDelete: SetNull)
+  remindedAt   DateTime? @map("reminded_at") @db.Timestamptz(6)
+  autoReminded Boolean   @default(false) @map("auto_reminded")
+
+  @@map("planning_campaigns")
+}
+
+// Утверждённый график отпусков: реквизиты документа и снимок строк (v0.6.0, E60-02)
+model ScheduleApproval {
+  year               Int       @id
+  docNumber          String    @map("doc_number")
+  docDate            DateTime  @map("doc_date") @db.Date
+  unionOpinionDate   DateTime? @map("union_opinion_date") @db.Date
+  unionOpinionNumber String?   @map("union_opinion_number")
+  approvedAt         DateTime  @default(now()) @map("approved_at") @db.Timestamptz(6)
+  approvedBy         Int?      @map("approved_by")
+  approver           Employee? @relation(fields: [approvedBy], references: [id], onDelete: SetNull)
+  rows               Json
+
+  @@map("schedule_approvals")
 }

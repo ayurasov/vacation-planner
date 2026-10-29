@@ -32,7 +32,7 @@ const sections = computed(() => {
       ],
     },
   ];
-  if (auth.isApprover || auth.isAdmin) {
+  if (auth.hasApprovals || auth.isAdmin) {
     out.push({
       title: 'Согласование',
       items: [{ path: '/approvals', label: 'Заявки', icon: 'approvals', badge: approvals.pending }],
@@ -44,6 +44,7 @@ const sections = computed(() => {
       items: [
         { path: '/employees', label: 'Сотрудники', icon: 'user' },
         { path: '/directories', label: 'Справочники', icon: 'building' },
+        { path: '/hr', label: 'Кадровый учёт', icon: 'signature' },
         { path: '/audit', label: 'Журнал аудита', icon: 'shield' },
       ],
     });

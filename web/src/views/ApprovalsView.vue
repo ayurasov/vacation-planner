@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { api, type Employee, type Page, type Schedule, type ScheduleEmployee, type VacationRequest } from '@/api/client';
+import { api, type Delegation, type Employee, type Page, type Schedule, type ScheduleEmployee, type VacationRequest } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useApprovalsStore } from '@/stores/approvals';
 import { useCalendarStore } from '@/stores/calendar';
@@ -29,6 +29,15 @@ const busyId = ref<number | null>(null);
 const subordinates = ref<Employee[]>([]);
 const formOpen = ref(false);
 const today = localIso(new Date());
+// Замещение (v0.6.0): чьи заявки в очереди за отсутствующего руководителя
+const deputyFor = ref<Delegation[]>([]);
+
+/** Заявка ждёт решения: сколько дней, передана ли вышестоящему (эскалация, v0.6.0). */
+function waitInfo(r: VacationRequest): { days: number; escalated: boolean; toMe: boolean } {
+  const since = r.pendingSince ?? r.updatedAt;
+  const days = Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000);
+  return { days, escalated: !!r.escalatedAt, toMe: r.escalatedTo === auth.me?.employee.id };
+}
 
 const kindOf = (r: VacationRequest): Exclude<Kind, 'all'> => (r.pendingDeletion ? 'delete' : r.changeFrom ? 'move' : 'new');
 const counts = computed(() => ({
@@ -77,6 +86,11 @@ function deptSize(r: VacationRequest): number {
 async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
+  if (!auth.isAdmin) {
+    api.get<{ received: Delegation[] }>('/delegations')
+      .then((d) => { deputyFor.value = d.received.filter((x) => x.active); })
+      .catch(() => undefined);
+  }
   try {
     // Очередь целиком: у администратора организации на 5000 человек заявок бывает больше 200
     const items: VacationRequest[] = [];
@@ -181,7 +195,7 @@ onMounted(() => {
           Заявки на согласование
         </div>
         <div class="view-subtitle">
-          {{ auth.isAdmin ? 'Все сотрудники организации' : 'Ваши прямые подчинённые' }}
+          {{ auth.isAdmin ? 'Все сотрудники организации' : 'Ждут вашего решения: ваша команда, замещение и переданные вам заявки' }}
         </div>
       </div>
       <div class="toolbar">
@@ -208,6 +222,18 @@ onMounted(() => {
           /> Оформить отпуск сотруднику
         </button>
       </div>
+    </div>
+
+    <div
+      v-for="d in deputyFor"
+      :key="d.id"
+      class="banner banner-info"
+    >
+      <AppIcon
+        name="swap"
+        :size="15"
+      />
+      <span>Вы замещаете {{ d.managerName }} до {{ fmtDate(d.end, d.end.slice(0, 4) !== today.slice(0, 4)) }} — заявки его сотрудников тоже здесь.</span>
     </div>
 
     <div class="segmented tabs">
@@ -288,6 +314,18 @@ onMounted(() => {
           />
           {{ kindLabel(r) }}
         </span>
+        <span
+          v-if="waitInfo(r).escalated"
+          class="badge badge-warning"
+          :title="waitInfo(r).toMe ? 'Руководитель сотрудника не принял решение в срок — заявка передана вам' : 'Заявка ждала решения дольше срока и передана выше'"
+        >
+          <AppIcon
+            name="clock"
+            :size="11"
+            :stroke="2"
+          />
+          {{ waitInfo(r).toMe ? 'передана вам' : 'эскалирована' }}
+        </span>
       </header>
 
       <div class="request-body">
@@ -301,6 +339,9 @@ onMounted(() => {
               · было {{ fmtRange(r.changeFrom.start, r.changeFrom.end) }}
             </template>
             · подана {{ fmtDate(r.createdAt.slice(0, 10), r.createdAt.slice(0, 4) !== today.slice(0, 4)) }}
+            <template v-if="waitInfo(r).days >= 2">
+              · ждёт {{ waitInfo(r).days }} {{ plural(waitInfo(r).days, ['день', 'дня', 'дней']) }}
+            </template>
           </div>
           <blockquote
             v-if="r.comment"

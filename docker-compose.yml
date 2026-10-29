@@ -34,6 +34,8 @@ services:
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-auto}
       # Токен для /metrics (необязательно): порт API наружу не публикуется
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Плановые задачи (извещения, эскалация, напоминания) — раз в столько секунд в каждом процессе (ADR-017)
+      JOBS_POLL_SECONDS: ${JOBS_POLL_SECONDS:-60}
       # Почта (необязательно): без SMTP_HOST письма не отправляются, уведомления — только в интерфейсе
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

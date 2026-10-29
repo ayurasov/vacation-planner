@@ -14,6 +14,7 @@ export interface ImportRow {
   carryOver?: string;
   empType?: string;
   email?: string;
+  personnelNumber?: string;
 }
 
 type Field = Exclude<keyof ImportRow, 'line'>;
@@ -29,9 +30,10 @@ const HEADERS: Record<string, Field> = {
   перенос: 'carryOver', остаток: 'carryOver', 'переноспрошлыхлет': 'carryOver', carryover: 'carryOver',
   типзанятости: 'empType', тип: 'empType', emptype: 'empType',
   email: 'email', почта: 'email', 'e-mail': 'email', электроннаяпочта: 'email',
+  табельныйномер: 'personnelNumber', табномер: 'personnelNumber', 'таб№': 'personnelNumber', personnelnumber: 'personnelNumber',
 };
 
-export const TEMPLATE_HEADERS = ['ФИО', 'Логин', 'Должность', 'Отдел', 'Руководитель', 'Норма дней', 'Перенос', 'Тип занятости', 'Email'];
+export const TEMPLATE_HEADERS = ['ФИО', 'Логин', 'Должность', 'Отдел', 'Руководитель', 'Норма дней', 'Перенос', 'Тип занятости', 'Email', 'Табельный номер'];
 
 const key = (h: string) => h.toLowerCase().replace(/ё/g, 'е').replace(/[\s_.]+/g, '');
 
