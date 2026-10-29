@@ -1512,7 +1512,7 @@ done; wait
 | Роль | Член комиссии от ИТ; представитель правообладателя |
 | Предусловия | ИСП-56 |
 | Данные | 2000 сотрудников |
-| Автоматический тест | `server/test/metrics.e2e.test.ts` — «нет соединения в пуле (P2024) — 503 service-unavailable с Retry-After и счётчиком»; генератор `tools/load/run.mjs` (профили `stress`, `soak`) |
+| Автоматический тест | `server/test/metrics.e2e.test.ts` — «нет соединения в пуле (P2024) — 503 service-unavailable с Retry-After и счётчиком»; `server/test/events.e2e.test.ts` — «остановка приложения закрывает открытые потоки и не ждёт их»; `server/test/events.unit.test.ts` — «поток, подключившийся во время проверки, не получает ложный revoked»; `web/src/api/client.spec.ts` — «сервер перегружен (503) — сеанс не теряется»; генератор `tools/load/run.mjs` (профили `stress`, `soak`), `tools/load/peaks.mjs`, `tools/load/failures.sh` |
 | Проверки эксперта | — |
 
 | № | Действие | Ожидаемый результат |
