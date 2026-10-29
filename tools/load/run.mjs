@@ -14,6 +14,8 @@
 //   stress   — ступени ×1, ×2, ×4, ×8, ×16 от average по 5 минут: где кончается запас;
 //   soak     — average в течение --duration (по умолчанию 8 ч), лента по минутам.
 // Любой параметр профиля можно переопределить (--users, --idle, --think, --duration, ...).
+// --slo — проверить требования (p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок; --max-read, --max-write):
+// при нарушении код завершения 1 — так прогон работает в CI.
 //
 // Каждый пользователь входит со своего адреса (X-Forwarded-For — как за nginx; лимит входа
 // считается по адресу) и действует по своей роли: сотрудник, согласующий (есть очередь),
@@ -402,6 +404,20 @@ async function main() {
   console.log(`\nИтого: ${summary.requests} запросов за ${summary.durationSec} с (${summary.rps}/с), ошибок ${summary.errors} (${summary.errorRate} %), p95 чтения ${summary.readP95} мс, p95 записи ${summary.writeP95} мс`);
   if (SSE) console.log(`Поток событий: одновременно открыто до ${peak}, сбоев ${sse.failed}, событий ${JSON.stringify(sse.events)}`);
   if (OUT) writeFileSync(OUT, JSON.stringify({ summary, rows, stages: stageRows, timeline }, null, 2));
+
+  // --slo: требования модели (docs/performance/workday-model.md) — нарушение завершает процесс с кодом 1 (CI)
+  if (has('slo')) {
+    const maxRead = Number(arg('max-read', 300));
+    const maxWrite = Number(arg('max-write', 500));
+    const broken = [
+      summary.readP95 > maxRead && `p95 чтения ${summary.readP95} мс > ${maxRead}`,
+      summary.writeP95 > maxWrite && `p95 записи ${summary.writeP95} мс > ${maxWrite}`,
+      summary.errors > 0 && `ошибок ${summary.errors}`,
+      SSE && sse.failed > 0 && `сбоев потока событий ${sse.failed}`,
+    ].filter(Boolean);
+    console.log(broken.length ? `Требования нарушены: ${broken.join('; ')}` : 'Требования выполнены');
+    if (broken.length) process.exitCode = 1;
+  }
 }
 
 main();
