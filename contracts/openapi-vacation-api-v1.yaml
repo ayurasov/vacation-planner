@@ -46,13 +46,15 @@ tags:
   - name: notifications
     description: Уведомления пользователя
   - name: audit
-    description: Журнал изменений (только чтение)
+    description: Журнал изменений и журнал входов (только чтение)
   - name: reports
     description: Выгрузки и отчёты
   - name: imports
     description: Импорт сотрудников и остатков (кадровая служба, администратор)
   - name: events
     description: Поток событий сервера (SSE) — живые обновления без опроса
+  - name: delegations
+    description: Замещение руководителя на время отсутствия (v0.6.0)
 
 paths:
   /auth/login:
@@ -229,6 +231,69 @@ paths:
                   meta: { $ref: '#/components/schemas/PageMeta' }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+
+  /delegations:
+    get:
+      tags: [delegations]
+      operationId: listDelegations
+      summary: 'Замещения: переданные мной и полученные мной (действующие и будущие)'
+      parameters:
+        - { name: manager, in: query, description: 'Замещения другого руководителя — кадровая служба', schema: { type: integer } }
+      responses:
+        '200':
+          description: given — передал руководитель, received — получил сотрудник
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  given: { type: array, items: { $ref: '#/components/schemas/Delegation' } }
+                  received: { type: array, items: { $ref: '#/components/schemas/Delegation' } }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [delegations]
+      operationId: createDelegation
+      summary: Передать согласование заместителю на период
+      description: >-
+        Руководитель — себе (managerId не указан) или кадровая служба — за руководителя. На период заместитель
+        видит заявки команды руководителя в очереди (scope=approvals), согласует и отклоняет их, получает
+        уведомления о новых; свои заявки не согласует. Одно замещение руководителя на любой день; не дольше года.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deputyId, start, end]
+              properties:
+                managerId: { type: integer }
+                deputyId: { type: integer }
+                start: { type: string, format: date }
+                end: { type: string, format: date }
+      responses:
+        '201':
+          description: Замещение назначено; заместитель уведомлён; запись в аудите
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Delegation' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /delegations/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [delegations]
+      operationId: revokeDelegation
+      summary: Отменить замещение (руководитель или кадровая служба)
+      responses:
+        '204': { description: Замещение отменено; запись в аудите }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 
   /auth/logout:
     post:
@@ -616,7 +681,13 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
-        - { name: scope, in: query, schema: { type: string, enum: [mine, subordinates, all], default: mine } }
+        - name: scope
+          in: query
+          description: >-
+            mine — свои; subordinates — прямых подчинённых; approvals (v0.6.0) — ждут моего решения: подчинённые
+            и сотрудники руководимого отдела без своего руководителя, команда замещаемого руководителя,
+            переданные мне эскалацией (своих нет); all — все (администратор)
+          schema: { type: string, enum: [mine, subordinates, approvals, all], default: mine }
         - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, cancelled] } }
         - { name: employee, in: query, schema: { type: integer }, description: Идентификатор сотрудника }
       responses:
@@ -1502,6 +1573,7 @@ components:
           type: object
           properties:
             approveSubordinates: { type: array, items: { type: integer }, description: Идентификаторы подчинённых }
+            approvals: { type: boolean, description: 'Есть что согласовывать: команда, замещение руководителя или эскалированные заявки — раздел «Заявки» (v0.6.0)' }
             isAdmin: { type: boolean }
             isHr: { type: boolean, description: Кадровая служба }
             manageStaff: { type: boolean, description: 'Сотрудники, импорт, календарь, выгрузки, аудит (администратор или кадровая служба)' }
@@ -1594,6 +1666,9 @@ components:
         changeFrom: { type: object, properties: { start: { type: string, format: date }, end: { type: string, format: date } }, description: 'Прежние даты при переносе' }
         comment: { type: string }
         rejectionComment: { type: string }
+        pendingSince: { type: [string, 'null'], format: date-time, description: 'С какого момента ждёт решения (v0.6.0): создание, перенос, запрос удаления' }
+        escalatedTo: { type: [integer, 'null'], description: 'Кому передана эскалацией (v0.6.0); null при escalatedAt — уведомлена кадровая служба' }
+        escalatedAt: { type: [string, 'null'], format: date-time, description: 'Когда передана эскалацией; новый запрос сбрасывает' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         history:
@@ -1713,6 +1788,7 @@ components:
         lockoutThreshold: { type: integer, minimum: 0, maximum: 50, default: 10, description: 'Неудачных попыток входа подряд до блокировки; 0 — без блокировки' }
         lockoutMinutes: { type: integer, minimum: 1, maximum: 1440, default: 15, description: Время блокировки }
         loginRetentionDays: { type: integer, minimum: 30, maximum: 3650, default: 365, description: Срок хранения журнала входов }
+        escalationDays: { type: integer, minimum: 0, maximum: 60, default: 0, description: 'Дней без решения до передачи заявки вышестоящему; 0 — не передаётся' }
         mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
@@ -1727,6 +1803,21 @@ components:
         lockoutThreshold: { type: integer, minimum: 0, maximum: 50, description: '0 или от 3' }
         lockoutMinutes: { type: integer, minimum: 1, maximum: 1440 }
         loginRetentionDays: { type: integer, minimum: 30, maximum: 3650 }
+        escalationDays: { type: integer, minimum: 0, maximum: 60 }
+
+    Delegation:
+      type: object
+      properties:
+        id: { type: integer }
+        managerId: { type: integer }
+        managerName: { type: string }
+        deputyId: { type: integer }
+        deputyName: { type: string }
+        start: { type: string, format: date }
+        end: { type: string, format: date, description: Включительно }
+        active: { type: boolean, description: Действует сегодня }
+        createdBy: { type: [integer, 'null'] }
+        createdAt: { type: string, format: date-time }
 
     UserSession:
       type: object

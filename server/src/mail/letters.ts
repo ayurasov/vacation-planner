@@ -34,6 +34,7 @@ const SUBJECTS: Record<string, string> = {
   request_rejected: 'Заявка на отпуск отклонена',
   request_cancelled: 'Отпуск удалён',
   request_escalated: 'Заявка ждёт решения',
+  request_stalled: 'Заявка без решения',
   delegation_assigned: 'Вам передано согласование заявок',
   account_locked: 'Учётная запись временно заблокирована',
   vacation_notice: 'Извещение о начале отпуска',
@@ -47,6 +48,7 @@ const LINKS: Record<string, { path: string; action: string }> = {
   request_escalated: { path: '/approvals', action: 'Открыть заявки на согласование' },
   delegation_assigned: { path: '/approvals', action: 'Открыть заявки на согласование' },
   account_locked: { path: '/settings', action: 'Проверить сеансы и сменить пароль' },
+  request_stalled: { path: '/employees', action: 'Открыть сотрудников' },
 };
 
 /** Письмо к уведомлению: тот же текст, что в колокольчике, и ссылка на нужный раздел. */
@@ -83,7 +85,7 @@ export function digestLetter(input: {
   return { subject: `Отпуска на неделе ${fmtRange(input.weekStart, input.weekEnd)}`, body: lines.join('\n') };
 }
 
-function plural(n: number, forms: [string, string, string]): string {
+export function plural(n: number, forms: [string, string, string]): string {
   const m10 = n % 10;
   const m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return forms[0];

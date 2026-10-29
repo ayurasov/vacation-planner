@@ -175,6 +175,8 @@ export interface Me {
   };
   permissions: {
     approveSubordinates: number[]; isAdmin: boolean; isHr: boolean;
+    /** Есть что согласовывать: команда, замещение руководителя, эскалированные заявки (v0.6.0). */
+    approvals?: boolean;
     /** Сотрудники, импорт, календарь, выгрузки, аудит: администратор или кадровая служба. */
     manageStaff: boolean; manageDirectories: boolean;
     /** Настройки организации: только администратор. */
@@ -215,6 +217,8 @@ export interface VacationRequest {
   pendingDeletion: boolean;
   changeFrom: { start: string; end: string } | null;
   comment: string | null; rejectionComment: string | null;
+  /** Эскалация (v0.6.0): с какого момента ждёт решения, кому и когда передана. */
+  pendingSince?: string | null; escalatedTo?: number | null; escalatedAt?: string | null;
   createdAt: string; updatedAt: string;
   history?: Array<{ ts: string; actor: number | null; action: string; comment: string | null }>;
 }
@@ -246,8 +250,16 @@ export interface OrgSettings {
   limitPolicy: 'hard' | 'soft'; defaultPlannedDays: number;
   /** Безопасность (v0.6.0): политика паролей, блокировка после неудачных попыток, журнал входов. */
   passwordMinLength: number; lockoutThreshold: number; lockoutMinutes: number; loginRetentionDays: number;
+  /** Дней без решения до передачи заявки вышестоящему; 0 — не передаётся (v0.6.0). */
+  escalationDays: number;
   /** Почта настроена на сервере (SMTP_HOST). */
   mailEnabled?: boolean;
+}
+
+// ── Замещение руководителя (с v0.6.0) ──
+export interface Delegation {
+  id: number; managerId: number; managerName: string; deputyId: number; deputyName: string;
+  start: string; end: string; active: boolean; createdBy: number | null; createdAt: string;
 }
 
 // ── Безопасность (с v0.6.0) ──

@@ -9,6 +9,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import VacationForm from '@/components/VacationForm.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
+import DelegationEditor from '@/components/DelegationEditor.vue';
 import { vDialog } from '@/directives/dialog';
 
 const ui = useUiStore();
@@ -742,6 +743,19 @@ onMounted(async () => {
               >Одноразовый: сотрудник сменит его при первом входе. Без логина и фамилии, не из распространённых.</span>
             </div>
           </div>
+          <section
+            v-if="editing && editing.role === 'manager'"
+            class="account"
+            aria-labelledby="deleg-card-title"
+          >
+            <div
+              id="deleg-card-title"
+              class="field-label"
+            >
+              Замещение руководителя
+            </div>
+            <DelegationEditor :manager-id="editing.id" />
+          </section>
           <section
             v-if="editing && security"
             class="account"

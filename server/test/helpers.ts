@@ -87,6 +87,7 @@ async function resetDb(prisma: PrismaService): Promise<void> {
     prisma.loginAttempt.deleteMany(),
     prisma.loginEvent.deleteMany(),
     prisma.loginState.deleteMany(),
+    prisma.approvalDelegation.deleteMany(),
     prisma.jobRun.deleteMany(),
     prisma.notification.deleteMany(),
     prisma.requestEvent.deleteMany(),

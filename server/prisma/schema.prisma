@@ -36,20 +36,24 @@ model Employee {
   createdAt          DateTime    @default(now()) @map("created_at")
   updatedAt          DateTime    @updatedAt @map("updated_at")
 
-  vacationRequests VacationRequest[]
-  requestEvents    RequestEvent[]    @relation("RequestActor")
-  managedDepts     Department[]      @relation("DeptManager")
-  managedProjects  Project[]         @relation("ProjectManager")
-  workPatterns     WorkPattern[]
-  workOverrides    WorkOverride[]
-  notifications    Notification[]
-  auditEvents      AuditEvent[]      @relation("AuditActor")
-  groups           GroupMember[]
-  ownedGroups      Group[]           @relation("GroupOwner")
-  refreshTokens    RefreshToken[]
-  emails           EmailOutbox[]
-  loginState       LoginState?
-  loginEvents      LoginEvent[]
+  vacationRequests    VacationRequest[]
+  requestEvents       RequestEvent[]       @relation("RequestActor")
+  managedDepts        Department[]         @relation("DeptManager")
+  managedProjects     Project[]            @relation("ProjectManager")
+  workPatterns        WorkPattern[]
+  workOverrides       WorkOverride[]
+  notifications       Notification[]
+  auditEvents         AuditEvent[]         @relation("AuditActor")
+  groups              GroupMember[]
+  ownedGroups         Group[]              @relation("GroupOwner")
+  refreshTokens       RefreshToken[]
+  emails              EmailOutbox[]
+  loginState          LoginState?
+  loginEvents         LoginEvent[]
+  delegationsGiven    ApprovalDelegation[] @relation("DelegationManager")
+  delegationsReceived ApprovalDelegation[] @relation("DelegationDeputy")
+  delegationsCreated  ApprovalDelegation[] @relation("DelegationCreator")
+  escalatedRequests   VacationRequest[]    @relation("RequestEscalatedTo")
 
   @@index([deptId])
   @@index([managerId])
@@ -127,10 +131,17 @@ model VacationRequest {
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 
+  // Эскалация (v0.6.0): с какого момента ждёт решения и кому передана
+  pendingSince   DateTime? @map("pending_since") @db.Timestamptz(6)
+  escalatedTo    Int?      @map("escalated_to")
+  escalatedToEmp Employee? @relation("RequestEscalatedTo", fields: [escalatedTo], references: [id], onDelete: SetNull)
+  escalatedAt    DateTime? @map("escalated_at") @db.Timestamptz(6)
+
   events RequestEvent[]
 
   @@index([employeeId, status])
   @@index([startDate, endDate])
+  @@index([escalatedTo])
   @@map("vacation_requests")
 }
 
@@ -185,6 +196,8 @@ model OrgSettings {
   lockoutThreshold   Int    @default(10) @map("lockout_threshold") // неудачных попыток подряд; 0 — без блокировки
   lockoutMinutes     Int    @default(15) @map("lockout_minutes")
   loginRetentionDays Int    @default(365) @map("login_retention_days")
+  // Согласование (v0.6.0): дней без решения до передачи вышестоящему; 0 — не передаётся
+  escalationDays     Int    @default(0) @map("escalation_days")
 
   @@map("org_settings")
 }
@@ -324,4 +337,23 @@ model LoginAttempt {
   @@id([key, windowStart])
   @@index([windowStart])
   @@map("login_attempts")
+}
+
+// Замещение руководителя (v0.6.0, E61-01): на период заместитель согласует заявки его сотрудников
+model ApprovalDelegation {
+  id        Int       @id @default(autoincrement())
+  managerId Int       @map("manager_id")
+  manager   Employee  @relation("DelegationManager", fields: [managerId], references: [id], onDelete: Cascade)
+  deputyId  Int       @map("deputy_id")
+  deputy    Employee  @relation("DelegationDeputy", fields: [deputyId], references: [id], onDelete: Cascade)
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime  @map("end_date") @db.Date
+  createdBy Int?      @map("created_by")
+  creator   Employee? @relation("DelegationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@index([deputyId, endDate])
+  @@index([managerId, endDate])
+  @@map("approval_delegations")
 }

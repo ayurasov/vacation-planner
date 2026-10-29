@@ -34,11 +34,16 @@ export class SettingsUpdateDto {
 
   @IsOptional() @IsInt() @Min(30) @Max(3650)
     loginRetentionDays?: number;
+
+  // Согласование (v0.6.0): дней без решения до передачи вышестоящему; 0 — не передаётся
+  @IsOptional() @IsInt() @Min(0) @Max(60)
+    escalationDays?: number;
 }
 
 type SettingsView = {
   id: number; conflictThreshold: number; timezone: string; limitPolicy: string; defaultPlannedDays: number;
   passwordMinLength: number; lockoutThreshold: number; lockoutMinutes: number; loginRetentionDays: number;
+  escalationDays: number;
 };
 
 @ApiTags('settings')
@@ -59,6 +64,7 @@ export class SettingsController {
       limitPolicy: s.limitPolicy, defaultPlannedDays: s.defaultPlannedDays,
       passwordMinLength: s.passwordMinLength, lockoutThreshold: s.lockoutThreshold,
       lockoutMinutes: s.lockoutMinutes, loginRetentionDays: s.loginRetentionDays,
+      escalationDays: s.escalationDays,
     };
   }
 
@@ -71,6 +77,7 @@ export class SettingsController {
       limitPolicy: s.limitPolicy, defaultPlannedDays: s.defaultPlannedDays,
       passwordMinLength: s.passwordMinLength, lockoutThreshold: s.lockoutThreshold,
       lockoutMinutes: s.lockoutMinutes, loginRetentionDays: s.loginRetentionDays,
+      escalationDays: s.escalationDays,
       mailEnabled: this.mail.config.enabled,
     };
   }

@@ -51,6 +51,10 @@ jobs:
       - name: Миграции тестовой БД
         run: npx prisma migrate deploy
         working-directory: server
+      - name: 'Обновление с прошлого выпуска на данных (миграции main → данные → миграции ветки)'
+        run: scripts/upgrade-check.sh
+        env:
+          UPGRADE_DATABASE_URL: postgresql://vacation:vacation@localhost:5432/vacation_test?schema=upgrade_check
       - name: Сборка (tsc strict)
         run: npm run build
         working-directory: server

@@ -8,6 +8,8 @@ import { fmtRange } from '../mail/letters';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { calendarDays, computeBalance, overlaps, toIso, vacationDays } from './balance';
+import { activeDeputies, approverOf, canDecide, queueFilter } from './approval-scope';
+import { orgToday } from '../infra/clock';
 
 export interface Actor {
   id: number;
@@ -31,6 +33,10 @@ function publicView(r: VacationRequest & { events?: unknown[] }) {
       : null,
     comment: r.comment,
     rejectionComment: r.rejectionComment,
+    // Эскалация (v0.6.0): заявка без решения передана вышестоящему руководителю
+    escalatedTo: r.escalatedTo,
+    escalatedAt: r.escalatedAt?.toISOString() ?? null,
+    pendingSince: r.pendingSince?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
@@ -72,6 +78,7 @@ export class RequestsService {
         data: {
           employeeId, startDate: new Date(input.start), endDate: new Date(input.end),
           status: autoApprove ? 'approved' : 'pending',
+          pendingSince: autoApprove ? null : new Date(),
           comment: input.comment ?? null, createdBy: actor.id,
           events: { create: { actorId: actor.id, action: autoApprove ? 'created+approved' : 'created', comment: input.comment ?? null } },
         },
@@ -89,15 +96,18 @@ export class RequestsService {
 
   // ── Список ──
   async list(actor: Actor, params: {
-    scope: 'mine' | 'subordinates' | 'all';
+    scope: 'mine' | 'subordinates' | 'approvals' | 'all';
     status?: string; employee?: number; page: number; perPage: number;
   }) {
     let employeeIds: number[] | null = null;
     if (params.scope === 'mine') employeeIds = [actor.id];
     if (params.scope === 'subordinates') employeeIds = actor.subordinates;
     if (params.scope === 'all' && !actor.isAdmin) throw new ProblemException('auth/forbidden');
+    // Ждут моего решения (v0.6.0): команда — своя и замещаемых руководителей, и эскалированные мне
+    const queue = params.scope === 'approvals' ? await queueFilter(this.prisma, actor.id, await orgToday(this.prisma)) : {};
 
     const where: Prisma.VacationRequestWhereInput = {
+      ...queue,
       ...(employeeIds ? { employeeId: { in: employeeIds } } : {}),
       ...(params.employee ? { employeeId: params.employee } : {}),
       ...(params.status ? { status: params.status as VacationRequest['status'] } : {}),
@@ -122,7 +132,7 @@ export class RequestsService {
       where: { id }, include: { events: { orderBy: { ts: 'asc' } }, employee: { select: { name: true } } },
     });
     if (!r) throw new ProblemException('not-found');
-    this.assertCanView(actor, r.employeeId);
+    await this.assertCanView(actor, r);
     return {
       ...publicView(r),
       employeeName: r.employee.name,
@@ -161,6 +171,8 @@ export class RequestsService {
             data: {
               startDate: new Date(start), endDate: new Date(end),
               status: 'pending', pendingDeletion: false,
+              // Новый запрос — новый отсчёт до эскалации
+              pendingSince: new Date(), escalatedTo: null, escalatedAt: null,
               changeFromStart: r.changeFromStart ?? r.startDate,
               changeFromEnd: r.changeFromEnd ?? r.endDate,
               comment: input.comment ?? r.comment,
@@ -201,7 +213,9 @@ export class RequestsService {
         return upd;
       }
       if (r.status === 'approved') {
-        const upd = await tx.vacationRequest.update({ where: { id }, data: { status: 'pending', pendingDeletion: true } });
+        const upd = await tx.vacationRequest.update({
+          where: { id }, data: { status: 'pending', pendingDeletion: true, pendingSince: new Date(), escalatedTo: null, escalatedAt: null },
+        });
         await tx.requestEvent.create({ data: { requestId: id, actorId: actor.id, action: 'deletion_requested' } });
         await this.audit.record(tx, {
           actorId: actor.id, action: 'request.deletion_requested', entity: 'vacation_request', entityId: id,
@@ -238,7 +252,12 @@ export class RequestsService {
 
       const upd = await tx.vacationRequest.update({
         // Перенос согласован: прежние даты больше не нужны (иначе следующий перенос «помнил» бы самые первые)
-        where: { id }, data: { status: 'approved', pendingDeletion: false, rejectionComment: null, changeFromStart: null, changeFromEnd: null },
+        where: { id },
+        data: {
+          status: 'approved', pendingDeletion: false, rejectionComment: null, changeFromStart: null, changeFromEnd: null,
+          // Отметка эскалации остаётся историей (и правом просмотра у вышестоящего); сбрасывает её новый запрос
+          pendingSince: null,
+        },
       });
       await tx.requestEvent.create({ data: { requestId: id, actorId: actor.id, action: 'approved', comment: comment ?? null } });
       await this.audit.record(tx, {
@@ -264,6 +283,7 @@ export class RequestsService {
         data: {
           status: 'rejected',
           rejectionComment: comment,
+          pendingSince: null,
           ...(restoreDates ? { startDate: r.changeFromStart!, endDate: r.changeFromEnd!, status: 'approved' as const, changeFromStart: null, changeFromEnd: null } : {}),
           ...(r.pendingDeletion ? { pendingDeletion: false, status: 'approved' as const } : {}),
         },
@@ -405,8 +425,10 @@ export class RequestsService {
     });
   }
 
-  private assertCanView(actor: Actor, employeeId: number): void {
-    if (actor.isAdmin || actor.id === employeeId || actor.subordinates.includes(employeeId)) return;
+  private async assertCanView(actor: Actor, r: VacationRequest): Promise<void> {
+    if (actor.isAdmin || actor.id === r.employeeId || actor.subordinates.includes(r.employeeId)) return;
+    // Заместитель и вышестоящий (эскалация) видят заявку, по которой могут решать
+    if (await canDecide(this.prisma, actor, r, await orgToday(this.prisma))) return;
     throw new ProblemException('auth/forbidden');
   }
 
@@ -417,22 +439,21 @@ export class RequestsService {
     throw new ProblemException('auth/forbidden', `Нельзя ${what} чужие заявки`);
   }
 
+  /** Руководитель, его заместитель, вышестоящий по эскалации или администратор; по своей заявке — никто. */
   private async assertApprover(actor: Actor, r: VacationRequest): Promise<void> {
-    if (actor.isAdmin) return;
-    if (actor.subordinates.includes(r.employeeId)) return;
-    // Руководитель отдела сотрудника (В3: эскалация не реализуется в v0.1.0 — backlog)
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: r.employeeId }, include: { dept: true },
-    });
-    if (employee?.dept?.managerId === actor.id) return;
-    throw new ProblemException('auth/forbidden', 'Согласовывать может руководитель сотрудника или администратор');
+    if (await canDecide(this.prisma, actor, r, await orgToday(this.prisma))) return;
+    throw new ProblemException('auth/forbidden', r.employeeId === actor.id
+      ? 'Свою заявку согласует руководитель'
+      : 'Согласовывать может руководитель сотрудника, его заместитель или администратор');
   }
 
+  /** Уведомление согласующему и его действующим заместителям (v0.6.0). */
   private async notifyApprover(tx: Prisma.TransactionClient, employeeId: number, text: string): Promise<void> {
-    const employee = await tx.employee.findUnique({ where: { id: employeeId }, include: { dept: true } });
-    const approverId = employee?.managerId ?? employee?.dept?.managerId ?? null;
-    if (approverId) {
-      await this.notifyEmployee(tx, approverId, 'request_created', `${employee?.name}: ${text}`);
+    const { approverId, name } = await approverOf(tx, employeeId);
+    if (!approverId) return;
+    await this.notifyEmployee(tx, approverId, 'request_created', `${name}: ${text}`);
+    for (const deputy of await activeDeputies(tx, approverId, await orgToday(tx))) {
+      if (deputy !== employeeId) await this.notifyEmployee(tx, deputy, 'request_created', `${name}: ${text} (замещение)`);
     }
   }
 

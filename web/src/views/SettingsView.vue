@@ -8,6 +8,7 @@ import { useTheme, type ThemeChoice } from '@/composables/useTheme';
 import { fmtDateTime, fmtNumber } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import DelegationEditor from '@/components/DelegationEditor.vue';
 
 const auth = useAuthStore();
 const ui = useUiStore();
@@ -103,6 +104,7 @@ async function saveOrg(): Promise<void> {
       conflictThreshold: Number(settings.value.conflictThreshold),
       limitPolicy: settings.value.limitPolicy,
       defaultPlannedDays: Number(settings.value.defaultPlannedDays),
+      escalationDays: Number(settings.value.escalationDays),
       passwordMinLength: Number(settings.value.passwordMinLength),
       lockoutThreshold: Number(settings.value.lockoutThreshold),
       lockoutMinutes: Number(settings.value.lockoutMinutes),
@@ -345,6 +347,26 @@ onMounted(async () => {
       </div>
     </section>
 
+    <section
+      v-if="auth.hasApprovals"
+      class="card"
+      aria-labelledby="deleg-title"
+    >
+      <div class="card-header">
+        <span
+          id="deleg-title"
+          class="section-title"
+        ><AppIcon
+          name="swap"
+          :size="16"
+        /> Замещение на время отсутствия</span>
+        <span class="soft small">заместитель согласует заявки ваших сотрудников</span>
+      </div>
+      <div class="card-body">
+        <DelegationEditor />
+      </div>
+    </section>
+
     <section class="card">
       <div class="card-header">
         <span class="section-title"><AppIcon
@@ -454,6 +476,23 @@ onMounted(async () => {
             class="input"
             style="max-width: 120px"
           >
+        </div>
+        <div class="field">
+          <label for="org-esc">Заявка без решения передаётся вышестоящему руководителю через, дней</label>
+          <input
+            id="org-esc"
+            v-model.number="settings.escalationDays"
+            type="number"
+            min="0"
+            max="60"
+            class="input"
+            style="max-width: 120px"
+            aria-describedby="org-esc-hint"
+          >
+          <span
+            id="org-esc-hint"
+            class="field-hint"
+          >0 — не передаётся. Если выше руководителя никого нет, уведомление получает кадровая служба.</span>
         </div>
         <fieldset class="security">
           <legend class="field-label">

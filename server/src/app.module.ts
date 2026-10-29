@@ -21,6 +21,7 @@ import { ImportsModule } from './imports/imports.module';
 import { MailModule } from './mail/mail.module';
 import { EventsModule } from './events/events.module';
 import { JobsModule } from './jobs/jobs.module';
+import { DelegationsModule } from './delegations/delegations.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { JobsModule } from './jobs/jobs.module';
     AuditModule,
     AuthModule,
     JobsModule,
+    DelegationsModule,
     EmployeesModule,
     RequestsModule,
     DirectoriesModule,

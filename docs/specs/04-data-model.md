@@ -109,6 +109,9 @@
 | `created_by` | Int |  |  |
 | `created_at` | DateTime |  |  |
 | `updated_at` | DateTime |  |  |
+| `pending_since` | DateTime | null |  |
+| `escalated_to` | Int | null |  |
+| `escalated_at` | DateTime | null |  |
 
 **`request_events`** — История действий по заявке
 
@@ -150,6 +153,7 @@
 | `lockout_threshold` | Int |  | неудачных попыток подряд; 0 — без блокировки |
 | `lockout_minutes` | Int |  |  |
 | `login_retention_days` | Int |  |  |
+| `escalation_days` | Int |  |  |
 
 **`calendars`** — Производственный календарь по годам
 
@@ -184,7 +188,7 @@
 | `before` | Json | null |  |
 | `after` | Json | null |  |
 
-**`refresh_tokens`** — Хеши refresh-токенов (ротация, отзыв)
+**`refresh_tokens`** — Хеши refresh-токенов (ротация, отзыв); цепочка одного входа — сеанс
 
 | Поле | Тип | Признаки | Примечание |
 |---|---|---|---|
@@ -200,7 +204,7 @@
 | `ip` | String | null |  |
 | `user_agent` | String | null |  |
 
-**`login_state`** — 
+**`login_state`** — Состояние входа сотрудника: последний вход, неудачные попытки подряд, блокировка
 
 | Поле | Тип | Признаки | Примечание |
 |---|---|---|---|
@@ -209,7 +213,7 @@
 | `failed_logins` | Int |  |  |
 | `locked_until` | DateTime | null |  |
 
-**`login_events`** — 
+**`login_events`** — Журнал входов: успешные и неуспешные попытки, блокировки; срок хранения — правило организации
 
 | Поле | Тип | Признаки | Примечание |
 |---|---|---|---|
@@ -259,6 +263,19 @@
 | `key` | String |  |  |
 | `window_start` | DateTime |  |  |
 | `hits` | Int |  |  |
+
+**`approval_delegations`** — Замещение руководителя: заместитель согласует заявки его команды на период
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `id` | Int | PK |  |
+| `manager_id` | Int |  |  |
+| `deputy_id` | Int |  |  |
+| `start_date` | DateTime |  |  |
+| `end_date` | DateTime |  |  |
+| `created_by` | Int | null |  |
+| `created_at` | DateTime |  |  |
+| `revoked_at` | DateTime | null |  |
 <!-- END:data-dictionary -->
 
 # Инварианты

@@ -57,7 +57,7 @@ export class AuthController {
     return {
       accessToken: result.accessToken,
       expiresAt: result.expiresAt.toISOString(),
-      user: this.toMe(result.user),
+      user: this.toMe(result.user, await this.auth.canApprove(result.user.id)),
     };
   }
 
@@ -86,13 +86,14 @@ export class AuthController {
   @ApiOperation({ operationId: 'getMe', summary: 'Текущий пользователь и его права' })
   async me(@CurrentUser() user: { sub: number }) {
     const me = await this.auth.me(user.sub);
-    return this.toMe(me);
+    return this.toMe(me, await this.auth.canApprove(me.id));
   }
 
   @Patch('me')
   @ApiOperation({ operationId: 'updateMyPreferences', summary: 'Личные настройки: письма о заявках' })
   async updateMe(@CurrentUser() user: { sub: number }, @Body() dto: PreferencesDto) {
-    return this.toMe(await this.auth.setPreferences(user.sub, dto.emailNotifications));
+    const me = await this.auth.setPreferences(user.sub, dto.emailNotifications);
+    return this.toMe(me, await this.auth.canApprove(me.id));
   }
 
   @Post('password')
@@ -140,7 +141,7 @@ export class AuthController {
     return { revoked: await this.auth.revokeSessions(user.sub, { except: user.sid }) };
   }
 
-  private toMe(e: { id: number; name: string; login: string; position: string | null; email: string | null; emailNotifications: boolean; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; mustChangePassword: boolean; subordinates: number[] }) {
+  private toMe(e: { id: number; name: string; login: string; position: string | null; email: string | null; emailNotifications: boolean; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; mustChangePassword: boolean; subordinates: number[] }, approvals: boolean) {
     return {
       employee: {
         id: e.id, name: e.name, login: e.login, email: e.email, emailNotifications: e.emailNotifications,
@@ -152,6 +153,9 @@ export class AuthController {
       },
       permissions: {
         approveSubordinates: e.subordinates,
+        // Есть что согласовывать: команда (и сотрудники руководимого отдела без руководителя),
+        // замещение руководителя, эскалированные заявки — раздел «Заявки» (v0.6.0)
+        approvals: approvals || e.subordinates.length > 0,
         isAdmin: e.isAdmin,
         isHr: e.isHr,
         // кадровые операции: сотрудники, оргструктура, календарь, импорт, выгрузки, аудит

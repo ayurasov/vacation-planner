@@ -13,6 +13,8 @@ import { LoginJournal } from './login-journal.service';
 import { type ClientInfo, describeAgent } from './client-info';
 import { weakPasswordReason } from './password-policy';
 import { generatePassword } from '../employees/employees.service';
+import { approvesAnything } from '../requests/approval-scope';
+import { orgToday } from '../infra/clock';
 
 export interface LoginResult {
   accessToken: string;
@@ -214,6 +216,11 @@ export class AuthService {
   }
 
   // ── Пароли (E62-04) ──
+
+  /** Есть ли что согласовывать: своя команда, замещение руководителя или эскалированные заявки (v0.6.0). */
+  async canApprove(userId: number): Promise<boolean> {
+    return approvesAnything(this.prisma, userId, await orgToday(this.prisma));
+  }
 
   async passwordPolicy(): Promise<{ minLength: number }> {
     return { minLength: (await this.securitySettings()).passwordMinLength };

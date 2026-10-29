@@ -45,8 +45,9 @@ export class DecisionDto {
 }
 
 export class ListQuery {
-  @IsOptional() @IsIn(['mine', 'subordinates', 'all'])
-    scope?: 'mine' | 'subordinates' | 'all';
+  // approvals — ждут моего решения: команда, замещение, эскалация (v0.6.0)
+  @IsOptional() @IsIn(['mine', 'subordinates', 'approvals', 'all'])
+    scope?: 'mine' | 'subordinates' | 'approvals' | 'all';
 
   @IsOptional() @IsIn(['pending', 'approved', 'rejected', 'cancelled'])
     status?: string;

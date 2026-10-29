@@ -4,11 +4,7 @@
 import { Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShutdown } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma.service';
 import { LoginJournal } from '../auth/login-journal.service';
-
-/** Дата «ГГГГ-ММ-ДД» в часовом поясе организации. */
-export function dateIn(timezone: string, now: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-}
+import { dateIn } from '../infra/clock';
 
 export type Job = (now: Date) => Promise<unknown>;
 
