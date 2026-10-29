@@ -47,6 +47,13 @@ async function logout(): Promise<void> {
 // Фоновые данные каркаса живут, пока пользователь вошёл. Обновления приходят потоком событий
 // сервера; пока он недоступен — опрос (уведомления раз в 30 с, счётчик заявок раз в минуту).
 let unsubscribe: (() => void) | null = null;
+// Счётчик заявок по событию: только у согласующих (у остальных он всегда 0) и через случайные 0–10 с
+let approvalsSoon = 0;
+function refreshApprovalsSoon(): void {
+  if (!auth.hasApprovals && !auth.isAdmin) return;
+  window.clearTimeout(approvalsSoon);
+  approvalsSoon = window.setTimeout(() => void approvals.refresh(auth.isAdmin), Math.random() * 10_000);
+}
 function pollApprovals(on: boolean): void {
   window.clearInterval(approvalsTimer);
   if (on) approvalsTimer = window.setInterval(() => void approvals.refresh(auth.isAdmin), 60000);
@@ -62,9 +69,11 @@ watch(() => auth.isLoggedIn && !auth.mustChangePassword, (loggedIn) => {
     pollApprovals(true);
     unsubscribe = subscribeLive({
       status: (on) => { notifications.live(on); pollApprovals(!on); },
-      notifications: () => { void notifications.load(); void approvals.refresh(auth.isAdmin); },
+      // Число непрочитанных приходит в событии; счётчик заявок перечитывают только согласующие —
+      // через случайные 0–10 с, чтобы уведомление всей организации не давало волну запросов
+      notifications: (d) => { notifications.update(d.unread); refreshApprovalsSoon(); },
       data: (d) => { live.version = d.version; },
-      hello: (d) => { live.version = d.version; },
+      hello: (d) => { live.version = d.version; notifications.update(d.unread); },
     });
   } else {
     notifications.stop();
@@ -73,7 +82,7 @@ watch(() => auth.isLoggedIn && !auth.mustChangePassword, (loggedIn) => {
 }, { immediate: true });
 
 watch(() => route.fullPath, () => { mobileOpen.value = false; });
-onBeforeUnmount(() => { window.clearInterval(approvalsTimer); unsubscribe?.(); });
+onBeforeUnmount(() => { window.clearInterval(approvalsTimer); window.clearTimeout(approvalsSoon); unsubscribe?.(); });
 </script>
 
 <template>

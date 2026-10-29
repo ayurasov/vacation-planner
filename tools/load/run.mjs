@@ -58,7 +58,7 @@ const ARRIVALS = Number(arg('arrivals', base.arrivals ?? 0));
 const WINDOW = Number(arg('window', base.window ?? 900)) * 1000;
 const TICK = Number(arg('tick', base.tick ?? 60)) * 1000; // шаг ленты, мс
 const HR_USERS = Number(arg('hr', Math.min(10, Math.max(1, Math.round(USERS * 0.02))))); // кадровая служба среди работающих
-// Клиент до v1.0.0 перечитывал график по событию сразу: --no-jitter воспроизводит прежнее поведение
+// Клиент до v1.0.0 перечитывал график и список уведомлений по событию сразу: --no-jitter воспроизводит прежнее поведение
 const JITTER = !has('no-jitter');
 // Ступени: «пользователей:секунд,…»; без них — одна ступень USERS на DURATION
 const STAGES = arg('stages')
@@ -181,6 +181,7 @@ const EMPLOYEE = [
   [3, 'график организации', (vu) => call(vu, 'GET /schedule (организация)', `/schedule?from=${year}-01-01&to=${year}-12-31`)],
   [20, 'мой отпуск', myVacation],
   [15, 'колокольчик', (vu) => call(vu, 'GET /notifications', '/notifications?unread=true'), { poll: true }],
+  [2, 'открыть колокольчик', (vu) => call(vu, 'GET /notifications', '/notifications?per_page=30'), { live: true }],
   [8, 'команда сегодня', (vu) => call(vu, 'GET /analytics/team', `/analytics/team?dept=${encodeURIComponent(vu.dept)}&date=${today}`)],
   [4, 'аналитика года', (vu) => call(vu, 'GET /analytics/overview', `/analytics/overview?dept=${encodeURIComponent(vu.dept)}&year=${year}`)],
   [4, 'подбор дат', (vu) => call(vu, 'GET /analytics/suggestions', `/analytics/suggestions?days=14&from=${year + 1}-06-01&to=${year + 1}-09-30`)],
@@ -214,7 +215,8 @@ const HR = [
 
 function actionsFor(vu) {
   const list = [...EMPLOYEE, ...(vu.approver ? APPROVER : []), ...(vu.hr ? HR : [])]
-    .filter(([, , , opts]) => !(SSE && opts?.poll)); // с потоком событий колокольчик перечитывает событие
+    // С потоком событий опроса колокольчика нет — список читается при открытии панели; без потока — опрос
+    .filter(([, , , opts]) => (SSE ? !opts?.poll : !opts?.live));
   const total = list.reduce((n, [w]) => n + w, 0);
   return () => {
     let r = Math.random() * total;
@@ -264,7 +266,17 @@ async function streamOnce(vu, deadline, onNotifications) {
         if (!name) continue;
         sse.events[name] = (sse.events[name] ?? 0) + 1;
         if (name === 'hello') record('SSE: подключение до hello', performance.now() - t0, true, 200);
-        if (name === 'notifications' && onNotifications) void call(vu, 'GET /notifications', '/notifications?unread=true');
+        // Как App.vue 1.0.0: значок берёт число из события, список читается при открытии панели;
+        // счётчик заявок перечитывают только согласующие, через 0–10 с. --no-jitter — клиент до 1.0.0:
+        // каждая вкладка сразу перечитывает список (волна после уведомления всей организации)
+        if (name === 'notifications' && onNotifications) {
+          if (!JITTER) void call(vu, 'GET /notifications', '/notifications?unread=true');
+          else if (vu.approver) {
+            setTimeout(() => {
+              if (performance.now() < deadline && !vu.closed) void call(vu, 'GET /vacation-requests (бейдж)', '/vacation-requests?scope=approvals&status=pending&per_page=1');
+            }, Math.random() * 10_000);
+          }
+        }
         // Как ScheduleView: видимая вкладка перечитывает график не чаще раза в минуту, через 0–10 с
         if (name === 'data' && visible && !pendingSchedule && performance.now() - lastSchedule > 60_000) {
           pendingSchedule = setTimeout(() => {

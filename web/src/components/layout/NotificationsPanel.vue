@@ -70,10 +70,12 @@ function onDocClick(e: MouseEvent): void {
 }
 
 onMounted(() => {
+  store.setPanel(true);
   setTimeout(() => document.addEventListener('click', onDocClick), 0);
   document.addEventListener('keydown', onKey);
 });
 onBeforeUnmount(() => {
+  store.setPanel(false);
   document.removeEventListener('click', onDocClick);
   document.removeEventListener('keydown', onKey);
 });
