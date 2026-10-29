@@ -4,7 +4,7 @@
 
 Стек: **NestJS 11 + TypeScript strict + Prisma 6 + PostgreSQL 17**, клиент **Vue 3 + Vite + Pinia** без компонентных библиотек, поставка в **Docker**.
 
-**Версия:** v0.6.0. Ветки и теги `v0.x.y`; `main` — только принятые версии. История и авторство — [docs/versions.md](docs/versions.md), технический журнал — [CHANGELOG.md](CHANGELOG.md).
+**Версия:** v1.0.0 — промышленная эксплуатация на 1000–2000 сотрудников ([заметки к выпуску](docs/release-notes/v1.0.0.md)). Ветки и теги `vX.Y.Z`; `main` — только принятые версии. История и авторство — [docs/versions.md](docs/versions.md), технический журнал — [CHANGELOG.md](CHANGELOG.md).
 
 ![График отпусков](docs/images/ui-schedule.png)
 
@@ -31,9 +31,10 @@ make web-dev     # интерфейс → http://localhost:5173
 | `make lint` | ESLint сервера и клиента |
 | `make sbom` | SBOM CycloneDX и отчёт лицензий (copyleft и неизвестные — блокер) |
 | `make docs` | Комплект документов в PDF и DOCX |
-| `node tools/load/run.mjs` | Нагрузочный прогон (БД наполняется `npm run db:seed:load`) — отчёты [v0.5.0](docs/progress/load-v0.5.0.md), [v0.6.0](docs/progress/load-v0.6.0.md) |
+| `node tools/load/run.mjs --profile average --population 2000` | Нагрузочный прогон по модели рабочего дня (БД наполняется `npm run db:seed:load`) — [модель](docs/performance/workday-model.md), [регламент](docs/performance/runbook.md), [отчёт 1.0.0](docs/performance/report-v1.0.0.md) |
+| `scripts/build-dist.sh` | Дистрибутив: исходные тексты, образы, комплект установки, SHA-256 |
 
-CI — GitHub Actions и Gitea Actions с одинаковым набором: сервер (Node 20 и 22), клиент, e2e интерфейса, SBOM, сборка образов и дымовой прогон стенда; в GitHub — ещё репликация и переключение на реплику, в Gitea — развёртывание стенда после всех проверок.
+CI — GitHub Actions и Gitea Actions с одинаковым набором: сервер (Node 20 и 22, включая матрицу прав каждой операции каждой ролью), клиент, e2e интерфейса, SBOM, сборка образов и дымовой прогон стенда; в GitHub — ещё репликация и переключение на реплику, нагрузочный прогон с порогами и сверка таблиц документов с кодом, в Gitea — развёртывание стенда после всех проверок.
 
 ## Структура
 
@@ -41,12 +42,13 @@ CI — GitHub Actions и Gitea Actions с одинаковым набором: �
 server/      API: src/<домен>/ (controller + service), prisma/ (схема, миграции, seed), test/
 web/         SPA: src/views, src/components, src/stores, src/api/client.ts, e2e/
 contracts/   OpenAPI-контракт v1 (меняется через ревью владельца)
-docs/        specs/ — спецификации, manuals/ — руководства, pdf/ и docx/ — сборки,
-             diagrams/ — исходники схем, images/ — схемы и снимки экранов
+docs/        specs/ — спецификации, manuals/ — руководства, registry/ — комплект для реестра,
+             runbooks/ — регламенты эксплуатации, performance/ — нагрузка, security/ — самооценка ИБ,
+             acceptance/ — программа испытаний, pdf/ и docx/ — сборки, images/ — схемы и снимки экранов
 deploy/      monitoring/ — Prometheus, оповещения, панель Grafana; postgres/ — реплика и копии
 tools/docs/  Конвейер документов: pandoc → PDF (Chromium) и DOCX; рендер схем
-tools/load/  Нагрузочный генератор без зависимостей
-scripts/     Отчёт лицензий; проверка обновления с прошлого выпуска на данных
+tools/load/  Нагрузка без зависимостей: генератор, прогон с привязкой к ядрам, пики, отказы, рост данных
+scripts/     Отчёт лицензий и уведомления о компонентах; проверка обновления на данных; дистрибутив
 ```
 
 ## Документация

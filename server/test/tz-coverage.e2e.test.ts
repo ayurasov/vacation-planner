@@ -78,7 +78,10 @@ describe('СП-5: политика лимита', () => {
 });
 
 describe('СП-10, FR-13: выгрузка', () => {
-  it('в выгрузке графика нет логинов и паролей', async () => {
+  it('в выгрузке графика нет логинов и паролей; даты — значения Excel ДД.ММ.ГГГГ', async () => {
+    await t.prisma.vacationRequest.create({
+      data: { employeeId: t.employee.id, startDate: new Date(`${NEXT_YEAR}-05-12`), endDate: new Date(`${NEXT_YEAR}-05-15`), status: 'approved', createdBy: t.employee.id },
+    });
     const res = await t.http().get(`/api/v1/reports/vacations?from=${NEXT_YEAR}-01-01&to=${NEXT_YEAR}-12-31`).set(auth(adm))
       .buffer(true).parse((r, cb) => { const chunks: Buffer[] = []; r.on('data', (c: Buffer) => chunks.push(c)); r.on('end', () => cb(null, Buffer.concat(chunks))); });
     expect(res.status).toBe(200);
@@ -87,6 +90,11 @@ describe('СП-10, FR-13: выгрузка', () => {
     const header = (wb.worksheets[0].getRow(1).values as unknown[]).filter(Boolean).map(String);
     expect(header).toContain('Сотрудник');
     expect(header.some((h) => /логин|пароль|login|password/i.test(h))).toBe(false);
+    // Даты — значения Excel с форматом ДД.ММ.ГГГГ (НФ-6), а не текст
+    const cell = wb.worksheets[0].getRow(2).getCell(header.indexOf('Начало') + 1);
+    expect(cell.value).toBeInstanceOf(Date);
+    expect((cell.value as Date).toISOString().slice(0, 10)).toBe(`${NEXT_YEAR}-05-12`);
+    expect(cell.numFmt).toBe('dd.mm.yyyy');
     const text = JSON.stringify(wb.worksheets[0].getSheetValues());
     expect(text).not.toContain(t.employee.login);
     expect(text).not.toContain(t.employee.password);
