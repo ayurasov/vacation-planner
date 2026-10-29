@@ -19,6 +19,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ImportsModule } from './imports/imports.module';
 import { MailModule } from './mail/mail.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { MailModule } from './mail/mail.module';
     ReportsModule,
     AnalyticsModule,
     ImportsModule,
+    EventsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: ProblemFilter },

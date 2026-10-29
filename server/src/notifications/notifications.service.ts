@@ -40,4 +40,10 @@ export class NotificationsService {
   async markRead(userId: number, id: number): Promise<void> {
     await this.prisma.notification.updateMany({ where: { id, employeeId: userId }, data: { isRead: true } });
   }
+
+  /** Все непрочитанные — одним запросом (раньше клиент отправлял по запросу на уведомление). */
+  async markAllRead(userId: number): Promise<number> {
+    const r = await this.prisma.notification.updateMany({ where: { employeeId: userId, isRead: false }, data: { isRead: true } });
+    return r.count;
+  }
 }

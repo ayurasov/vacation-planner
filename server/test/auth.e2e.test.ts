@@ -1,9 +1,18 @@
 // E2E: аутентификация и сессии (критерии историй E01-xx, docs/specs/03-backlog.md).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestApp, destroyTestApp, login, type TestApp } from './helpers';
+import { createExtraApp, createTestApp, destroyTestApp, login, type TestApp } from './helpers';
+import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { LoginRateLimitGuard } from '../src/auth/rate-limit';
 
 let t: TestApp;
+
+/** Через сколько дней истекает refresh-cookie из Set-Cookie. */
+const cookieDays = (setCookie: string[]): number => {
+  const c = setCookie.find((h) => h.startsWith('vp_refresh='))!;
+  const expires = /Expires=([^;]+)/i.exec(c)?.[1];
+  return expires ? (Date.parse(expires) - Date.now()) / 86_400_000 : 0;
+};
 
 beforeAll(async () => {
   t = await createTestApp();
@@ -22,6 +31,9 @@ describe('POST /api/v1/auth/login', () => {
     expect(res.body.user.permissions.isAdmin).toBe(true);
     const setCookie = res.headers['set-cookie'] as string[];
     expect(setCookie?.some((c) => c.startsWith('vp_refresh='))).toBe(true);
+    // Cookie живёт как refresh-токен (30 дней), а не как access (15 минут): иначе браузер удалял
+    // её вместе с истечением access-токена и через 15 минут работы выбрасывал на экран входа
+    expect(cookieDays(setCookie)).toBeGreaterThan(29);
   });
 
   it('неверный пароль → 401 problem+json без раскрытия причины', async () => {
@@ -52,6 +64,18 @@ describe('GET /api/v1/auth/me', () => {
     const res = await t.http().get('/api/v1/auth/me');
     expect(res.status).toBe(401);
   });
+
+  it('токен с другим алгоритмом подписи, даже тем же секретом, не принимается', async () => {
+    const me = await t.prisma.employee.findUniqueOrThrow({ where: { id: t.employee.id } });
+    const claims = { sub: me.id, login: me.login, isAdmin: me.isAdmin, pwv: me.pwVersion };
+    // Контроль: те же утверждения с HS256 принимаются — отказ ниже именно из-за алгоритма
+    const hs256 = jwt.sign(claims, process.env.JWT_SECRET!, { algorithm: 'HS256', expiresIn: '5m' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${hs256}`)).status).toBe(200);
+    const hs512 = jwt.sign(claims, process.env.JWT_SECRET!, { algorithm: 'HS512', expiresIn: '5m' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${hs512}`)).status).toBe(401);
+    const unsigned = jwt.sign(claims, null, { algorithm: 'none' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${unsigned}`)).status).toBe(401);
+  });
 });
 
 describe('POST /api/v1/auth/refresh', () => {
@@ -63,6 +87,7 @@ describe('POST /api/v1/auth/refresh', () => {
     const first = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
     expect(first.status).toBe(200);
     expect(first.body.accessToken).toBeTypeOf('string');
+    expect(cookieDays(first.headers['set-cookie'] as unknown as string[])).toBeGreaterThan(29);
 
     // Повторное использование старого refresh отклоняется (ротация)
     const second = await t.http().post('/api/v1/auth/refresh').set('Cookie', cookie!);
@@ -71,6 +96,16 @@ describe('POST /api/v1/auth/refresh', () => {
 });
 
 describe('смена пароля', () => {
+  it('увольнение сразу закрывает доступ по выданному токену', async () => {
+    const adm = await login(t, t.admin);
+    const created = await t.http().post('/api/v1/employees').set('Authorization', `Bearer ${adm}`)
+      .send({ name: 'Уходящий Иван Иванович', login: 'leaving.ii', password: 'leaving-pass-123' });
+    const token = await login(t, { login: 'leaving.ii', password: 'leaving-pass-123' });
+    expect((await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`)).status).toBe(200);
+    await t.http().delete(`/api/v1/employees/${created.body.employee.id}`).set('Authorization', `Bearer ${adm}`);
+    expect((await t.http().get('/api/v1/schedule?from=2027-01-01&to=2027-01-31').set('Authorization', `Bearer ${token}`)).status).toBe(401);
+  });
+
   it('смена убивает старые токены и требует новый пароль', async () => {
     const oldToken = await login(t, t.employee);
     const res = await t.http().put(`/api/v1/employees/${t.employee.id}/password`)
@@ -78,7 +113,11 @@ describe('смена пароля', () => {
       .send({ oldPassword: t.employee.password, newPassword: 'brand-new-pass-9' });
     expect(res.status).toBe(204);
 
-    // access-токен живёт до 15 минут, но версия пароля инвалидирует refresh
+    // старый access-токен перестаёт действовать сразу (до v0.5.0 — ещё до 15 минут)
+    const stale = await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${oldToken}`);
+    expect(stale.status).toBe(401);
+    expect(stale.body.type).toMatch(/auth\/token-expired$/);
+
     const refreshRes = await t.http().post('/api/v1/auth/login')
       .send({ login: t.employee.login, password: t.employee.password });
     expect(refreshRes.status).toBe(401);
@@ -99,17 +138,19 @@ describe('смена пароля', () => {
 describe('лимит частоты входа', () => {
   // Последний блок в файле: исчерпывает окна для адресов тест-клиента
   it('11-я попытка за минуту к одному логину с адреса → 429 rate-limited', async () => {
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
     let last = 0;
     for (let i = 0; i < 11; i++) {
       last = (await t.http().post('/api/v1/auth/login')
         .send({ login: 'nobody', password: 'wrong' })).status;
     }
     expect(last).toBe(429);
+    const blocked = await t.http().post('/api/v1/auth/login').send({ login: 'nobody', password: 'wrong' });
+    expect(blocked.headers['retry-after']).toBe('60'); // заголовок, обещанный документом 2
   });
 
   it('за прокси лимит считается по адресу клиента, а не nginx', async () => {
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
     const attempt = (ip: string) => t.http().post('/api/v1/auth/login')
       .set('X-Forwarded-For', ip).send({ login: 'nobody', password: 'wrong' });
     for (let i = 0; i < 10; i++) await attempt('10.1.1.1');
@@ -119,12 +160,27 @@ describe('лимит частоты входа', () => {
   });
 
   it('другие логины с того же адреса не блокируются лимитом одной учётной записи', async () => {
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
     const attempt = (login: string) => t.http().post('/api/v1/auth/login')
       .set('X-Forwarded-For', '10.2.2.2').send({ login, password: 'wrong' });
     for (let i = 0; i < 10; i++) await attempt('nobody');
     expect((await attempt('nobody')).status).toBe(429);
     expect((await attempt(t.employee.login)).status).toBe(401);
-    LoginRateLimitGuard.resetForTests();
+    await LoginRateLimitGuard.resetForTests(t.prisma);
+  });
+
+  it('лимит общий для всех экземпляров сервера: попытки на двух экземплярах складываются', async () => {
+    await LoginRateLimitGuard.resetForTests(t.prisma);
+    const second = await createExtraApp();
+    try {
+      const attempt = (app: 1 | 2) => (app === 1 ? t.http() : request(second.getHttpServer())).post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '10.3.3.3').send({ login: 'nobody', password: 'wrong' });
+      for (let i = 0; i < 5; i++) { await attempt(1); await attempt(2); }
+      expect((await attempt(2)).status).toBe(429);
+      expect((await attempt(1)).status).toBe(429);
+    } finally {
+      await second.close();
+      await LoginRateLimitGuard.resetForTests(t.prisma);
+    }
   });
 });

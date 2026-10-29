@@ -43,6 +43,9 @@ const year = computed(() => Number(month.value.slice(0, 4)));
 const overrideMap = computed(() => new Map((schedule.value?.overrides ?? []).map((o) => [o.date, o.mode])));
 const futureOverrides = computed(() => (schedule.value?.overrides ?? []).filter((o) => o.date >= today));
 const selected = computed(() => people.value.find((p) => p.id === employeeId.value));
+/** Отдел выбранного сотрудника; для своего графика без выбора — отдел из карточки. */
+const ownDept = ref<string | null>(null);
+const deptOf = computed(() => selected.value?.deptName ?? (employeeId.value === auth.me?.employee.id ? ownDept.value : null));
 
 /** Сетка месяца с понедельника; null — пустые клетки до 1-го числа. */
 const grid = computed(() => {
@@ -124,7 +127,8 @@ async function load(): Promise<void> {
     const [ws, h, sch] = await Promise.all([
       api.get<WorkSchedule>(`/employees/${employeeId.value}/work-schedule?from=${y}-01-01&to=${y}-12-31`),
       calendar.workCalendar(y),
-      api.get<Schedule>(`/schedule?from=${month.value}-01&to=${addDays(`${month.value}-01`, 41)}`),
+      // Отпуска выбранного — из графика его отдела: без фильтра пришёл бы график всей организации
+      api.get<Schedule>(`/schedule?from=${month.value}-01&to=${addDays(`${month.value}-01`, 41)}${deptOf.value ? `&dept=${encodeURIComponent(deptOf.value)}` : ''}`),
     ]);
     schedule.value = ws;
     if (!dirty.value) pattern.value = Object.fromEntries(Object.entries(ws.pattern).map(([k, v]) => [Number(k), v]));
@@ -143,10 +147,15 @@ async function loadPeople(): Promise<void> {
   if (auth.isAdmin) {
     departments.value = await api.get<Department[]>('/departments');
     dept.value = departments.value.find((d) => d.id === me.deptId)?.name ?? departments.value[0]?.name ?? '';
+    ownDept.value = departments.value.find((d) => d.id === me.deptId)?.name ?? null;
     return;
   }
-  const page = await api.get<Page<Employee>>('/employees?per_page=200');
-  people.value = page.items.filter((e) => e.id === me.id || subordinateIds.value.has(e.id));
+  // Сам руководитель и его прямые подчинённые — фильтром сервера, а не среди первых 200 сотрудников
+  const [self, page] = await Promise.all([
+    api.get<Employee>(`/employees/${me.id}`),
+    api.get<Page<Employee>>(`/employees?manager=${me.id}&per_page=200`),
+  ]);
+  people.value = [self, ...page.items.filter((e) => e.id !== me.id)];
 }
 
 watch(dept, async (d) => {
@@ -165,6 +174,7 @@ function shiftMonth(n: number): void {
 
 onMounted(async () => {
   if (canPick.value) await loadPeople().catch(() => undefined);
+  else ownDept.value = (await api.get<Employee>(`/employees/${auth.me!.employee.id}`).catch(() => null))?.deptName ?? null;
   await load();
 });
 </script>
@@ -527,6 +537,12 @@ onMounted(async () => {
 
 .chip button:hover {
   background: var(--color-hover);
+}
+
+@media (pointer: coarse) {
+  .cal-cell {
+    aspect-ratio: 1;
+  }
 }
 
 @media (max-width: 900px) {

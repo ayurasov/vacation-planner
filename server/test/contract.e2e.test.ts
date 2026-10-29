@@ -6,7 +6,7 @@ import { load } from 'js-yaml';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, destroyTestApp, type TestApp } from './helpers';
 
-const NON_CONTRACT = new Set(['GET /healthz', 'GET /readyz']); // пробы инфраструктуры, вне API v1
+const NON_CONTRACT = new Set(['GET /healthz', 'GET /readyz', 'GET /metrics']); // пробы и метрики инфраструктуры, вне API v1
 
 type Contract = { openapi: string; paths: Record<string, Record<string, { operationId?: string }>> };
 

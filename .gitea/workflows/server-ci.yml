@@ -180,4 +180,9 @@ jobs:
           curl -s -o /tmp/probe.json -X POST http://$GW/api/v1/auth/login \
             -H 'Content-Type: application/json' -d '{"login":"probe","password":"wrong"}'
           grep -q 'auth/invalid-credentials' /tmp/probe.json
+          # Метрики: внутри сети стенда отдаются, через nginx наружу — нет
+          docker compose -p vacation-planner exec -T server sh -c 'wget -qO- --header "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics' | grep -q '^vp_db_up 1'
+          if curl -s http://$GW/metrics | grep -q 'vp_http_requests_total'; then
+            echo 'Метрики доступны снаружи через nginx'; exit 1
+          fi
           echo 'Дымовой прогон прод-стенда пройден'

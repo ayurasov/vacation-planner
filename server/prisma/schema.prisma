@@ -260,3 +260,23 @@ model JobRun {
   @@id([name, period])
   @@map("job_runs")
 }
+
+// Версия данных графика (v0.5.0): счётчик в 16 строках увеличивают триггеры таблиц графика;
+// версия — сумма строк (миграция data_version).
+model DataVersion {
+  shard   Int    @id
+  version BigInt @default(0)
+
+  @@map("data_version")
+}
+
+// Счётчики попыток входа (v0.5.0): окно — минута, оценка скользящая; UNLOGGED-таблица (миграция).
+model LoginAttempt {
+  key         String
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  hits        Int      @default(0)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
+  @@map("login_attempts")
+}

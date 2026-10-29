@@ -92,7 +92,7 @@ async function main() {
       create: {
         id: e.id,
         login,
-        passwordHash: hashPassword(password),
+        passwordHash: await hashPassword(password),
         name: e.name,
         position: e.position ?? null,
         deptId: e.dept ? deptIds.get(e.dept) ?? null : null,

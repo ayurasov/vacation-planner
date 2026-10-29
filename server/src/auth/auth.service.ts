@@ -5,12 +5,16 @@ import { ProblemException } from '../infra/problems';
 import { hashPassword, verifyPassword } from './passwords';
 import { TokenService } from './token.service';
 import { oidcConfig } from './oidc';
+import { invalidateSession } from './guards';
 import { AuditService } from '../audit/audit.service';
 
 export interface LoginResult {
   accessToken: string;
-  expiresAt: Date;
+  expiresAt: Date; // срок access-токена
   refreshToken: string; // выставляется контроллером в httpOnly cookie
+  // Срок refresh-токена и cookie (30 дней). До v0.5.0 cookie получала срок access-токена (15 минут):
+  // браузер удалял её вместе с истечением токена, и через 15 минут работы сотрудника выбрасывало на вход
+  refreshExpiresAt: Date;
   user: Employee & { subordinates: number[] };
 }
 
@@ -28,7 +32,9 @@ export class AuthService {
       include: { subordinates: { where: { isActive: true }, select: { id: true } } },
     });
     // Единая ошибка: не раскрываем, что именно неверно
-    if (!employee || !verifyPassword(password, employee.passwordHash)) {
+    // Пароль проверяется и для неизвестного логина (заглушкой) — по времени ответа логин не угадать
+    const valid = await verifyPassword(password, employee?.passwordHash);
+    if (!employee || !valid) {
       throw new ProblemException('auth/invalid-credentials');
     }
     // С единым входом пароль можно отключить; администраторам он остаётся — аварийный доступ
@@ -48,6 +54,7 @@ export class AuthService {
       accessToken: access.token,
       expiresAt: access.expiresAt,
       refreshToken: refresh.token,
+      refreshExpiresAt: refresh.expiresAt,
       user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
     };
   }
@@ -81,7 +88,7 @@ export class AuthService {
 
   async changeOwnPassword(userId: number, oldPassword: string, newPassword: string): Promise<void> {
     const me = await this.prisma.employee.findUnique({ where: { id: userId } });
-    if (!me || !verifyPassword(oldPassword, me.passwordHash)) {
+    if (!me || !(await verifyPassword(oldPassword, me.passwordHash))) {
       throw new ProblemException('auth/invalid-credentials', 'Старый пароль неверен');
     }
     await this.setPassword(userId, newPassword);
@@ -89,10 +96,11 @@ export class AuthService {
 
   /** Смена пароля; `resetBy` — кто сбросил чужой пароль (попадает в аудит, сам пароль — нет). */
   async setPassword(userId: number, newPassword: string, resetBy?: number): Promise<void> {
+    const passwordHash = await hashPassword(newPassword); // до транзакции: хеш не держит соединение БД
     await this.prisma.$transaction(async (tx) => {
       await tx.employee.update({
         where: { id: userId },
-        data: { passwordHash: hashPassword(newPassword), pwVersion: { increment: 1 } },
+        data: { passwordHash, pwVersion: { increment: 1 } },
       });
       // Смена пароля отзывает все refresh-токены
       await tx.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
@@ -102,6 +110,7 @@ export class AuthService {
         });
       }
     });
+    invalidateSession(userId); // после фиксации — см. EmployeesService.remove
   }
 
   async setPreferences(userId: number, emailNotifications: boolean): Promise<Employee & { subordinates: number[] }> {
@@ -141,6 +150,7 @@ export class AuthService {
     });
     return {
       accessToken: access.token, expiresAt: access.expiresAt, refreshToken: refresh.token,
+      refreshExpiresAt: refresh.expiresAt,
       user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
     };
   }

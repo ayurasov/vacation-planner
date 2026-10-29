@@ -9,6 +9,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import VacationForm from '@/components/VacationForm.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
+import { vDialog } from '@/directives/dialog';
 
 const ui = useUiStore();
 const auth = useAuthStore();
@@ -73,7 +74,14 @@ async function loadManagers(deptId: number | null): Promise<void> {
   if (!d) { managers.value = []; return; }
   try {
     const data = await api.get<Page<Employee>>(`/employees?dept=${encodeURIComponent(d.name)}&per_page=200`);
-    managers.value = data.items.filter((e) => e.id !== editing.value?.id);
+    const list = data.items.filter((e) => e.id !== editing.value?.id);
+    // Руководитель из другого отдела (руководитель направления) остаётся в списке, а не пустым полем
+    const current = form.value.managerId;
+    if (current && !list.some((e) => e.id === current)) {
+      const m = await api.get<Employee>(`/employees/${current}`).catch(() => null);
+      if (m) list.unshift(m);
+    }
+    managers.value = list;
   } catch { managers.value = []; }
 }
 watch(() => form.value.deptId, (id) => { if (formOpen.value) void loadManagers(id); });
@@ -106,7 +114,8 @@ async function save(): Promise<void> {
     role: f.role, empType: f.empType,
     // служебные права выдаёт только администратор
     ...(auth.isAdmin ? { isAdmin: f.isAdmin, isHr: f.isHr } : {}),
-    plannedDays: Math.round(Number(f.plannedDays)), carryOver: Math.round(Number(f.carryOver)),
+    // Дни — до сотых, как в импорте: округление до целых меняло перенос 3,5 → 4 при любой правке карточки
+    plannedDays: Math.round(Number(f.plannedDays) * 100) / 100, carryOver: Math.round(Number(f.carryOver) * 100) / 100,
   };
   try {
     if (editing.value) {
@@ -296,12 +305,18 @@ onMounted(async () => {
           <thead>
             <tr>
               <th>Сотрудник</th>
-              <th>Отдел</th>
-              <th>Роль</th>
-              <th class="num">
+              <th class="hide-mobile">
+                Отдел
+              </th>
+              <th class="hide-mobile">
+                Роль
+              </th>
+              <th class="num hide-mobile">
                 Норма
               </th>
-              <th>Логин</th>
+              <th class="hide-mobile">
+                Логин
+              </th>
               <th class="actions" />
             </tr>
           </thead>
@@ -322,10 +337,10 @@ onMounted(async () => {
                   </div>
                 </div>
               </td>
-              <td class="muted">
+              <td class="muted hide-mobile">
                 {{ e.deptName ?? '—' }}
               </td>
-              <td>
+              <td class="hide-mobile">
                 <div class="roles">
                   <span
                     v-if="e.isAdmin"
@@ -349,13 +364,15 @@ onMounted(async () => {
                   >сотрудник</span>
                 </div>
               </td>
-              <td class="num">
+              <td class="num hide-mobile">
                 {{ fmtNumber(e.plannedDays) }}<span
                   v-if="e.carryOver"
                   class="soft small"
                 > +{{ fmtNumber(e.carryOver) }}</span>
               </td>
-              <td><span class="mono muted">{{ e.login }}</span></td>
+              <td class="hide-mobile">
+                <span class="mono muted">{{ e.login }}</span>
+              </td>
               <td class="actions">
                 <div
                   v-if="!canTouch(e)"
@@ -466,6 +483,7 @@ onMounted(async () => {
       @click.self="formOpen = false"
     >
       <form
+        v-dialog="() => (formOpen = false)"
         class="modal modal-wide"
         role="dialog"
         aria-modal="true"
@@ -601,6 +619,7 @@ onMounted(async () => {
                 type="number"
                 min="0"
                 max="365"
+                step="0.01"
               >
             </div>
             <div class="field">
@@ -611,6 +630,8 @@ onMounted(async () => {
                 class="input"
                 type="number"
                 min="0"
+                max="365"
+                step="0.01"
               >
             </div>
           </div>
@@ -708,7 +729,9 @@ onMounted(async () => {
       v-if="secret"
       class="modal-overlay"
     >
+      <!-- Одноразовый пароль показывается один раз: Esc окно не закрывает, только «Готово» -->
       <div
+        v-dialog="() => undefined"
         class="modal"
         role="dialog"
         aria-modal="true"

@@ -41,7 +41,7 @@ async function loadYear(): Promise<void> {
 }
 
 async function reload(): Promise<void> {
-  if (!dept.value) return;
+  if (!dept.value || (tab.value === 'today' && !date.value)) return; // очищенная дата — ждём новую, а не ошибку
   loading.value = true;
   error.value = '';
   try {

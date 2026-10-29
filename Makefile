@@ -1,5 +1,7 @@
 # Основные сценарии разработки. Полный список — docs/specs/07-environments-cicd.md.
 .DEFAULT_GOAL := help
+# Цели — команды, а не файлы: каталоги docs/ и sbom/ иначе делают `make docs` и `make sbom` «up to date»
+.PHONY: help up down seed server-dev web-dev test lint sbom docs-diagrams docs compose-full
 
 help: ## показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'

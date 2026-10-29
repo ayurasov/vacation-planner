@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { api, type Department, type Employee, type Page } from '@/api/client';
 import { useCalendarStore } from '@/stores/calendar';
 import { useUiStore } from '@/stores/ui';
@@ -9,8 +9,9 @@ import { parseCalendarFile, toggleHoliday, type Transfer } from '@/lib/calendar'
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { vDialog } from '@/directives/dialog';
 
-interface Project { id: number; name: string; managerId: number | null; headcount: number }
+interface Project { id: number; name: string; managerId: number | null; managerName?: string | null; headcount: number }
 type Tab = 'departments' | 'projects' | 'calendar';
 
 const ui = useUiStore();
@@ -19,7 +20,6 @@ const calendar = useCalendarStore();
 const tab = ref<Tab>('departments');
 const departments = ref<Department[]>([]);
 const projects = ref<Project[]>([]);
-const people = ref<Map<number, Employee>>(new Map());
 const error = ref('');
 const loading = ref(true);
 const calYear = ref(Number(localIso(new Date()).slice(0, 4)));
@@ -33,22 +33,24 @@ const fileInput = ref<HTMLInputElement | null>(null);
 // Диалог отдела/проекта
 const editor = ref<{ kind: 'department' | 'project'; original: Department | Project | null; name: string; managerId: number | null } | null>(null);
 const candidates = ref<Employee[]>([]);
+const candQuery = ref('');
 const busy = ref(false);
 
-const managerName = (id: number | null) => (id ? people.value.get(id)?.name ?? `#${id}` : null);
+const managerName = (item: { managerId: number | null; managerName?: string | null }) =>
+  (item.managerId ? item.managerName ?? `#${item.managerId}` : null);
 
 async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const [d, p, e] = await Promise.all([
+    // Имена руководителей приходят в списках; всех сотрудников (до v0.5.0 — постранично при каждом
+    // открытии, 25 запросов на 5000 человек) справочникам загружать не нужно
+    const [d, p] = await Promise.all([
       api.get<Department[]>('/departments'),
       api.get<Project[]>('/projects'),
-      loadAllEmployees(),
     ]);
     departments.value = d;
     projects.value = p;
-    people.value = new Map(e.map((x) => [x.id, x]));
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -56,16 +58,6 @@ async function reload(): Promise<void> {
   }
 }
 
-/** Все активные сотрудники постранично (для выбора руководителей). */
-async function loadAllEmployees(): Promise<Employee[]> {
-  const out: Employee[] = [];
-  for (let page = 1; page < 100; page++) {
-    const data = await api.get<Page<Employee>>(`/employees?page=${page}&per_page=200`);
-    out.push(...data.items);
-    if (out.length >= data.meta.total || !data.items.length) break;
-  }
-  return out;
-}
 
 async function loadHolidays(): Promise<void> {
   calEdit.value = null;
@@ -155,12 +147,39 @@ const holidaysByMonth = computed(() => MONTHS.map((name, i) => ({
 
 function openEditor(kind: 'department' | 'project', item: Department | Project | null): void {
   editor.value = { kind, original: item, name: item?.name ?? '', managerId: item?.managerId ?? null };
-  const list = [...people.value.values()];
-  candidates.value = kind === 'department' && item
-    ? list.filter((e) => e.deptName === item.name || e.id === item.managerId)
-    : list;
-  candidates.value.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  candQuery.value = '';
+  void loadCandidates();
 }
+
+/**
+ * Кандидаты в руководители: сотрудники отдела, а по поиску — любые (до 50). Выпадающий список из
+ * всей организации на 5000 человек был бы и медленным, и бесполезным. Текущий руководитель — всегда в списке.
+ */
+async function loadCandidates(): Promise<void> {
+  const ed = editor.value;
+  if (!ed) return;
+  const q = candQuery.value.trim();
+  try {
+    let list: Employee[] = [];
+    if (q.length >= 2) list = (await api.get<Page<Employee>>(`/employees?search=${encodeURIComponent(q)}&per_page=50`)).items;
+    else if (ed.kind === 'department' && ed.original) {
+      list = (await api.get<Page<Employee>>(`/employees?dept=${encodeURIComponent(ed.original.name)}&per_page=200`)).items;
+    }
+    if (ed.managerId && !list.some((e) => e.id === ed.managerId)) {
+      const current = await api.get<Employee>(`/employees/${ed.managerId}`).catch(() => null);
+      if (current) list.unshift(current);
+    }
+    if (editor.value === ed) candidates.value = list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  } catch {
+    candidates.value = [];
+  }
+}
+
+let candTimer = 0;
+watch(candQuery, () => {
+  window.clearTimeout(candTimer);
+  candTimer = window.setTimeout(() => void loadCandidates(), 300);
+});
 
 async function saveEditor(): Promise<void> {
   const ed = editor.value;
@@ -321,14 +340,14 @@ onMounted(() => {
               <td><strong>{{ item.name }}</strong></td>
               <td>
                 <div
-                  v-if="managerName(item.managerId)"
+                  v-if="managerName(item)"
                   class="person"
                 >
                   <UserAvatar
-                    :name="managerName(item.managerId)!"
+                    :name="managerName(item)!"
                     :size="24"
                   />
-                  <span>{{ managerName(item.managerId) }}</span>
+                  <span>{{ managerName(item) }}</span>
                 </div>
                 <span
                   v-else
@@ -607,6 +626,7 @@ onMounted(() => {
       @click.self="editor = null"
     >
       <form
+        v-dialog="() => (editor = null)"
         class="modal"
         role="dialog"
         aria-modal="true"
@@ -630,6 +650,13 @@ onMounted(() => {
           </div>
           <div class="field">
             <label for="d-mgr">Руководитель</label>
+            <input
+              v-model="candQuery"
+              class="input cand-search"
+              type="search"
+              placeholder="Найти по ФИО или должности"
+              aria-label="Поиск руководителя"
+            >
             <select
               id="d-mgr"
               v-model="editor.managerId"
@@ -646,7 +673,7 @@ onMounted(() => {
                 {{ c.name }}{{ c.deptName && editor.kind === 'project' ? ` · ${c.deptName}` : '' }}
               </option>
             </select>
-            <span class="field-hint">{{ editor.kind === 'department' ? 'Показаны сотрудники отдела.' : 'Руководитель проекта видит график участников.' }}</span>
+            <span class="field-hint">{{ editor.kind === 'department' && editor.original ? 'Показаны сотрудники отдела; другого найдите поиском.' : 'Найдите сотрудника поиском (от 2 букв). Руководитель проекта видит график участников.' }}</span>
           </div>
         </div>
         <div class="modal-actions">
@@ -671,6 +698,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.cand-search {
+  margin-bottom: 6px;
+}
+
 .tabs {
   margin-bottom: 14px;
 }

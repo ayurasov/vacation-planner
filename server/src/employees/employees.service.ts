@@ -5,6 +5,7 @@ import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/passwords';
 import type { StaffActor } from '../auth/access';
+import { invalidateSession } from '../auth/guards';
 import { randomBytes } from 'node:crypto';
 
 export function translitLogin(name: string): string {
@@ -64,10 +65,12 @@ export class EmployeesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string }) {
+  async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string; manager?: number }) {
     const where = {
       isActive: true,
       ...(params.dept ? { dept: { name: params.dept } } : {}),
+      // Прямые подчинённые: руководителю не нужно перебирать всю организацию постранично
+      ...(params.manager ? { managerId: params.manager } : {}),
       ...(params.project ? { projectId: params.project } : {}),
       ...(params.search ? {
         OR: [
@@ -109,12 +112,13 @@ export class EmployeesService {
     if (dup) throw new ProblemException('validation/invalid-field', `Логин «${login}» уже занят`);
     await this.assertEmailFree(input.email);
     const generated = input.password ? undefined : generatePassword();
+    const passwordHash = await hashPassword(input.password ?? generated!);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const e = await tx.employee.create({
         data: {
           login,
-          passwordHash: hashPassword(input.password ?? generated!),
+          passwordHash,
           name: input.name,
           email: input.email?.toLowerCase() ?? null,
           position: input.position ?? null,
@@ -183,11 +187,16 @@ export class EmployeesService {
     await this.prisma.$transaction(async (tx) => {
       // soft delete: увольнение сохраняет историю
       await tx.employee.update({ where: { id }, data: { isActive: false } });
+      // Выданные refresh-токены отзываются вместе с увольнением, а не только отклоняются при обновлении
+      await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
       await this.audit.record(tx, {
         actorId, action: 'employee.deactivated', entity: 'employee', entityId: id,
         before: toPublic(e), after: { isActive: false },
       });
     });
+    // После фиксации: сброс внутри транзакции позволял параллельному запросу закэшировать на 10 с
+    // ещё не изменённое состояние, и старый токен работал до истечения кэша
+    invalidateSession(id);
   }
 
   private async assertEmailFree(email: string | undefined, exceptId?: number): Promise<void> {

@@ -15,3 +15,6 @@
 | [ADR-009](ADR-009-nestjs.md) | NestJS как серверный каркас (замена части ADR-001) | Принято |
 | [ADR-010](ADR-010-postgresql-immediately.md) | PostgreSQL сразу, без SQLite-этапа (замена ADR-004) | Принято |
 | [ADR-011](ADR-011-vue3-no-lib.md) | Vue 3 без компонентных библиотек | Принято |
+| [ADR-012](ADR-012-shared-state-postgres.md) | Кластер процессов и общее состояние только в PostgreSQL | Принято |
+| [ADR-013](ADR-013-sse-postgres-polling.md) | Живые обновления — SSE и опрос PostgreSQL | Принято |
+| [ADR-014](ADR-014-replica-wal-archive.md) | Потоковая реплика и архив WAL средствами PostgreSQL | Принято |

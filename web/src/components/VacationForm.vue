@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { addDays, calendarDays, fmtDate, fmtNumber, holidaysIn, localIso, plural, vacationDays } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import SuggestPanel from '@/components/SuggestPanel.vue';
+import { vDialog } from '@/directives/dialog';
 
 /**
  * Диалог заявки. Режимы:
@@ -65,14 +66,18 @@ function preset(n: number): void {
   end.value = addDays(start.value, n - 1);
 }
 
-watch(start, async (s) => {
+watch(start, (s) => {
   if (s && end.value && end.value < s) end.value = s;
-  if (s) {
-    const y = Number(s.slice(0, 4));
-    const set = await calendar.holidays(y);
-    const next = end.value && end.value.slice(0, 4) !== s.slice(0, 4) ? await calendar.holidays(y + 1) : new Set<string>();
-    holidays.value = new Set([...set, ...next]);
-  }
+});
+
+// Праздники всех лет периода: отпуск через Новый год считает и январские праздники, в каком бы
+// порядке ни выбирали даты (до v0.5.0 они грузились только при смене первого дня)
+watch([start, end], async ([s, e]) => {
+  if (!s) return;
+  const from = Number(s.slice(0, 4));
+  const to = e && e >= s ? Number(e.slice(0, 4)) : from;
+  const sets = await Promise.all(Array.from({ length: to - from + 1 }, (_, i) => calendar.holidays(from + i)));
+  holidays.value = new Set(sets.flatMap((x) => [...x]));
 }, { immediate: true });
 
 onMounted(async () => {
@@ -102,9 +107,9 @@ async function submit(): Promise<void> {
   <div
     class="modal-overlay"
     @click.self="emit('close')"
-    @keydown.esc="emit('close')"
   >
     <form
+      v-dialog="() => emit('close')"
       class="modal modal-wide"
       role="dialog"
       aria-modal="true"

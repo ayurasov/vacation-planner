@@ -1,6 +1,8 @@
 # Локальная разработка и стенд (docs/specs/07-environments-cicd.md).
 # dev: docker compose up postgres && make seed   — сервер и фронт запускаются локально
 # стенд: docker compose --profile full up        — всё в контейнерах за Nginx
+# метрики: docker compose --profile full --profile monitoring up — плюс Prometheus на :9090
+# реплика: docker compose -f docker-compose.yml -f docker-compose.replica.yml --profile full up
 services:
   postgres:
     image: postgres:17-alpine
@@ -23,10 +25,15 @@ services:
     build:
       context: ./server
     environment:
-      DATABASE_URL: postgresql://vacation:vacation@postgres:5432/vacation
+      # DB_HOST — адрес БД; при переключении на реплику: DB_HOST=postgres-replica (руководство по развёртыванию)
+      DATABASE_URL: postgresql://vacation:vacation@${DB_HOST:-postgres}:5432/vacation
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-dev-only-secret-32ch}
       PORT: 8080
       NODE_ENV: production
+      # Процессы API: auto — по числу ядер контейнера (01-architecture, «Масштабирование»)
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-auto}
+      # Токен для /metrics (необязательно): порт API наружу не публикуется
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       # Почта (необязательно): без SMTP_HOST письма не отправляются, уведомления — только в интерфейсе
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -61,7 +68,7 @@ services:
     profiles: ["full"]
     image: postgres:17-alpine
     environment:
-      PGHOST: postgres
+      PGHOST: ${DB_HOST:-postgres}
       PGUSER: vacation
       PGPASSWORD: vacation
       PGDATABASE: vacation
@@ -82,6 +89,22 @@ services:
       postgres:
         condition: service_healthy
 
+  # Метрики (E40-01): сбор /metrics сервера и правила оповещений. Панель Grafana —
+  # deploy/monitoring/grafana-dashboard.json, импортируется в Grafana организации.
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
 volumes:
   db-data:
   db-backups:
+  prometheus-data:

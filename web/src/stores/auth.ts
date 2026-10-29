@@ -33,10 +33,16 @@ export const useAuthStore = defineStore('auth', {
       this.me = data.user;
     },
 
+    /** Сеанс потерян на сервере (onSessionLost): забыть токен и профиль без запроса к API. */
+    drop(): void {
+      setAccess(null);
+      this.me = null;
+    },
+
     /** Попытка тихого восстановления сессии по httpOnly refresh-cookie. */
     async restore(): Promise<void> {
       try {
-        this.me = await api.get<Me>('/auth/me');
+        this.me = (await api.restore()) ? await api.get<Me>('/auth/me') : null;
       } catch {
         this.me = null;
       } finally {

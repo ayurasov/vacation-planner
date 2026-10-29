@@ -174,31 +174,26 @@ button {
 }
 
 .btn-primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
+  background: var(--color-primary-fill);
+  border-color: var(--color-primary-fill);
   color: #fff;
 }
 
 .btn-primary:hover {
-  background: var(--color-primary-dark);
-  border-color: var(--color-primary-dark);
-}
-
-[data-theme='dark'] .btn-primary:hover {
-  background: #4774f0;
-  border-color: #4774f0;
+  background: var(--color-primary-fill-hover);
+  border-color: var(--color-primary-fill-hover);
 }
 
 .btn-success {
-  background: var(--color-success);
-  border-color: var(--color-success);
+  background: var(--color-success-fill);
+  border-color: var(--color-success-fill);
   color: #fff;
 }
 
 .btn-success:hover {
   filter: brightness(0.95);
-  background: var(--color-success);
-  border-color: var(--color-success);
+  background: var(--color-success-fill);
+  border-color: var(--color-success-fill);
 }
 
 .btn-ghost {
@@ -346,9 +341,19 @@ textarea.input {
   border-radius: 8px;
   padding: 2px;
   gap: 2px;
+  /* Не помещаются на узком экране — прокручиваются, а не обрезаются */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.segmented::-webkit-scrollbar {
+  display: none;
 }
 
 .segmented button {
+  flex-shrink: 0;
+  white-space: nowrap;
   border: none;
   background: none;
   font: inherit;
@@ -757,6 +762,64 @@ tr:hover .row-actions,
 
   .hide-mobile {
     display: none !important;
+  }
+
+  /* Поля панели инструментов — во всю ширину (ширины в разметке рассчитаны на десктоп) */
+  .toolbar > .input,
+  .toolbar > .input-icon {
+    flex: 1 1 100%;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Телефон: показатели — сеткой 2 × 2, а не четырьмя карточками во всю ширину,
+   которые уводили сам график за первый экран */
+@media (max-width: 600px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stat {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .stat-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  /* Четыре вкладки с числами помещаются в 360 px без прокрутки */
+  .segmented button {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+}
+
+/* Сенсорные экраны: цели нажатия 36–40 px; на десктопе плотность прежняя */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 40px;
+  }
+
+  .btn-sm {
+    min-height: 36px;
+  }
+
+  .btn-icon,
+  .btn-icon.btn-sm {
+    width: 40px;
+    height: 40px;
+  }
+
+  .segmented button {
+    min-height: 36px;
   }
 }
 

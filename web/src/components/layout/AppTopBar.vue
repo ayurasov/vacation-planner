@@ -37,7 +37,10 @@ const roleLabel = computed(() => (auth.isAdmin ? 'Администратор' : 
       />
     </button>
     <div class="topbar-title">
-      <h1 class="page-title">
+      <h1
+        class="page-title"
+        :title="title"
+      >
         {{ title }}
       </h1>
       <span class="topbar-date">{{ today }}</span>
@@ -171,7 +174,7 @@ const roleLabel = computed(() => (auth.isAdmin ? 'Администратор' : 
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--color-danger);
+  background: var(--color-danger-fill);
   color: #fff;
   font-size: 9.5px;
   font-weight: 700;

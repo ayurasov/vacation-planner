@@ -44,7 +44,12 @@ async function reload(): Promise<void> {
     ]);
     balance.value = b;
     requests.value = rq.items;
-    holidays.value = h;
+    // Праздники соседнего года — только если отпуск переходит через Новый год: иначе дни отпуска
+    // в списке завышены, а лишний запрос календаря не загруженного года — ошибка в консоли
+    const other = [...new Set(rq.items.filter(inYear).flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))]
+      .filter((y) => y !== year.value);
+    const extra = await Promise.all(other.map((y) => calendar.holidays(y)));
+    holidays.value = new Set([...h, ...extra.flatMap((x) => [...x])]);
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -516,8 +521,8 @@ onMounted(reload);
   height: 100%;
 }
 
-.seg-used, .dot-used { background: var(--color-primary); }
-.seg-pending, .dot-pending { background: var(--color-warning); }
+.seg-used, .dot-used { background: var(--color-primary-fill); }
+.seg-pending, .dot-pending { background: var(--chart-pending); }
 .seg-free, .dot-free { background: color-mix(in srgb, var(--color-success) 55%, transparent); }
 
 .balance-legend {
@@ -584,7 +589,7 @@ onMounted(reload);
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: var(--color-primary);
+  background: var(--color-primary-fill);
   color: #fff;
   display: flex;
   align-items: center;
@@ -614,9 +619,14 @@ onMounted(reload);
   white-space: nowrap;
 }
 
+/* На телефоне — подписи через месяц: подпись занимает и соседнюю ячейку, а не обрезается («ма» вместо «мар») */
 @media (max-width: 600px) {
+  .year-months span {
+    overflow: visible;
+  }
+
   .year-months span:nth-child(even) {
-    color: transparent;
+    visibility: hidden;
   }
 }
 
@@ -635,9 +645,9 @@ onMounted(reload);
   border-radius: 8px;
 }
 
-.bar-approved { background: var(--color-primary); }
-.bar-pending { background: repeating-linear-gradient(135deg, var(--color-warning) 0 4px, color-mix(in srgb, var(--color-warning) 70%, #fff) 4px 8px); }
-.bar-maternity { background: var(--color-violet); }
+.bar-approved { background: var(--color-primary-fill); }
+.bar-pending { background: repeating-linear-gradient(135deg, var(--chart-pending) 0 4px, color-mix(in srgb, var(--chart-pending) 70%, #fff) 4px 8px); }
+.bar-maternity { background: var(--color-violet-fill); }
 
 .year-today {
   position: absolute;

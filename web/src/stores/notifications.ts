@@ -1,4 +1,5 @@
-// Уведомления пользователя: опрос раз в 30 секунд, счётчик непрочитанных.
+// Уведомления пользователя: обновляются по потоку событий сервера; опрос раз в 30 секунд —
+// только пока поток недоступен (5000 вкладок с опросом — ~170 запросов/с впустую).
 import { defineStore } from 'pinia';
 import { api, type Notification, type Page } from '@/api/client';
 
@@ -21,6 +22,11 @@ export const useNotificationsStore = defineStore('notifications', {
       void this.load();
       this.timer = window.setInterval(() => void this.load(), 30000);
     },
+    /** Поток событий работает — опрос не нужен; потерян — опрос возобновляется. */
+    live(on: boolean): void {
+      if (on && this.timer) { window.clearInterval(this.timer); this.timer = 0; }
+      if (!on && !this.timer) this.timer = window.setInterval(() => void this.load(), 30000);
+    },
     stop(): void {
       if (this.timer) window.clearInterval(this.timer);
       this.timer = 0;
@@ -33,7 +39,10 @@ export const useNotificationsStore = defineStore('notifications', {
       await api.post(`/notifications/${id}/read`).catch(() => { n.isRead = false; });
     },
     async markAllRead(): Promise<void> {
-      await Promise.all(this.items.filter((n) => !n.isRead).map((n) => this.markRead(n.id)));
+      const unread = this.items.filter((n) => !n.isRead);
+      unread.forEach((n) => { n.isRead = true; });
+      // Один запрос на все (с v0.5.0), а не по запросу на уведомление
+      await api.post('/notifications/read-all').catch(() => { unread.forEach((n) => { n.isRead = false; }); });
     },
   },
 });

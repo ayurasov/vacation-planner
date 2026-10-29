@@ -10,11 +10,13 @@
 
 | Ресурс | До 1000 пользователей | До 5000 пользователей |
 |---|---|---|
-| Процессор | 2 vCPU | 4 vCPU; PostgreSQL на отдельном узле |
+| Процессор | 2 vCPU | 4 vCPU под приложение; PostgreSQL — на отдельном узле или с репликой |
 | Память | 4 ГБ | 8 ГБ на узел приложения |
-| Диск | 20 ГБ SSD (данные и копии за 14 дней) | 50 ГБ SSD |
+| Диск | 20 ГБ SSD (данные и копии за 14 дней) | 50 ГБ SSD; архив WAL и физические копии — на отдельном диске или хранилище |
 | ОС | Linux x86-64 с Docker Engine 24+ и Docker Compose v2 | то же |
-| Сеть | Обратный прокси организации с TLS на 443 → стенд на 80 | балансировщик перед экземплярами `server` |
+| Сеть | Обратный прокси организации с TLS на 443 → стенд на 80 | то же; при втором экземпляре `server` — балансировщик |
+
+Расчёт для 5000 пользователей подтверждён нагрузочным прогоном: 500 одновременных пользователей, p95 чтения и записи в пределах требований, без ошибок (`docs/progress/load-v0.5.0.md`).
 
 Клиенты — две последние версии Chrome, Edge, Firefox или Safari; на телефонах — мобильные браузеры.
 
@@ -25,7 +27,7 @@
 ```bash
 git clone <адрес репозитория> vacation-planner
 cd vacation-planner
-git checkout v0.4.0
+git checkout v0.5.0
 ```
 
 2. Создайте файл `.env` рядом с `docker-compose.yml`:
@@ -38,6 +40,8 @@ BACKUP_INTERVAL=86400
 BACKUP_KEEP_DAYS=14
 # Адрес планировщика для ссылок в письмах и единого входа
 APP_URL=https://otpusk.company.ru
+# Процессы API: auto — по числу ядер (по умолчанию)
+WEB_CONCURRENCY=auto
 ```
 
 Почта и единый вход необязательны — разделы «Почта» и «Единый вход» ниже.
@@ -65,7 +69,14 @@ docker compose exec server npm run db:seed:prod
 | Переменная | Где | Назначение | По умолчанию |
 |---|---|---|---|
 | `JWT_SECRET` | `server` | Секрет подписи access-токенов; не короче 32 символов, иначе сервер не стартует | — |
-| `DATABASE_URL` | `server` | Строка подключения PostgreSQL; параметр `connection_limit` задаёт размер пула | из compose |
+| `DATABASE_URL` | `server` | Строка подключения PostgreSQL; параметр `connection_limit` задаёт размер пула на процесс | из compose |
+| `DB_HOST` | `server`, `backup`, `basebackup` | Узел БД в compose; при переключении на реплику — `postgres-replica` | `postgres` |
+| `WEB_CONCURRENCY` | `server` | Число процессов API: число или `auto` — по числу ядер | `auto` в compose |
+| `DB_POOL_SIZE` | `server` | Соединений с БД на процесс, если `connection_limit` не задан в `DATABASE_URL` | min(10, 40 / процессов), не меньше 3 |
+| `METRICS_TOKEN` | `server` | Если задан, `/metrics` требует `Authorization: Bearer <токен>` | — |
+| `EVENTS_POLL_MS` | `server` | Как часто процесс проверяет новые события для потока SSE, мс | 2000 |
+| `REPLICATION_PASSWORD` | реплика | Пароль роли `replicator`; обязателен для `docker-compose.replica.yml` | — |
+| `BASEBACKUP_INTERVAL`, `BASEBACKUP_KEEP` | `basebackup` | Интервал физических копий, секунд; сколько копий хранить | 86400, 7 |
 | `TRUST_PROXY` | `server` | Каким прокси доверять при определении адреса клиента (влияет на ограничение частоты входа) | `loopback, linklocal, uniquelocal` |
 | `PORT` | `server` | Порт API внутри сети compose | 8080 |
 | `BACKUP_INTERVAL` | `backup` | Интервал резервного копирования, секунд | 86400 |
@@ -83,6 +94,20 @@ docker compose exec server npm run db:seed:prod
 **Обратный прокси.** Прокси организации должен передавать `X-Forwarded-For` и находиться в частной сети (10/8, 172.16/12, 192.168/16). Если прокси с публичным адресом, укажите его в `TRUST_PROXY`, иначе ограничение частоты входа будет считать всех пользователей одним клиентом.
 
 **HTTPS.** Cookie сессии получает признак `Secure` в production — стенд должен открываться только по HTTPS.
+
+**Поток событий через прокси.** Интерфейс получает уведомления и изменения графика потоком `GET /api/v1/events` (Server-Sent Events). Прокси организации не должен буферизовать этот адрес и обрывать его раньше чем через минуту простоя (сервер шлёт пустую строку раз в 25 секунд). Для nginx:
+
+```nginx
+location = /api/v1/events {
+  proxy_pass http://<стенд>;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_buffering off;
+  proxy_read_timeout 1h;
+}
+```
+
+Если поток не проходит, интерфейс работает как раньше — опрашивает уведомления раз в 30 секунд, — но изменения графика видны только после обновления страницы.
 
 **Заголовки безопасности.** nginx контейнера `web` отдаёт Content Security Policy и запрет встраивания во фреймы. Не добавляйте на прокси собственную CSP, которая разрешает inline-скрипты.
 
@@ -129,6 +154,7 @@ curl -s -X POST "https://otpusk.company.ru/api/v1/imports/employees?dryRun=false
 docker compose --profile full ps                                   # все сервисы running/healthy
 curl -s http://localhost/api/v1/employees -o /dev/null -w '%{http_code}\n'   # 401 — API за nginx отвечает
 docker compose exec server wget -qO- http://localhost:8080/readyz  # {"ok":true} — БД доступна
+docker compose exec server wget -qO- http://localhost:8080/metrics | grep -E '^vp_(db_up|process_count)'   # vp_db_up 1, число процессов
 docker compose logs backup --tail 5                                # backup: /backups/vacation-….dump
 ```
 
@@ -136,7 +162,7 @@ docker compose logs backup --tail 5                                # backup: /ba
 
 # Обновление
 
-1. Прочитайте `docs/versions.md` и `CHANGELOG.md` новой версии: особые шаги и изменения схемы. Для 0.4.0: миграции добавляют роль кадровой службы, email сотрудников и очередь писем, а также исправляют демо-календари 2026–2027 годов, если их не меняли вручную.
+1. Прочитайте `docs/versions.md` и `CHANGELOG.md` новой версии: особые шаги и изменения схемы. Для 0.4.0: миграции добавляют роль кадровой службы, email сотрудников и очередь писем, а также исправляют демо-календари 2026–2027 годов, если их не меняли вручную. Для 0.5.0: миграции добавляют таблицы `data_version` (с триггерами на таблицах графика) и `login_attempts`; `server` запускает по процессу на ядро (`WEB_CONCURRENCY=auto`) — проверьте, что `max_connections` PostgreSQL не меньше 100; если прокси организации стоит перед стендом, настройте поток событий (раздел «Настройка»).
 2. Сделайте внеочередную резервную копию (раздел «Резервное копирование»).
 3. Получите новую версию и пересоберите стенд:
 
@@ -195,7 +221,7 @@ docker compose exec postgres dropdb -U vacation restore_check
 **Первый администратор на рабочем контуре.** Получите scrypt-хеш временного пароля средствами самого сервера:
 
 ```bash
-docker compose exec server node -e "console.log(require('./dist/auth/passwords').hashPassword(process.argv[1]))" '<временный пароль>'
+docker compose exec server node -e "require('./dist/auth/passwords').hashPassword(process.argv[1]).then(console.log)" '<временный пароль>'
 ```
 
 и создайте учётную запись:
@@ -208,6 +234,126 @@ VALUES ('admin', '<хеш из предыдущей команды>', 'Адми�
 После первого входа смените пароль в интерфейсе и заведите остальных сотрудников в разделе «Сотрудники».
 
 **Журналы.** `docker compose logs -f server` — API; `web` — запросы nginx; `backup` — результат копирования.
+
+# Производительность
+
+Один процесс Node.js использует одно ядро, поэтому `server` запускает `WEB_CONCURRENCY` процессов (`auto` — по числу ядер, доступных контейнеру). Если контейнеру выделена часть ядер квотой (`cpus:` в compose), задайте число явно — `auto` видит все ядра узла. Процессы одного экземпляра вместе держат не больше ~40 соединений с БД; при втором экземпляре на другом узле — до 80, что укладывается в `max_connections = 100`.
+
+Второй экземпляр `server` ставится на другой узел с тем же `.env` и той же БД; балансировщик организации распределяет запросы между узлами без привязки сессий. Лимит входа, очередь писем и кэш графика согласованы через PostgreSQL — дополнительной настройки не требуется.
+
+**Нагрузочная проверка.** Перед вводом в эксплуатацию на новом оборудовании повторите прогон версии на отдельной БД (не на рабочей):
+
+```bash
+cd server
+DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load npx prisma migrate deploy
+DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load npm run db:seed:load   # 5000 сотрудников
+# сервер на этой БД, затем:
+node ../tools/load/run.mjs --url http://<сервер>:8080 --users 500 --ramp 60 --duration 900
+```
+
+Скрипт наполнения откажется работать с БД, в имени которой нет `load`. Генератор печатает таблицу p50/p95/p99 по операциям; цели — p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок.
+
+# Мониторинг
+
+Сервер отдаёт метрики Prometheus на `GET /metrics` порта 8080. nginx стенда этот адрес наружу не проксирует; если Prometheus обращается к серверу через общую сеть, задайте `METRICS_TOKEN`.
+
+```bash
+docker compose --profile full --profile monitoring up -d     # Prometheus на 127.0.0.1:9090
+```
+
+Конфигурация — `deploy/monitoring/prometheus.yml`, правила оповещений — `deploy/monitoring/alerts.yml`. Если в организации уже есть Prometheus, перенесите в него задание `vacation-planner` и файл правил. Панель Grafana `deploy/monitoring/grafana-dashboard.json` импортируйте в Grafana организации («Dashboards → Import», источник — ваш Prometheus).
+
+| Метрика | Что показывает |
+|---|---|
+| `vp_http_request_duration_seconds` | Длительность запросов по шаблону маршрута — p50/p95 в панели |
+| `vp_http_requests_total` | Запросы по маршруту и коду ответа: доля 5xx |
+| `vp_eventloop_lag_p99_seconds` | Задержка процессов: больше 0,2 с — не хватает ядер |
+| `vp_db_connections`, `vp_db_max_connections` | Соединения с БД по состояниям и предел |
+| `vp_db_errors_total` | Перегрузка БД: пул исчерпан, транзакция не началась, БД недоступна |
+| `vp_mail_outbox`, `vp_mail_outbox_oldest_seconds` | Очередь писем и возраст самого старого неотправленного |
+| `vp_db_replica_lag_seconds`, `vp_db_replication_slot_active` | Отставание и подключение реплики |
+| `vp_db_wal_archive_failing` | Архивирование WAL завершается ошибкой |
+
+| Оповещение | Важность | Действие |
+|---|---|---|
+| `VacationApiDown`, `VacationDatabaseDown` | критично | Проверьте контейнеры `server`, `postgres`, место на диске |
+| `VacationServerErrors` | предупреждение | Журнал `server`: «Необработанная ошибка» |
+| `VacationReadLatencyHigh`, `VacationWriteLatencyHigh` | предупреждение | Панель «Задержка p95 по маршрутам»; задержка цикла событий и соединения БД |
+| `VacationDatabaseOverloaded`, `VacationConnectionsNearLimit` | предупреждение | Увеличьте `max_connections` или уменьшите `DB_POOL_SIZE`, проверьте долгие запросы в `pg_stat_activity` |
+| `VacationReplicaDisconnected`, `VacationReplicaLagging` | предупреждение | Раздел «Реплика и архив WAL» |
+| `VacationWalArchiveFailing` | критично | Место на томе `wal-archive`, журнал `postgres` («archive command failed») |
+| `VacationMailStuck`, `VacationMailFailed`, `VacationDigestNotRun` | предупреждение | Раздел «Почта» |
+
+# Реплика и архив WAL
+
+Стенд с репликой теряет при аварии основного сервера секунды изменений, а если потеряны и основной сервер, и реплика, — не больше 5 минут (по архиву WAL и физическим копиям). Переключение на реплику занимает около 15 минут по инструкции ниже.
+
+1. Задайте в `.env` пароль репликации:
+
+```bash
+REPLICATION_PASSWORD=<результат openssl rand -base64 32>
+```
+
+2. Запустите стенд с дополнением:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.replica.yml --profile full up -d
+```
+
+При первом запуске реплика создаёт на основном сервере роль `replicator` и слот `replica1`, копирует данные и далее получает поток WAL. Основной сервер архивирует сегменты WAL в том `wal-archive`, сервис `basebackup` раз в сутки снимает физическую копию и удаляет из архива то, что старше самой старой из 7 хранимых копий. Разместите том `wal-archive` на отдельном диске или хранилище — иначе авария диска уничтожит и базу, и архив.
+
+3. Проверьте:
+
+```bash
+C="docker compose -f docker-compose.yml -f docker-compose.replica.yml"
+$C exec postgres psql -U vacation -Atc "select application_name, state from pg_stat_replication"   # replica1|streaming
+$C exec postgres psql -U vacation -Atc "select archived_count, failed_count from pg_stat_archiver"  # failed_count = 0
+$C exec basebackup ls /wal-archive/base                                                          # копии по датам
+```
+
+## Переключение на реплику
+
+Выполняйте, когда основной сервер недоступен и не вернётся в ближайшее время. Не включайте старый основной сервер, пока реплика работает основным: два основных сервера разойдутся.
+
+```bash
+C="docker compose -f docker-compose.yml -f docker-compose.replica.yml"
+$C stop postgres                                                         # если ещё работает
+$C exec postgres-replica psql -U vacation -c "select pg_promote()"       # t — реплика стала основной
+DB_HOST=postgres-replica $C --profile full up -d --no-deps server backup basebackup
+```
+
+Запишите `DB_HOST=postgres-replica` в `.env`, чтобы следующий `up` не вернул сервер на старый узел. Проверьте вход и график (раздел «Проверка»). Повышенная реплика сама продолжает архивировать WAL на новой линии времени. Переключение отрабатывается в CI на каждый push (задание «Реплика PostgreSQL, архив WAL и переключение»).
+
+**Возврат к схеме с репликой.** Бывший основной сервер не подключается обратно: его данные отстали и разошлись. Удалите его том и поднимите как новую реплику повышенного сервера (поменяйте роли сервисов местами в `docker-compose.replica.yml` или разверните реплику заново на исправном узле) — скрипт `deploy/postgres/replica.sh` сделает копию сам.
+
+## Восстановление на момент времени
+
+Если повреждены данные (ошибочное массовое изменение), а не сервер, восстановите физическую копию и примените архив WAL до нужного момента в отдельный каталог:
+
+```bash
+C="docker compose -f docker-compose.yml -f docker-compose.replica.yml"
+$C --profile full stop server
+mkdir -p /srv/restore && cd /srv/restore
+docker run --rm -v vacation-planner_wal-archive:/wal-archive -v "$PWD":/restore postgres:17-alpine sh -c '
+  base=$(ls /wal-archive/base | grep -E "^[0-9]{8}-[0-9]{6}$" | sort | tail -1)
+  tar xzf /wal-archive/base/$base/base.tar.gz -C /restore
+  touch /restore/recovery.signal
+  echo "restore_command = '"'"'cp /wal-archive/%f %p'"'"'" >> /restore/postgresql.auto.conf
+  echo "recovery_target_time = '"'"'2026-11-20 14:55:00+03'"'"'" >> /restore/postgresql.auto.conf
+  chown -R 70:70 /restore && chmod 700 /restore'
+```
+
+Запустите PostgreSQL на восстановленном каталоге с подключённым архивом (`vacation-planner` — имя проекта compose, по умолчанию — имя каталога стенда):
+
+```bash
+docker run -d --name vp-restore -v /srv/restore:/var/lib/postgresql/data \
+  -v vacation-planner_wal-archive:/wal-archive:ro postgres:17-alpine
+docker logs -f vp-restore        # «recovery stopping before commit …», «pausing at the end of recovery»
+docker exec vp-restore psql -U vacation -d vacation -c "select count(*) from vacation_requests"
+docker exec vp-restore psql -U vacation -c "select pg_wal_replay_resume()"   # данные верны — завершить восстановление
+```
+
+Затем либо выгрузите нужные данные (`pg_dump` из `vp-restore`) и загрузите их в рабочую БД, либо сделайте этот каталог основным сервером и заново создайте реплику. Без `recovery_target_time` восстановление идёт до последнего заархивированного сегмента. Проверяйте процедуру раз в квартал.
 
 # Устранение неполадок
 
@@ -224,3 +370,8 @@ VALUES ('admin', '<хеш из предыдущей команды>', 'Адми�
 | «Не удалось подтвердить вход у провайдера» | Неверный `OIDC_CLIENT_SECRET`, адрес возврата или часы сервера расходятся больше чем на минуту; подробности — `docker compose logs server` |
 | «Учётная запись не найдена» у всех | `OIDC_LOGIN_CLAIM` указывает не на логин — проверьте утверждения токена у провайдера |
 | `backup: ОШИБКА` в журнале | Нет места на томе или нет доступа к БД — проверьте `docker compose logs postgres` |
+| «Сервис перегружен. Повторите через несколько секунд.» (`503`) | Не хватает соединений с БД или БД недоступна: метрики `vp_db_errors_total` и `vp_db_connections`; долгие запросы — `pg_stat_activity` |
+| Уведомления приходят с задержкой до 30 секунд, график не обновляется сам | Прокси организации буферизует или обрывает поток `/api/v1/events` — раздел «Настройка» |
+| `server` не стартует: `connection_limit`, «too many clients» | `WEB_CONCURRENCY` × пул больше `max_connections` — задайте `DB_POOL_SIZE` или уменьшите число процессов |
+| Реплика не стартует, «password authentication failed for user "replicator"» | `REPLICATION_PASSWORD` в `.env` изменился после первого запуска — верните прежний или удалите том `db-replica`, чтобы реплика создалась заново |
+| `basebackup: ОШИБКА` | Реплика ещё не создала роль `replicator` или нет места на томе `wal-archive` |

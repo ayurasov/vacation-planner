@@ -73,6 +73,27 @@ test('заявка: подбор дат, отправка, согласован�
   await expect(page.locator('.toast').last()).toContainText('Удаление отпуска согласовано');
 });
 
+test('диалог заявки: имя, фокус, Esc; праздники через Новый год не входят в дни отпуска', async () => {
+  await page.goto('/my');
+  const opener = page.getByRole('button', { name: 'Запланировать отпуск' });
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Новая заявка на отпуск' }); // имя — заголовок окна
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel('Первый день')).toBeFocused();
+  // Сначала первый день, потом последний — праздники следующего года раньше не загружались
+  const y = new Date().getFullYear();
+  await page.getByLabel('Первый день').fill(`${y}-12-28`);
+  await page.getByLabel('Последний день').fill(`${y + 1}-01-10`);
+  const holidays = await page.evaluate(async (next) => {
+    const res = await fetch(`/api/v1/calendar/holidays/${next}`);
+    return res.ok ? (await res.json() as { holidays: string[] }).holidays.filter((d) => d <= `${next}-01-10`).length : 0;
+  }, y + 1);
+  await expect(page.locator('.preview-num')).toHaveText(String(14 - holidays));
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+});
+
 test('команда: статус на сегодня и аналитика года с графиком', async () => {
   await page.goto('/team');
   await expect(page.locator('.status-tile').first()).toBeVisible();

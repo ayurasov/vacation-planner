@@ -106,12 +106,13 @@ export class RequestsService {
       this.prisma.vacationRequest.findMany({
         where, orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.perPage, take: params.perPage,
-        include: { employee: { select: { name: true } } },
+        include: { employee: { select: { name: true, dept: { select: { name: true } } } } },
       }),
       this.prisma.vacationRequest.count({ where }),
     ]);
     return {
-      items: items.map((r) => ({ ...publicView(r), employeeName: r.employee.name })),
+      // employeeDept: очередь руководителя запрашивает пересечения только по нужным отделам
+      items: items.map((r) => ({ ...publicView(r), employeeName: r.employee.name, employeeDept: r.employee.dept?.name ?? null })),
       meta: { page: params.page, perPage: params.perPage, total },
     };
   }
@@ -381,14 +382,17 @@ export class RequestsService {
   /**
    * Сериализует изменения заявок одного сотрудника: проверки пересечений и лимита видят
    * результат параллельной транзакции (READ COMMITTED сам по себе этого не гарантирует).
+   * FOR NO KEY UPDATE, а не FOR UPDATE: блокировка конфликтует сама с собой, но не с проверками
+   * внешних ключей (KEY SHARE). С FOR UPDATE уведомление руководителю ждало его собственную
+   * заявку, и под нагрузкой две транзакции взаимно блокировались (v0.5.0, 40P01 deadlock).
    */
   private async lockEmployee(tx: Prisma.TransactionClient, employeeId: number): Promise<void> {
-    await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId} FOR NO KEY UPDATE`;
   }
 
-  /** Заявка, заблокированная до конца транзакции, в актуальном состоянии. */
+  /** Заявка, заблокированная до конца транзакции, в актуальном состоянии (режим — как у lockEmployee). */
   private async lockFresh(tx: Prisma.TransactionClient, id: number): Promise<VacationRequest> {
-    await tx.$queryRaw`SELECT id FROM vacation_requests WHERE id = ${id} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM vacation_requests WHERE id = ${id} FOR NO KEY UPDATE`;
     const r = await tx.vacationRequest.findUnique({ where: { id } });
     if (!r) throw new ProblemException('stale-state', 'Заявка уже удалена');
     return r;

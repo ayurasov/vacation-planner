@@ -95,6 +95,9 @@ describe('единый вход OIDC', () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('https://otpusk.test/schedule');
     const refresh = cookie(res, 'vp_refresh')!;
+    // Cookie живёт 30 дней, как refresh-токен (до v0.5.0 — 15 минут, как access-токен)
+    const full = (res.headers['set-cookie'] as string[]).find((c) => c.startsWith('vp_refresh='))!;
+    expect((Date.parse(/Expires=([^;]+)/i.exec(full)![1]) - Date.now()) / 86_400_000).toBeGreaterThan(29);
     const r = await t.http().post('/api/v1/auth/refresh').set('Cookie', refresh);
     expect(r.status).toBe(200);
     const me = await t.http().get('/api/v1/auth/me').set('Authorization', `Bearer ${r.body.accessToken}`);

@@ -41,17 +41,17 @@ export async function createTestApp(opts: { mail?: MailTransport } = {}): Promis
 
   const dept = await prisma.department.create({ data: { name: 'Тестовый отдел' } });
   const adminRow = await prisma.employee.create({
-    data: { login: admin.login, passwordHash: hashPassword(admin.password), name: 'Админов Тест', isAdmin: true, deptId: dept.id },
+    data: { login: admin.login, passwordHash: await hashPassword(admin.password), name: 'Админов Тест', isAdmin: true, deptId: dept.id },
   });
   const managerRow = await prisma.employee.create({
     data: {
-      login: manager.login, passwordHash: hashPassword(manager.password), name: 'Руководителев Тест',
+      login: manager.login, passwordHash: await hashPassword(manager.password), name: 'Руководителев Тест',
       role: 'manager', deptId: dept.id,
     },
   });
   const employeeRow = await prisma.employee.create({
     data: {
-      login: employee.login, passwordHash: hashPassword(employee.password), name: 'Сотрудников Тест',
+      login: employee.login, passwordHash: await hashPassword(employee.password), name: 'Сотрудников Тест',
       deptId: dept.id, managerId: managerRow.id, plannedDays: 56, carryOver: 0,
     },
   });
@@ -59,7 +59,7 @@ export async function createTestApp(opts: { mail?: MailTransport } = {}): Promis
   const hrDept = await prisma.department.create({ data: { name: 'Кадровая служба' } });
   const hr = { id: 0, login: 'hr.test', password: 'hr-pass-12345' };
   const hrRow = await prisma.employee.create({
-    data: { login: hr.login, passwordHash: hashPassword(hr.password), name: 'Кадровикова Тест', isHr: true, deptId: hrDept.id },
+    data: { login: hr.login, passwordHash: await hashPassword(hr.password), name: 'Кадровикова Тест', isHr: true, deptId: hrDept.id },
   });
   hr.id = hrRow.id;
   await prisma.orgSettings.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
@@ -84,6 +84,7 @@ async function resetDb(prisma: PrismaService): Promise<void> {
   await prisma.$transaction([
     prisma.auditEvent.deleteMany(),
     prisma.emailOutbox.deleteMany(),
+    prisma.loginAttempt.deleteMany(),
     prisma.jobRun.deleteMany(),
     prisma.notification.deleteMany(),
     prisma.requestEvent.deleteMany(),
@@ -99,6 +100,15 @@ async function resetDb(prisma: PrismaService): Promise<void> {
     prisma.orgSettings.deleteMany(),
     prisma.productionCalendar.deleteMany(),
   ]);
+}
+
+/** Второй экземпляр сервера на той же БД — без сброса данных (проверка общего состояния экземпляров). */
+export async function createExtraApp(): Promise<INestApplication> {
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  configureApp(app);
+  await app.init();
+  return app;
 }
 
 export async function destroyTestApp(t: TestApp): Promise<void> {

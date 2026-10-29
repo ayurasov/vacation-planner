@@ -29,6 +29,13 @@ export class NotificationsController {
     });
   }
 
+  @Post('read-all')
+  @HttpCode(200)
+  @ApiOperation({ operationId: 'markAllNotificationsRead', summary: 'Пометить прочитанными все уведомления' })
+  async readAll(@CurrentUser() user: AccessClaims) {
+    return { marked: await this.notifications.markAllRead(user.sub) };
+  }
+
   @Post(':id/read')
   @HttpCode(204)
   @ApiOperation({ operationId: 'markNotificationRead', summary: 'Пометить прочитанным' })

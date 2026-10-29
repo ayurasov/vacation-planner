@@ -340,7 +340,14 @@ onMounted(reload);
   color: var(--color-primary);
   font-size: 12px;
   cursor: pointer;
-  padding: 0;
+  min-height: 24px; /* цель нажатия не ниже 24 px (WCAG 2.5.8); строка 12 px даёт с полями 4 px только 23 */
+  padding: 4px 0;
+}
+
+@media (pointer: coarse) {
+  .link-btn {
+    padding: 10px 0;
+  }
 }
 
 .diff {

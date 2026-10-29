@@ -80,7 +80,7 @@ export class OidcController {
       return fail('unknown');
     }
     res.clearCookie(STATE_COOKIE, { path: STATE_PATH });
-    setRefreshCookie(res, result.refreshToken, result.expiresAt);
+    setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
     return res.redirect(302, `${cfg.appUrl}/schedule`);
   }
 }

@@ -1,12 +1,33 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { useNotificationsStore } from '@/stores/notifications';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 
 const emit = defineEmits<{ close: [] }>();
 const store = useNotificationsStore();
+const router = useRouter();
 const root = ref<HTMLElement | null>(null);
+
+/** Раздел уведомления — как ссылка в письме: новая заявка — к согласованию, решение — к своему отпуску. */
+const TARGET: Record<string, string> = {
+  request_created: '/approvals',
+  request_approved: '/my',
+  request_rejected: '/my',
+  request_cancelled: '/my',
+};
+
+function open(n: { id: number; kind: string }): void {
+  void store.markRead(n.id);
+  const to = TARGET[n.kind];
+  if (to) void router.push(to);
+  emit('close');
+}
+
+function onKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape') emit('close');
+}
 
 const KIND_ICON: Record<string, { icon: string; tone: string }> = {
   request_approved: { icon: 'check', tone: 'success' },
@@ -32,8 +53,14 @@ function onDocClick(e: MouseEvent): void {
   if (root.value && !root.value.contains(e.target as Node)) emit('close');
 }
 
-onMounted(() => setTimeout(() => document.addEventListener('click', onDocClick), 0));
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick));
+onMounted(() => {
+  setTimeout(() => document.addEventListener('click', onDocClick), 0);
+  document.addEventListener('keydown', onKey);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick);
+  document.removeEventListener('keydown', onKey);
+});
 </script>
 
 <template>
@@ -71,7 +98,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick));
         type="button"
         class="notif-item"
         :class="{ unread: !n.isRead }"
-        @click="store.markRead(n.id)"
+        @click="open(n)"
       >
         <span
           class="notif-icon"

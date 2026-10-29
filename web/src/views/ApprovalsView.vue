@@ -62,6 +62,12 @@ function overlaps(r: VacationRequest): Array<{ name: string; start: string; end:
   return out;
 }
 
+/** Должность и отдел под именем: отдел есть в заявке, должность — в графике отдела. */
+function personSub(r: VacationRequest): string {
+  const p = people.value.get(r.employee);
+  return [p?.position, r.employeeDept ?? p?.dept].filter(Boolean).join(' · ');
+}
+
 function deptSize(r: VacationRequest): number {
   const me = people.value.get(r.employee);
   if (!me?.dept) return 0;
@@ -72,20 +78,31 @@ async function reload(): Promise<void> {
   loading.value = true;
   error.value = '';
   try {
-    const page = await api.get<Page<VacationRequest>>(
-      `/vacation-requests?scope=${approvals.scope(auth.isAdmin)}&status=pending&per_page=200`,
-    );
-    queue.value = page.items;
-    approvals.pending = page.meta.total;
-    const years = [...new Set(page.items.flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))];
+    // Очередь целиком: у администратора организации на 5000 человек заявок бывает больше 200
+    const items: VacationRequest[] = [];
+    for (let p = 1; p <= 50; p++) {
+      const page = await api.get<Page<VacationRequest>>(
+        `/vacation-requests?scope=${approvals.scope(auth.isAdmin)}&status=pending&page=${p}&per_page=200`,
+      );
+      items.push(...page.items);
+      approvals.pending = page.meta.total;
+      if (items.length >= page.meta.total || !page.items.length) break;
+    }
+    queue.value = items;
+    const years = [...new Set(items.flatMap((r) => [Number(r.start.slice(0, 4)), Number(r.end.slice(0, 4))]))];
+    // Пересечения ищутся внутри отдела — график только отделов из очереди, а не всей организации
+    const depts = [...new Set(items.map((r) => r.employeeDept).filter((d): d is string => !!d))];
     const map = new Map<number, ScheduleEmployee>();
     const hol = new Set<string>();
     for (const y of years) {
-      const [s, h] = await Promise.all([
-        api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31`),
+      const [schedules, h] = await Promise.all([
+        // Очередь администратора из многих отделов — один запрос всей организации дешевле десятков
+        depts.length > 20
+          ? Promise.all([api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31`)])
+          : Promise.all(depts.map((d) => api.get<Schedule>(`/schedule?from=${y}-01-01&to=${y}-12-31&dept=${encodeURIComponent(d)}`))),
         calendar.holidays(y),
       ]);
-      for (const e of s.employees) {
+      for (const e of schedules.flatMap((s) => s.employees)) {
         const prev = map.get(e.id);
         map.set(e.id, prev ? { ...prev, vacations: [...prev.vacations, ...e.vacations] } : e);
       }
@@ -136,11 +153,11 @@ async function reject(r: VacationRequest): Promise<void> {
 }
 
 async function loadSubordinates(): Promise<void> {
-  const ids = new Set(auth.me?.permissions.approveSubordinates ?? []);
-  if (!ids.size) return;
+  if (!auth.me?.permissions.approveSubordinates.length) return;
   try {
-    const page = await api.get<Page<Employee>>('/employees?per_page=200');
-    subordinates.value = page.items.filter((e) => ids.has(e.id));
+    // Прямые подчинённые фильтром сервера: первые 200 сотрудников организации их не содержат
+    const page = await api.get<Page<Employee>>(`/employees?manager=${auth.me.employee.id}&per_page=200`);
+    subordinates.value = page.items;
   } catch { /* кнопка оформления необязательна */ }
 }
 
@@ -250,8 +267,14 @@ onMounted(() => {
             :size="38"
           />
           <div class="person-text">
-            <span class="person-name">{{ r.employeeName }}</span>
-            <span class="person-sub">{{ people.get(r.employee)?.position ?? '' }}{{ people.get(r.employee)?.dept ? ` · ${people.get(r.employee)?.dept}` : '' }}</span>
+            <span
+              class="person-name"
+              :title="r.employeeName"
+            >{{ r.employeeName }}</span>
+            <span
+              class="person-sub"
+              :title="personSub(r)"
+            >{{ personSub(r) }}</span>
           </div>
         </div>
         <span
@@ -379,8 +402,14 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap; /* на узком экране вид заявки уходит под имя, а не сжимает его */
+  gap: 8px 12px;
   padding: 14px 18px 0;
+}
+
+.request-head .person {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .request-body {

@@ -22,6 +22,22 @@ export class ApiError extends Error {
   }
 }
 
+let sessionLost: (() => void) | null = null;
+
+/**
+ * Сеанс потерян: access-токен отклонён, а обновить его не удалось — пароль сменён, сотрудник
+ * уволен или истёк refresh. Без этого интерфейс оставался «вошедшим» и каждое действие
+ * заканчивалось ошибкой (v0.5.0).
+ */
+export function onSessionLost(cb: () => void): void {
+  sessionLost = cb;
+}
+
+/** 401 после неудачного обновления: сеанс был (токен в памяти) — значит, он потерян. */
+function lost(): void {
+  if (accessToken) sessionLost?.();
+}
+
 // Один refresh на всех: параллельные запросы с истёкшим токеном ждут общий результат.
 // Иначе ротация отзывает refresh-токен первого запроса и остальные получают 401.
 let refreshing: Promise<boolean> | null = null;
@@ -59,8 +75,9 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
   const res = await fetch(`/api/v1${path}`, { ...init, headers, credentials: 'include' });
 
-  if (res.status === 401 && retry && !path.startsWith('/auth/login') && (await refreshAccess())) {
-    return request<T>(path, init, false);
+  if (res.status === 401 && retry && !path.startsWith('/auth/login')) {
+    if (await refreshAccess()) return request<T>(path, init, false);
+    lost();
   }
 
   if (res.status === 204) return undefined as T;
@@ -72,12 +89,65 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 async function download(path: string, retry = true): Promise<Blob> {
   const headers: Record<string, string> = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
   const res = await fetch(`/api/v1${path}`, { headers, credentials: 'include' });
-  if (res.status === 401 && retry && (await refreshAccess())) return download(path, false);
+  if (res.status === 401 && retry) {
+    if (await refreshAccess()) return download(path, false);
+    lost();
+  }
   if (!res.ok) throw await toError(res);
   return res.blob();
 }
 
+export interface LiveHandlers {
+  hello?: (data: { unread: number; version: string }) => void;
+  notifications?: (data: { unread: number }) => void;
+  data?: (data: { version: string }) => void;
+  /** Поток доступен (true) или потерян (false) — для резервного опроса. */
+  status?: (live: boolean) => void;
+}
+
+/**
+ * Поток событий сервера (SSE): билет на 60 секунд → EventSource. При обрыве — новый билет
+ * и переподключение с нарастающей паузой; пока потока нет, вызывающий опрашивает сам.
+ * Возвращает функцию отключения.
+ */
+export function subscribeLive(handlers: LiveHandlers): () => void {
+  let source: EventSource | null = null;
+  let stopped = false;
+  let attempt = 0;
+  let retry = 0;
+  const open = async () => {
+    if (stopped) return;
+    try {
+      const { ticket } = await request<{ ticket: string }>('/events/ticket', { method: 'POST' });
+      if (stopped) return;
+      source = new EventSource(`/api/v1/events?ticket=${encodeURIComponent(ticket)}`);
+      const on = <T>(name: string, fn?: (d: T) => void) =>
+        source!.addEventListener(name, (ev) => fn?.(JSON.parse((ev as MessageEvent).data) as T));
+      on('hello', (d: { unread: number; version: string }) => { attempt = 0; handlers.status?.(true); handlers.hello?.(d); });
+      on('notifications', handlers.notifications);
+      on('data', handlers.data);
+      // Сервер раз в 10 с сверяет версию пароля и активность: сеанс отозван — сразу на вход,
+      // не дожидаясь повторного подключения и отказа в билете
+      on('revoked', () => { stopped = true; source?.close(); source = null; lost(); });
+      // Билет одноразовый по смыслу (60 с): встроенный повтор EventSource с тем же адресом не годится
+      source.onerror = () => { source?.close(); source = null; handlers.status?.(false); schedule(); };
+    } catch {
+      handlers.status?.(false);
+      schedule();
+    }
+  };
+  const schedule = () => {
+    if (stopped) return;
+    attempt++;
+    retry = window.setTimeout(() => void open(), Math.min(60_000, 2000 * 2 ** Math.min(attempt, 5)));
+  };
+  void open();
+  return () => { stopped = true; window.clearTimeout(retry); source?.close(); };
+}
+
 export const api = {
+  /** Восстановить сеанс по refresh-cookie при запуске: без заведомого 401 на /auth/me до обновления. */
+  restore: (): Promise<boolean> => refreshAccess(),
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -137,7 +207,7 @@ export interface Page<T> {
 }
 
 export interface VacationRequest {
-  id: number; employee: number; employeeName?: string;
+  id: number; employee: number; employeeName?: string; employeeDept?: string | null;
   start: string; end: string; type: 'vacation' | 'maternity';
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   pendingDeletion: boolean;
@@ -166,7 +236,7 @@ export interface Schedule {
 }
 
 export interface Department {
-  id: number; name: string; managerId: number | null; headcount: number;
+  id: number; name: string; managerId: number | null; managerName?: string | null; headcount: number;
 }
 
 export interface OrgSettings {

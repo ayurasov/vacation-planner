@@ -12,6 +12,9 @@ info:
 
     Ошибки — RFC 9457 (application/problem+json) с кодом из каталога
     docs/specs/02-api-spec.md, раздел «Каталог ошибок».
+
+    Любая операция при перегрузке или недоступности БД отвечает 503 service-unavailable
+    с заголовком Retry-After (секунд); 429 rate-limited тоже несёт Retry-After.
   license:
     name: Internal
   contact:
@@ -48,6 +51,8 @@ tags:
     description: Выгрузки и отчёты
   - name: imports
     description: Импорт сотрудников и остатков (кадровая служба, администратор)
+  - name: events
+    description: Поток событий сервера (SSE) — живые обновления без опроса
 
 paths:
   /auth/login:
@@ -215,6 +220,7 @@ paths:
         - { name: dept, in: query, schema: { type: string }, description: Отдел (точное имя) }
         - { name: project, in: query, schema: { type: integer }, description: Идентификатор проекта }
         - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: Поиск по ФИО/должности }
+        - { name: manager, in: query, schema: { type: integer }, description: 'Только прямые подчинённые сотрудника с этим идентификатором (с v0.5.0)' }
       responses:
         '200':
           description: Страница сотрудников
@@ -568,7 +574,7 @@ paths:
       tags: [schedule]
       operationId: getSchedule
       summary: График отпусков и режимов за период
-      description: Данные для Gantt-представления; сервер отдаёт компактные интервалы, клиент рендерит.
+      description: Данные для Gantt-представления; сервер отдаёт компактные интервалы, клиент рендерит. Ответ кэшируется по версии данных (ETag, Cache-Control private, no-cache); If-None-Match с текущим ETag — 304 без тела.
       parameters:
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
         - { name: to, in: query, required: true, schema: { type: string, format: date } }
@@ -922,6 +928,19 @@ paths:
               schema: { $ref: '#/components/schemas/NotificationPage' }
         '401': { $ref: '#/components/responses/Problem' }
 
+  /notifications/read-all:
+    post:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      summary: Пометить прочитанными все уведомления (с v0.5.0)
+      responses:
+        '200':
+          description: Сколько уведомлений отмечено
+          content:
+            application/json:
+              schema: { type: object, properties: { marked: { type: integer } } }
+        '401': { $ref: '#/components/responses/Problem' }
+
   /notifications/{id}/read:
     parameters:
       - { name: id, in: path, required: true, schema: { type: integer } }
@@ -1006,6 +1025,46 @@ paths:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
         '403': { $ref: '#/components/responses/Problem' }
+
+  /events/ticket:
+    post:
+      tags: [events]
+      operationId: getEventsTicket
+      summary: Билет на поток событий (60 секунд)
+      description: EventSource не передаёт заголовок Authorization, а access-токен в адресе попал бы в журналы прокси, поэтому поток открывается по короткому билету.
+      responses:
+        '200':
+          description: Билет
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket: { type: string }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /events:
+    get:
+      tags: [events]
+      operationId: streamEvents
+      summary: Поток событий (text/event-stream)
+      description: |
+        События: `hello` { unread, version } при подключении; `notifications` { unread } — новые уведомления
+        пользователя; `data` { version } — данные графика изменились (не чаще раза в 15 секунд);
+        `revoked` {} — сеанс отозван (пароль сменён или сброшен, сотрудник уволен; проверка раз в 10 секунд),
+        после него сервер закрывает поток, клиент переходит на экран входа.
+        Комментарий-пинг каждые 25 секунд. При обрыве клиент получает новый билет и переподключается;
+        пока потока нет — опрашивает уведомления раз в 30 секунд.
+      security: []
+      parameters:
+        - { name: ticket, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Поток событий
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Problem' }
 
   /reports/vacations:
     get:
@@ -1339,6 +1398,8 @@ components:
       properties:
         id: { type: integer }
         employee: { type: integer }
+        employeeName: { type: string, description: 'ФИО сотрудника (в списках)' }
+        employeeDept: { type: [string, 'null'], description: 'Отдел сотрудника (в списках, с v0.5.0)' }
         start: { type: string, format: date }
         end: { type: string, format: date, description: 'Включительно' }
         type: { type: string, enum: [vacation, maternity], default: vacation }
@@ -1436,6 +1497,7 @@ components:
         id: { type: integer, description: 'Идентификатор (с v0.3.0); в путях отдел адресуется по имени' }
         name: { type: string }
         managerId: { type: [integer, 'null'] }
+        managerName: { type: [string, 'null'], description: 'ФИО руководителя (с v0.5.0)' }
         headcount: { type: integer }
 
     Project:
@@ -1444,6 +1506,7 @@ components:
         id: { type: integer }
         name: { type: string }
         managerId: { type: [integer, 'null'] }
+        managerName: { type: [string, 'null'], description: 'ФИО руководителя (с v0.5.0)' }
         headcount: { type: integer }
 
     Group:

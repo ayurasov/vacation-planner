@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
+import { useLiveStore } from '@/stores/live';
 import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import { useUiStore } from '@/stores/ui';
 import {
   addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
 } from '@/lib/dates';
-import { barsForYear, conflictDatesFor, isAbsent, segments, type Bar } from '@/lib/schedule';
+import { absentPerDay, barsForYear, conflictDatesFor, isAbsent, segments, virtualWindow, type Bar } from '@/lib/schedule';
 import { shortName } from '@/lib/people';
 import { statusMeta } from '@/lib/requests';
 import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
+import { vDialog } from '@/directives/dialog';
 
 const auth = useAuthStore();
 const calendar = useCalendarStore();
@@ -45,8 +47,15 @@ const ZOOM: Record<Zoom, { day: number; label: string }> = {
 };
 const zoom = ref<Zoom>(readZoom());
 const DAY = computed(() => ZOOM[zoom.value].day);
-const NAME_COL = 264;
+// Колонка имён: на телефоне уже — иначе на шкалу оставалось ~60 px из 330 (аудит v0.5.0)
+const phone = typeof window !== 'undefined' ? window.matchMedia('(max-width: 600px)') : null;
+const narrow = ref(phone?.matches ?? false);
+const onPhoneChange = (e: MediaQueryListEvent) => { narrow.value = e.matches; };
+phone?.addEventListener('change', onPhoneChange);
+onBeforeUnmount(() => phone?.removeEventListener('change', onPhoneChange));
+const NAME_COL = computed(() => (narrow.value ? 156 : 264));
 const ROW_H = 40;
+const GROUP_H = 36;
 
 function readZoom(): Zoom {
   try {
@@ -119,12 +128,51 @@ const stats = computed(() => {
 const dailyLoad = computed(() => {
   const list = filtered.value;
   const n = list.length || 1;
+  const counts = absentPerDay(year.value, list);
   return days.value.map((d) => {
     if (d.weekend || d.holiday) return { i: d.i, ratio: -1, absent: 0 };
-    const absent = list.filter((e) => isAbsent(e.vacations, d.iso)).length;
-    return { i: d.i, ratio: absent / n, absent };
+    return { i: d.i, ratio: counts[d.i] / n, absent: counts[d.i] };
   });
 });
+
+// ── Виртуальный список: рисуются только видимые строки (5000 сотрудников — не 65 тыс. узлов DOM)
+type Item = { kind: 'group'; key: string; g: Group } | { kind: 'row'; key: string; e: ScheduleEmployee };
+const items = computed<Item[]>(() => {
+  const out: Item[] = [];
+  for (const g of groups.value) {
+    out.push({ kind: 'group', key: `g:${g.name}`, g });
+    if (!collapsedDepts.value.has(g.name)) for (const e of g.employees) out.push({ kind: 'row', key: `r:${e.id}`, e });
+  }
+  return out;
+});
+const layout = computed(() => {
+  const offsets: number[] = [];
+  let y = 0;
+  for (const it of items.value) { offsets.push(y); y += it.kind === 'group' ? GROUP_H : ROW_H; }
+  return { offsets, total: y };
+});
+const view = ref({ top: 0, height: 900 });
+const bodyRef = ref<HTMLElement | null>(null);
+const win = computed(() => virtualWindow(layout.value.offsets, layout.value.total, view.value.top, view.value.height));
+const visible = computed(() => items.value.slice(win.value.start, win.value.end));
+
+let frame = 0;
+function measure(): void {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    const el = scroller.value;
+    if (!el) return;
+    const bodyTop = bodyRef.value?.offsetTop ?? 0; // высота шапки над строками
+    view.value = { top: Math.max(0, el.scrollTop - bodyTop), height: el.clientHeight };
+  });
+}
+const resizer = new ResizeObserver(measure);
+watch(scroller, (el, old) => {
+  old?.removeEventListener('scroll', measure);
+  if (old) resizer.unobserve(old);
+  if (el) { el.addEventListener('scroll', measure, { passive: true }); resizer.observe(el); measure(); }
+});
+onBeforeUnmount(() => { resizer.disconnect(); cancelAnimationFrame(frame); });
 
 function loadColor(ratio: number): string {
   if (ratio < 0) return 'transparent';
@@ -180,8 +228,10 @@ function barLabel(b: Bar): string {
   const width = b.days * DAY.value;
   if (width < 44) return '';
   const n = vacationDays(b.start, b.end, holidays.value);
-  if (width < 120) return `${n} д.`;
-  return `${fmtRange(b.start, b.end).replace(/ \d{4}$/, '')} · ${n} д.`;
+  const full = `${fmtRange(b.start, b.end).replace(/ \d{4}$/, '')} · ${n} д.`;
+  // ~6,3 px на знак (11 px, полужирный) + поля: даты через границу месяцев длиннее —
+  // на короткой полосе обрезанное «октября – 1 ноя…» хуже, чем просто «5 д.» (даты — в подсказке)
+  return full.length * 6.3 + 14 <= width ? full : `${n} д.`;
 }
 
 function barTitle(e: ScheduleEmployee, b: Bar): string {
@@ -199,12 +249,13 @@ function scrollToToday(smooth = false): void {
   const el = scroller.value;
   if (!el) return;
   const idx = isCurrentYear.value ? todayIdx.value : 0;
-  const target = NAME_COL + idx * DAY.value - (el.clientWidth - NAME_COL) / 3;
+  const target = NAME_COL.value + idx * DAY.value - (el.clientWidth - NAME_COL.value) / 3;
   el.scrollTo({ left: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
 }
 
-async function reload(): Promise<void> {
-  loading.value = true;
+/** quiet — тихое обновление по событию «данные изменились»: без скелета и без прокрутки к сегодня. */
+async function reload(quiet = false): Promise<void> {
+  if (!quiet) loading.value = true;
   error.value = '';
   try {
     const q = dept.value ? `&dept=${encodeURIComponent(dept.value)}` : '';
@@ -222,9 +273,27 @@ async function reload(): Promise<void> {
   } finally {
     loading.value = false;
   }
+  if (quiet) return;
   await nextTick();
   scrollToToday();
 }
+
+// Живое обновление: не чаще раза в минуту и только в видимой вкладке — при 5000 сотрудниках
+// данные организации меняются постоянно; без изменений сервер отвечает 304 по ETag
+const live = useLiveStore();
+let lastLive = Date.now();
+let liveTimer = 0;
+watch(() => live.version, () => {
+  if (liveTimer) return;
+  const wait = Math.max(0, 60_000 - (Date.now() - lastLive));
+  liveTimer = window.setTimeout(() => {
+    liveTimer = 0;
+    if (document.visibilityState !== 'visible') return;
+    lastLive = Date.now();
+    void reload(true);
+  }, wait);
+});
+onBeforeUnmount(() => window.clearTimeout(liveTimer));
 
 async function exportXlsx(): Promise<void> {
   try {
@@ -246,7 +315,7 @@ watch(zoom, async (z) => {
   await nextTick();
   scrollToToday();
 });
-watch([year, dept], reload);
+watch([year, dept], () => void reload());
 
 onMounted(async () => {
   void reload();
@@ -606,7 +675,10 @@ const selectedDays = computed(() => selected.value
           </div>
 
           <!-- тело -->
-          <div class="g-body">
+          <div
+            ref="bodyRef"
+            class="g-body"
+          >
             <div
               class="g-overlay"
               aria-hidden="true"
@@ -636,53 +708,56 @@ const selectedDays = computed(() => selected.value
               />
             </div>
 
+            <div
+              class="g-pad"
+              :style="{ height: `${win.padTop}px` }"
+            />
             <template
-              v-for="g in groups"
-              :key="g.name"
+              v-for="it in visible"
+              :key="it.key"
             >
               <button
+                v-if="it.kind === 'group'"
                 type="button"
                 class="g-group"
-                :aria-expanded="!collapsedDepts.has(g.name)"
-                @click="toggleDept(g.name)"
+                :aria-expanded="!collapsedDepts.has(it.g.name)"
+                @click="toggleDept(it.g.name)"
               >
                 <span class="g-group-name">
                   <AppIcon
-                    :name="collapsedDepts.has(g.name) ? 'chevronRight' : 'chevronDown'"
+                    :name="collapsedDepts.has(it.g.name) ? 'chevronRight' : 'chevronDown'"
                     :size="14"
                   />
-                  <strong>{{ g.name }}</strong>
-                  <span class="muted">{{ g.employees.length }}</span>
+                  <strong>{{ it.g.name }}</strong>
+                  <span class="muted">{{ it.g.employees.length }}</span>
                   <span
-                    v-if="g.absentToday"
+                    v-if="it.g.absentToday"
                     class="badge badge-success"
                     :title="'В отпуске сегодня'"
-                  >{{ g.absentToday }} в отпуске</span>
+                  >{{ it.g.absentToday }} в отпуске</span>
                   <span
-                    v-if="g.conflictDays"
+                    v-if="it.g.conflictDays"
                     class="badge badge-danger"
                     :title="'Дней, когда в отпуске доля отдела выше порога'"
-                  >{{ g.conflictDays }} дн. конфликта</span>
+                  >{{ it.g.conflictDays }} дн. конфликта</span>
                 </span>
               </button>
-              <template v-if="!collapsedDepts.has(g.name)">
+              <template v-else>
                 <div
-                  v-for="e in g.employees"
-                  :key="e.id"
                   class="g-row"
-                  :class="{ picked: picked.has(e.id) }"
+                  :class="{ picked: picked.has(it.e.id) }"
                   :style="{ height: `${ROW_H}px` }"
                 >
                   <button
                     type="button"
                     class="g-pick"
-                    :class="{ on: picked.has(e.id) }"
-                    :aria-pressed="picked.has(e.id)"
-                    :title="picked.has(e.id) ? 'Убрать из сравнения' : 'Добавить в сравнение пересечений'"
-                    @click="togglePick(e.id)"
+                    :class="{ on: picked.has(it.e.id) }"
+                    :aria-pressed="picked.has(it.e.id)"
+                    :title="picked.has(it.e.id) ? 'Убрать из сравнения' : 'Добавить в сравнение пересечений'"
+                    @click="togglePick(it.e.id)"
                   >
                     <AppIcon
-                      :name="picked.has(e.id) ? 'check' : 'plus'"
+                      :name="picked.has(it.e.id) ? 'check' : 'plus'"
                       :size="11"
                       :stroke="2.2"
                     />
@@ -690,18 +765,19 @@ const selectedDays = computed(() => selected.value
                   <button
                     type="button"
                     class="g-name"
-                    @click="selected = e"
+                    :title="it.e.position ? `${it.e.name} · ${it.e.position}` : it.e.name"
+                    @click="selected = it.e"
                   >
                     <UserAvatar
-                      :name="e.name"
+                      :name="it.e.name"
                       :size="26"
                     />
                     <span class="person-text">
-                      <span class="person-name">{{ shortName(e.name) }}</span>
-                      <span class="person-sub">{{ e.position ?? '—' }}</span>
+                      <span class="person-name">{{ shortName(it.e.name) }}</span>
+                      <span class="person-sub">{{ it.e.position ?? '—' }}</span>
                     </span>
                     <span
-                      v-if="isCurrentYear && isAbsent(e.vacations, today)"
+                      v-if="isCurrentYear && isAbsent(it.e.vacations, today)"
                       class="away-dot"
                       title="В отпуске сегодня"
                     />
@@ -712,34 +788,38 @@ const selectedDays = computed(() => selected.value
                   >
                     <template v-if="showWorkMode">
                       <div
-                        v-for="(r, ri) in remoteSegs(e)"
+                        v-for="(r, ri) in remoteSegs(it.e)"
                         :key="`r${ri}`"
                         class="g-remote"
                         :style="{ left: `${r.first * DAY}px`, width: `${r.days * DAY}px` }"
                       />
                     </template>
                     <div
-                      v-for="(c, ci) in conflictSegs(e)"
+                      v-for="(c, ci) in conflictSegs(it.e)"
                       :key="`c${ci}`"
                       class="g-conflict"
                       :style="{ left: `${c.first * DAY}px`, width: `${c.days * DAY}px` }"
                     />
                     <button
-                      v-for="b in barsOf(e)"
+                      v-for="b in barsOf(it.e)"
                       :key="b.requestId"
                       type="button"
                       class="g-bar"
                       :class="barClass(b)"
                       :style="{ left: `${b.first * DAY + 1}px`, width: `${Math.max(b.days * DAY - 2, 3)}px` }"
-                      :title="barTitle(e, b)"
-                      @click="selected = e"
+                      :title="barTitle(it.e, b)"
+                      @click="selected = it.e"
                     >
-                      {{ barLabel(b) }}
+                      <span class="g-bar-label">{{ barLabel(b) }}</span>
                     </button>
                   </div>
                 </div>
               </template>
             </template>
+            <div
+              class="g-pad"
+              :style="{ height: `${win.padBottom}px` }"
+            />
           </div>
         </div>
       </div>
@@ -750,9 +830,9 @@ const selectedDays = computed(() => selected.value
       v-if="selected"
       class="modal-overlay"
       @click.self="selected = null"
-      @keydown.esc="selected = null"
     >
       <div
+        v-dialog="() => (selected = null)"
         class="modal modal-wide"
         role="dialog"
         aria-modal="true"
@@ -880,9 +960,9 @@ const selectedDays = computed(() => selected.value
   display: inline-block;
 }
 
-.sw-approved { background: var(--color-primary); }
-.sw-pending { background: repeating-linear-gradient(135deg, var(--color-warning) 0 3px, color-mix(in srgb, var(--color-warning) 55%, var(--color-surface)) 3px 6px); }
-.sw-maternity { background: var(--color-violet); }
+.sw-approved { background: var(--color-primary-fill); }
+.sw-pending { background: repeating-linear-gradient(135deg, var(--chart-pending) 0 3px, color-mix(in srgb, var(--chart-pending) 55%, var(--color-surface)) 3px 6px); }
+.sw-maternity { background: var(--color-violet-fill); }
 .sw-conflict { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-danger) 55%, transparent) 0 2px, transparent 2px 4px); outline: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent); }
 .sw-off { background: var(--color-weekend); outline: 1px solid var(--color-border); }
 
@@ -984,7 +1064,7 @@ const selectedDays = computed(() => selected.value
 }
 
 .g-day.today span {
-  background: var(--color-danger);
+  background: var(--color-danger-fill);
   color: #fff;
   border-radius: 4px;
   margin: 0 1px;
@@ -1035,6 +1115,7 @@ const selectedDays = computed(() => selected.value
   z-index: 3;
   display: block;
   width: 100%;
+  height: 36px; /* GROUP_H — виртуальный список считает высоты строк заранее; без overflow: иначе sticky-название «прилипает» внутри кнопки и уезжает влево */
   border: none;
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
@@ -1051,7 +1132,8 @@ const selectedDays = computed(() => selected.value
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  height: 100%;
+  padding: 0 14px;
   font-size: 12.5px;
 }
 
@@ -1120,8 +1202,8 @@ const selectedDays = computed(() => selected.value
 
 .g-bar {
   position: absolute;
-  top: 9px;
-  height: 22px;
+  top: 8px;
+  height: 24px; /* цель нажатия не ниже 24 px (WCAG 2.5.8) */
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -1130,8 +1212,8 @@ const selectedDays = computed(() => selected.value
   font-weight: 600;
   padding: 0 7px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* clip, а не hidden: hidden делает полосу прокручиваемым контейнером и ломает липкую подпись */
+  overflow: clip;
   text-align: left;
   cursor: pointer;
   z-index: 3;
@@ -1139,17 +1221,42 @@ const selectedDays = computed(() => selected.value
   transition: transform 0.12s, box-shadow 0.12s;
 }
 
+/* Подпись «едет» вдоль полосы: если начало отпуска прокручено под колонку имён, даты видны,
+   а не обрезанное «октября – 1 ноя…» */
+.g-bar-label {
+  position: sticky;
+  left: calc(var(--name-col) + 6px);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  line-height: 24px;
+}
+
+/* Сенсорный экран: полоса ещё выше */
+@media (pointer: coarse) {
+  .g-bar {
+    top: 6px;
+    height: 28px;
+  }
+
+  .g-bar-label {
+    line-height: 28px;
+  }
+}
+
 .g-bar:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 10px rgba(20, 25, 40, 0.2);
 }
 
-.bar-approved { background: var(--color-primary); }
+.bar-approved { background: var(--color-primary-fill); }
 .bar-pending {
-  background: repeating-linear-gradient(135deg, var(--color-warning) 0 6px, color-mix(in srgb, var(--color-warning) 75%, #fff) 6px 12px);
-  color: #5a3a06;
+  background: repeating-linear-gradient(135deg, var(--chart-pending) 0 6px, color-mix(in srgb, var(--chart-pending) 75%, #fff) 6px 12px);
+  color: var(--chart-pending-ink);
 }
-.bar-maternity { background: var(--color-violet); }
+.bar-maternity { background: var(--color-violet-fill); }
 .bar-past { opacity: 0.55; }
 
 .gantt-loading {
@@ -1242,8 +1349,8 @@ const selectedDays = computed(() => selected.value
 }
 
 .g-pick.on .app-icon {
-  background: var(--color-warning);
-  border-color: var(--color-warning);
+  background: var(--color-warning-fill);
+  border-color: var(--color-warning-fill);
   color: #fff;
 }
 

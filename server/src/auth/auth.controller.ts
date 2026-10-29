@@ -51,7 +51,7 @@ export class AuthController {
   @ApiOperation({ operationId: 'login', summary: 'Вход по логину и паролю' })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.auth.login(dto.login, dto.password);
-    setRefreshCookie(res, result.refreshToken, result.expiresAt);
+    setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
     return {
       accessToken: result.accessToken,
       expiresAt: result.expiresAt.toISOString(),
@@ -66,7 +66,7 @@ export class AuthController {
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = (req.cookies?.[REFRESH_COOKIE] as string) ?? '';
     const result = await this.auth.refresh(token);
-    setRefreshCookie(res, result.refreshToken, result.expiresAt);
+    setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
     return { accessToken: result.accessToken, expiresAt: result.expiresAt.toISOString() };
   }
 

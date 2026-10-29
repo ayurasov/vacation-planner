@@ -24,12 +24,14 @@ const savingMail = ref(false);
 const testingMail = ref(false);
 
 async function toggleLetters(ev: Event): Promise<void> {
-  const on = (ev.target as HTMLInputElement).checked;
+  const box = ev.target as HTMLInputElement;
+  const on = box.checked;
   savingMail.value = true;
   try {
     auth.me = await api.patch('/auth/me', { emailNotifications: on });
     ui.toast(on ? 'Письма о заявках включены' : 'Письма о заявках отключены');
   } catch (e) {
+    box.checked = !on; // настройка не изменилась — флажок возвращается
     ui.error(e);
   } finally {
     savingMail.value = false;
@@ -461,6 +463,7 @@ onMounted(async () => {
 
 .range {
   width: 100%;
+  height: 24px; /* цель нажатия (WCAG 2.5.8); по умолчанию 16 px */
   accent-color: var(--color-primary);
 }
 

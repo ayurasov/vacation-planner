@@ -1,9 +1,14 @@
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { databaseUrl } from './concurrency';
 
-// Единственное соединение с БД на процесс (docs/specs/01-architecture.md).
+// Единственный клиент БД на процесс (docs/specs/01-architecture.md); размер пула — infra/concurrency.ts.
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  constructor() {
+    super({ datasources: { db: { url: databaseUrl() } } });
+  }
+
   async onModuleInit(): Promise<void> {
     await this.$connect();
   }
