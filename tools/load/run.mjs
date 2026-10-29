@@ -20,7 +20,7 @@
 // Каждый пользователь входит со своего адреса (X-Forwarded-For — как за nginx; лимит входа
 // считается по адресу) и действует по своей роли: сотрудник, согласующий (есть очередь),
 // кадровая служба. Итог — таблица p50/p95/p99 по операциям, ступени, лента по минутам; JSON — в --out.
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
 
 const arg = (name, def) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -76,6 +76,7 @@ const stageStats = []; // ступень → { reads: [], writes: [], errors, co
 const ticks = []; // шаг ленты → { reads: [], writes: [], errors, count }
 let stageIndex = 0;
 let started = 0;
+let peak = 0; // потоков событий открыто одновременно
 const isWrite = (op) => /^(POST|PUT|PATCH|DELETE) \/(?!auth\/|events)/.test(op);
 const isRead = (op) => op.startsWith('GET') && !op.startsWith('GET /reports');
 const bucket = (arr, i) => (arr[i] ??= { reads: [], writes: [], errors: 0, count: 0 });
@@ -362,12 +363,51 @@ async function arrival(n) {
 const pct = (sorted, p) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] : 0;
 const p95 = (arr) => Math.round(pct([...arr].sort((a, b) => a - b), 95));
 
+/** Итог прогона: операции, сводка, ступени, лента. complete: false — промежуточный (прогон идёт или прерван). */
+function results(complete) {
+  const elapsed = (performance.now() - started) / 1000;
+
+  const rows = [...stats].map(([op, s]) => {
+    const ms = s.ms.sort((a, b) => a - b);
+    return {
+      op, count: ms.length, errors: s.errors, rejected: s.rejected, codes: s.codes,
+      p50: Math.round(pct(ms, 50)), p95: Math.round(pct(ms, 95)), p99: Math.round(pct(ms, 99)), max: Math.round(ms[ms.length - 1] ?? 0),
+    };
+  }).sort((a, b) => b.count - a.count);
+  const all = [...stats.values()].flatMap((s) => s.ms);
+  const reads = rows.filter((r) => isRead(r.op)).flatMap((r) => stats.get(r.op).ms);
+  // Запись — изменение данных: без входа, билета и подключения потока
+  const writes = rows.filter((r) => isWrite(r.op)).flatMap((r) => stats.get(r.op).ms);
+  const errors = rows.reduce((k, r) => k + r.errors, 0);
+  const summary = {
+    complete, profile: PROFILE || null, population: POPULATION, users: STAGES.map((s) => s.users), idle: IDLE, arrivals: ARRIVALS,
+    durationSec: Math.round(elapsed), requests: all.length, rps: Math.round(all.length / elapsed),
+    errors, errorRate: all.length ? Math.round((errors / all.length) * 10000) / 100 : 0,
+    readP95: p95(reads), writeP95: p95(writes),
+    ...(SSE ? { sse: { peakOpen: peak, failed: sse.failed, reconnects: sse.reconnects, events: sse.events } } : {}),
+  };
+  const stageRows = STAGES.map((s, i) => {
+    const st = stageStats[i] ?? { reads: [], writes: [], errors: 0, count: 0 };
+    return { users: s.users, requests: st.count, errors: st.errors, readP95: p95(st.reads), writeP95: p95(st.writes) };
+  });
+  const timeline = ticks.map((t, i) => ({ at: Math.round((i * TICK) / 1000), requests: t?.count ?? 0, errors: t?.errors ?? 0, readP95: p95(t?.reads ?? []), writeP95: p95(t?.writes ?? []) }));
+  return { summary, rows, stages: stageRows, timeline };
+}
+
+/** --out пишется на каждом шаге ленты (не реже раза в минуту) и в конце: прогон, прерванный перезапуском стенда,
+ *  сохраняет итог до момента остановки. В v1.0.0 8-часовой прогон потерял ленту задержек на шестом часе. */
+function save(complete) {
+  if (!OUT) return;
+  writeFileSync(`${OUT}.tmp`, JSON.stringify(results(complete), null, 2));
+  renameSync(`${OUT}.tmp`, OUT);
+}
+
 async function main() {
   console.log(`Нагрузка: ${URL_BASE}, профиль ${PROFILE || '—'}, численность ${POPULATION}; работают ${STAGES.map((s) => `${s.users}×${s.sec} с`).join(' → ')}, `
     + `вкладок без действий ${IDLE}, приход ${ARRIVALS} за ${WINDOW / 1000} с, разгон ${RAMP / 1000} с, пауза ~${THINK} мс, ${SSE ? 'поток событий' : 'опрос уведомлений'}`);
-  let peak = 0;
   const peakTimer = setInterval(() => { peak = Math.max(peak, sse.open); }, 1000);
   started = performance.now();
+  const saver = OUT ? setInterval(() => save(false), Math.max(60_000, TICK)) : null;
   const deadline = started + RAMP + DURATION;
   const tasks = [];
   let spawned = 0;
@@ -397,33 +437,9 @@ async function main() {
   }
   if (STAGES.length > 1) target = 0; // все ступени пройдены — работающие уходят
   await Promise.all(tasks);
-  const elapsed = (performance.now() - started) / 1000;
   clearInterval(peakTimer);
-
-  const rows = [...stats].map(([op, s]) => {
-    const ms = s.ms.sort((a, b) => a - b);
-    return {
-      op, count: ms.length, errors: s.errors, rejected: s.rejected, codes: s.codes,
-      p50: Math.round(pct(ms, 50)), p95: Math.round(pct(ms, 95)), p99: Math.round(pct(ms, 99)), max: Math.round(ms[ms.length - 1] ?? 0),
-    };
-  }).sort((a, b) => b.count - a.count);
-  const all = [...stats.values()].flatMap((s) => s.ms);
-  const reads = rows.filter((r) => isRead(r.op)).flatMap((r) => stats.get(r.op).ms);
-  // Запись — изменение данных: без входа, билета и подключения потока
-  const writes = rows.filter((r) => isWrite(r.op)).flatMap((r) => stats.get(r.op).ms);
-  const errors = rows.reduce((k, r) => k + r.errors, 0);
-  const summary = {
-    profile: PROFILE || null, population: POPULATION, users: STAGES.map((s) => s.users), idle: IDLE, arrivals: ARRIVALS,
-    durationSec: Math.round(elapsed), requests: all.length, rps: Math.round(all.length / elapsed),
-    errors, errorRate: all.length ? Math.round((errors / all.length) * 10000) / 100 : 0,
-    readP95: p95(reads), writeP95: p95(writes),
-    ...(SSE ? { sse: { peakOpen: peak, failed: sse.failed, reconnects: sse.reconnects, events: sse.events } } : {}),
-  };
-  const stageRows = STAGES.map((s, i) => {
-    const st = stageStats[i] ?? { reads: [], writes: [], errors: 0, count: 0 };
-    return { users: s.users, requests: st.count, errors: st.errors, readP95: p95(st.reads), writeP95: p95(st.writes) };
-  });
-  const timeline = ticks.map((t, i) => ({ at: Math.round((i * TICK) / 1000), requests: t?.count ?? 0, errors: t?.errors ?? 0, readP95: p95(t?.reads ?? []), writeP95: p95(t?.writes ?? []) }));
+  if (saver) clearInterval(saver);
+  const { summary, rows, stages: stageRows } = results(true);
 
   console.log('\n| Операция | Запросов | Ошибок | Отказов 409 | p50, мс | p95, мс | p99, мс | max, мс |');
   console.log('|---|---|---|---|---|---|---|---|');
@@ -434,7 +450,7 @@ async function main() {
   }
   console.log(`\nИтого: ${summary.requests} запросов за ${summary.durationSec} с (${summary.rps}/с), ошибок ${summary.errors} (${summary.errorRate} %), p95 чтения ${summary.readP95} мс, p95 записи ${summary.writeP95} мс`);
   if (SSE) console.log(`Поток событий: одновременно открыто до ${peak}, сбоев ${sse.failed}, переподключений ${sse.reconnects}, событий ${JSON.stringify(sse.events)}`);
-  if (OUT) writeFileSync(OUT, JSON.stringify({ summary, rows, stages: stageRows, timeline }, null, 2));
+  save(true);
 
   // --slo: требования модели (docs/performance/workday-model.md) — нарушение завершает процесс с кодом 1 (CI)
   if (has('slo')) {
