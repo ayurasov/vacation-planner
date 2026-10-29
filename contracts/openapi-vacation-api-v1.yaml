@@ -13,6 +13,10 @@ info:
     Ошибки — RFC 9457 (application/problem+json) с кодом из каталога
     docs/specs/02-api-spec.md, раздел «Каталог ошибок».
 
+    Каждый ответ несёт заголовок X-Request-Id (с v1.0.0): переданный прокси идентификатор
+    вида [A-Za-z0-9._-]{8,64} сохраняется, иначе сервер создаёт свой; ошибка содержит его
+    в поле requestId.
+
     Любая операция при перегрузке или недоступности БД отвечает 503 service-unavailable
     с заголовком Retry-After (секунд); 429 rate-limited тоже несёт Retry-After.
   license:
@@ -1848,6 +1852,7 @@ components:
         status: { type: integer }
         detail: { type: string }
         instance: { type: string }
+        requestId: { type: string, description: 'Идентификатор запроса — тот же, что в заголовке ответа X-Request-Id; по нему находится строка журнала сервера (с v1.0.0)' }
 
     Session:
       type: object

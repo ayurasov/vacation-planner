@@ -121,7 +121,7 @@ export const sseConnections = new Gauge('vp_sse_connections', 'Открытые 
 sseConnections.set({}, 0);
 
 /** Шаблон маршрута (`/api/v1/vacation-requests/:id`), а не путь: иначе число рядов метрики не ограничено. */
-function routeOf(req: Request): string {
+export function routeOf(req: Request): string {
   const route = (req as Request & { route?: { path?: unknown } }).route;
   if (route && typeof route.path === 'string') return (req.baseUrl ?? '') + route.path;
   return 'unmatched';

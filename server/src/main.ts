@@ -7,9 +7,10 @@ import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { aggregateInPrimary } from './infra/metrics';
 import { workers } from './infra/concurrency';
+import { AppLogger } from './infra/log';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['log', 'warn', 'error'] });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: new AppLogger() });
   configureApp(app);
   app.enableShutdownHooks();
 

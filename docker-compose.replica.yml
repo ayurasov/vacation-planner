@@ -6,6 +6,11 @@
 # сервер, и реплика, — не больше archive_timeout (5 минут) по архиву WAL и физическим копиям.
 # Архив WAL держите на отдельном диске или хранилище: том wal-archive — пример.
 x-wal-archive: &wal-archive
+  # Диагностика — как в docker-compose.yml: эта команда заменяет команду основного файла
+  - -c
+  - shared_preload_libraries=pg_stat_statements
+  - -c
+  - log_min_duration_statement=${PG_SLOW_MS:-1000}
   - -c
   - archive_mode=on
   - -c

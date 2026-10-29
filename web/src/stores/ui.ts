@@ -1,5 +1,6 @@
 // Тосты и диалог подтверждения вместо alert()/confirm() браузера.
 import { defineStore } from 'pinia';
+import { ApiError } from '@/api/client';
 
 export interface Toast {
   id: number;
@@ -35,7 +36,9 @@ export const useUiStore = defineStore('ui', {
       setTimeout(() => this.dismiss(id), tone === 'error' ? 7000 : 4000);
     },
     error(e: unknown): void {
-      this.toast(e instanceof Error ? e.message : String(e), 'error');
+      // Сбой сервера — с кодом запроса: по нему поддержка находит причину в журнале (v1.0.0)
+      const ref = e instanceof ApiError && e.status >= 500 && e.requestId ? ` Код запроса: ${e.requestId.slice(0, 8)}.` : '';
+      this.toast(e instanceof Error ? `${e.message}${ref}` : String(e), 'error');
     },
     dismiss(id: number): void {
       this.toasts = this.toasts.filter((t) => t.id !== id);

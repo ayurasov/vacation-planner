@@ -10,6 +10,14 @@ services:
       POSTGRES_USER: vacation
       POSTGRES_PASSWORD: vacation
       POSTGRES_DB: vacation
+    # Диагностика (v1.0.0, E51-05): медленные операторы — в журнал PostgreSQL, статистика
+    # запросов — pg_stat_statements (deploy/postgres/top-queries.sql)
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=${PG_SLOW_MS:-1000}
     ports:
       - "5432:5432"
     volumes:
@@ -34,6 +42,11 @@ services:
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-auto}
       # Токен для /metrics (необязательно): порт API наружу не публикуется
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Журнал сервера (v1.0.0): JSON с идентификатором запроса; медленные запросы API и операции БД
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      REQUEST_LOG: ${REQUEST_LOG:-slow}
+      SLOW_REQUEST_MS: ${SLOW_REQUEST_MS:-1000}
+      SLOW_QUERY_MS: ${SLOW_QUERY_MS:-0}
       # Плановые задачи (извещения, эскалация, напоминания) — раз в столько секунд в каждом процессе (ADR-017)
       JOBS_POLL_SECONDS: ${JOBS_POLL_SECONDS:-60}
       # Почта (необязательно): без SMTP_HOST письма не отправляются, уведомления — только в интерфейсе

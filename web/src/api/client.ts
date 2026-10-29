@@ -17,6 +17,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    /** Идентификатор запроса из ответа (v1.0.0): по нему поддержка находит строку журнала сервера. */
+    public readonly requestId?: string,
   ) {
     super(message);
   }
@@ -62,7 +64,8 @@ function refreshAccess(): Promise<boolean> {
 async function toError(res: Response): Promise<ApiError> {
   const body = await res.json().catch(() => null);
   const code = String(body?.type ?? '').split('/problems/')[1] ?? 'internal';
-  return new ApiError(res.status, code, body?.detail ?? body?.title ?? `Ошибка ${res.status}`);
+  const requestId = body?.requestId ?? res.headers.get('X-Request-Id') ?? undefined;
+  return new ApiError(res.status, code, body?.detail ?? body?.title ?? `Ошибка ${res.status}`, requestId);
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
