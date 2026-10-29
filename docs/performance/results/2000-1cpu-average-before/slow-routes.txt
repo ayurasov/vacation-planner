@@ -1,0 +1,12 @@
+    531 /api/v1/schedule
+     19 /api/v1/employees/:id/balance
+     18 /api/v1/vacation-requests
+     14 /api/v1/planning/mine
+     11 /api/v1/auth/refresh
+      8 /api/v1/notices/mine
+      6 /api/v1/analytics/team
+      5 /api/v1/analytics/suggestions
+      4 /api/v1/analytics/overview
+      2 /api/v1/reports/t7
+      1 /api/v1/reports/vacations
+      1 /api/v1/planning/:year

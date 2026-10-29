@@ -1,0 +1,10 @@
+     37 /api/v1/auth/login
+      9 /api/v1/vacation-requests
+      3 /api/v1/vacation-requests/:id
+      2 /api/v1/reports/vacations
+      2 /api/v1/planning/mine
+      2 /api/v1/employees/:id/balance
+      1 /api/v1/schedule
+      1 /api/v1/reports/t7
+      1 /api/v1/notices/mine
+      1 /api/v1/analytics/team
