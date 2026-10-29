@@ -8,8 +8,9 @@
 Для номеров страниц в оглавлении DOCX — LibreOffice (необязательно: без него Word
 обновит оглавление при открытии).
 
-Источники — docs/specs, docs/manuals и docs/versions.md; схемы — docs/images (их рендерит
-render_diagrams.mjs). Результат — docs/pdf/<имя>.pdf и docs/docx/<имя>.docx.
+Источники — docs/specs, docs/manuals, docs/registry, docs/performance, docs/runbooks и docs/versions.md;
+схемы — docs/images (их рендерит render_diagrams.mjs). Результат — docs/pdf/<имя>.pdf и
+docs/docx/<имя>.docx; комплект для реестра — в docs/pdf/registry и docs/docx/registry.
 PDF собирается в два прохода: после первого номера страниц разделов читаются из ссылок
 содержания и вписываются в него во втором; обложка печатается отдельно без колонтитула.
 """
@@ -55,6 +56,20 @@ DOCS = {
     "admin-guide": ("manuals", "Руководство администратора", "Сотрудники, справочники, настройки и аудит"),
     "deployment-guide": ("manuals", "Руководство по развёртыванию", "Установка, обновление, резервное копирование"),
     "versions": ("", "История версий", "Выпуски, авторство и изменения"),
+    # Комплект для включения в единый реестр российских программ (v1.0.0, E52-01) — в docs/pdf/registry
+    "submission-package": ("registry", "Комплект документов для реестра", "Перечень и чек-лист готовности"),
+    "application-data": ("registry", "Сведения о программе для заявления", "Единый реестр российских программ"),
+    "functional-description": ("registry", "Описание функциональных характеристик", "Назначение, функции, сценарии и окружение"),
+    "architecture": ("registry", "Описание архитектуры", "Компоненты, данные, интерфейсы и безопасность"),
+    "lifecycle": ("registry", "Описание процессов жизненного цикла", "Разработка, выпуск, поддержка и персонал"),
+    "expert-guide": ("registry", "Инструкция для эксперта", "Стенд, установка и проверка функций"),
+    "pricing": ("registry", "Сведения о стоимости", "Стоимость и условия лицензирования"),
+    "license-agreement": ("registry", "Проект лицензионного договора", "Условия использования программы"),
+    "third-party-notices": ("registry", "Сторонние компоненты и лицензии", "Уведомления по лицензиям компонентов поставки"),
+    # Эксплуатация и нагрузка (v1.0.0)
+    "workday-model": ("performance", "Модель нагрузки", "Организация на 1000–2000 сотрудников"),
+    "runbook": ("performance", "Регламент нагрузочного прогона", "Стенд, данные, доказательства и критерии"),
+    "diagnostics": ("runbooks", "Диагностика замедлений и ошибок", "Симптом, метрика, причина, действие"),
 }
 
 BLUE = RGBColor(0x2F, 0x4F, 0xD1)
@@ -65,6 +80,11 @@ FONT = "Arial"
 
 def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
+
+
+def out_dir(base, name):
+    """Комплект для реестра — отдельной папкой: его передают на экспертизу целиком."""
+    return base / "registry" if DOCS[name][0] == "registry" else base
 
 
 def source(name):
@@ -136,10 +156,10 @@ def pandoc_html(name, md, html):
 
 
 def build_pdf(name, md):
-    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir(PDF_DIR, name).mkdir(parents=True, exist_ok=True)
     # HTML кладётся рядом с .md, чтобы относительные пути к ../images разрешались
     html = md.with_name(f".{name}.build.html")
-    pdf = PDF_DIR / f"{name}.pdf"
+    pdf = out_dir(PDF_DIR, name) / f"{name}.pdf"
     script = str(TOOLS / "html_to_pdf.mjs")
     footer = footer_text(name)
     pandoc_html(name, md, html)
@@ -281,9 +301,9 @@ def polish_docx(path, name):
 
 
 def build_docx(name, md, reference):
-    DOCX_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir(DOCX_DIR, name).mkdir(parents=True, exist_ok=True)
     _folder, title, subtitle = DOCS[name]
-    out = DOCX_DIR / f"{name}.docx"
+    out = out_dir(DOCX_DIR, name) / f"{name}.docx"
     run(["pandoc", str(md), "-f", "markdown+implicit_figures+link_attributes+pipe_tables", "-t", "docx",
          "--reference-doc", str(reference), "--toc", "--toc-depth=2", "--number-sections",
          "-M", "toc-title=Содержание", "-M", f"title={title}",
