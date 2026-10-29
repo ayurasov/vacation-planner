@@ -33,12 +33,25 @@ const SUBJECTS: Record<string, string> = {
   request_approved: 'Отпуск согласован',
   request_rejected: 'Заявка на отпуск отклонена',
   request_cancelled: 'Отпуск удалён',
+  request_escalated: 'Заявка ждёт решения',
+  delegation_assigned: 'Вам передано согласование заявок',
+  account_locked: 'Учётная запись временно заблокирована',
+  vacation_notice: 'Извещение о начале отпуска',
+  planning_open: 'Планирование отпусков',
+  planning_reminder: 'Напоминание: запланируйте отпуск',
+};
+
+// Куда ведёт ссылка письма — тот же раздел, что открывает щелчок по уведомлению в интерфейсе
+const LINKS: Record<string, { path: string; action: string }> = {
+  request_created: { path: '/approvals', action: 'Открыть заявки на согласование' },
+  request_escalated: { path: '/approvals', action: 'Открыть заявки на согласование' },
+  delegation_assigned: { path: '/approvals', action: 'Открыть заявки на согласование' },
+  account_locked: { path: '/settings', action: 'Проверить сеансы и сменить пароль' },
 };
 
 /** Письмо к уведомлению: тот же текст, что в колокольчике, и ссылка на нужный раздел. */
 export function letterFor(kind: string, text: string, recipient: string, appUrl: string): Letter {
-  const path = kind === 'request_created' ? '/approvals' : '/my';
-  const action = kind === 'request_created' ? 'Открыть заявки на согласование' : 'Открыть «Мой отпуск»';
+  const { path, action } = LINKS[kind] ?? { path: '/my', action: 'Открыть «Мой отпуск»' };
   return {
     subject: `${SUBJECTS[kind] ?? 'Планировщик отпусков'}${kind === 'request_created' ? `: ${text.split(':')[0]}` : ''}`,
     body: [`Здравствуйте, ${greeting(recipient)}!`, '', text, '', `${action}: ${appUrl}${path}`, FOOTER(appUrl)].join('\n'),

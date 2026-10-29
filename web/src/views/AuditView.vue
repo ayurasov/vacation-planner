@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, type AuditEvent, type Page } from '@/api/client';
 import AppIcon from '@/components/common/AppIcon.vue';
+import LoginJournal from '@/components/LoginJournal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 
@@ -13,6 +14,8 @@ const entity = ref('');
 const loading = ref(true);
 const error = ref('');
 const expanded = ref<Set<number>>(new Set());
+// Журнал изменений данных и журнал входов (v0.6.0) — две вкладки одного раздела
+const tab = ref<'changes' | 'logins'>('changes');
 
 const ACTIONS: Record<string, { label: string; tone: string; icon: string }> = {
   'request.created': { label: 'Создана заявка', tone: 'info', icon: 'plus' },
@@ -41,6 +44,8 @@ const ACTIONS: Record<string, { label: string; tone: string; icon: string }> = {
   'import.applied': { label: 'Импорт сотрудников', tone: 'info', icon: 'upload' },
   'employee.preferences_updated': { label: 'Изменены личные настройки', tone: 'muted', icon: 'mail' },
   'report.exported': { label: 'Выгрузка в Excel', tone: 'muted', icon: 'spreadsheet' },
+  'employee.unlocked': { label: 'Снята блокировка входа', tone: 'warning', icon: 'key' },
+  'employee.sessions_revoked': { label: 'Завершены сеансы сотрудника', tone: 'warning', icon: 'logout' },
 };
 
 const ENTITIES = [
@@ -117,13 +122,35 @@ onMounted(reload);
           Журнал аудита
         </div>
         <div class="view-subtitle">
-          {{ total }} записей · неизменяемый журнал всех изменений данных
+          {{ tab === 'changes' ? `${total} записей · неизменяемый журнал всех изменений данных` : 'Входы в систему: успешные, неудачные, блокировки' }}
         </div>
       </div>
+      <div class="segmented">
+        <button
+          type="button"
+          :class="{ active: tab === 'changes' }"
+          :aria-pressed="tab === 'changes'"
+          @click="tab = 'changes'"
+        >
+          Изменения
+        </button>
+        <button
+          type="button"
+          :class="{ active: tab === 'logins' }"
+          :aria-pressed="tab === 'logins'"
+          @click="tab = 'logins'"
+        >
+          Входы
+        </button>
+      </div>
+    </div>
+
+    <LoginJournal v-if="tab === 'logins'" />
+
+    <template v-else>
       <select
         v-model="entity"
-        class="input"
-        style="width: auto"
+        class="input entity-filter"
         aria-label="Тип объекта"
       >
         <option
@@ -134,141 +161,146 @@ onMounted(reload);
           {{ e.label }}
         </option>
       </select>
-    </div>
 
-    <div
-      v-if="error"
-      class="banner banner-error"
-    >
-      <AppIcon
-        name="warning"
-        :size="15"
-      /> {{ error }}
-    </div>
-
-    <div class="card">
       <div
-        v-if="loading"
-        class="card-body"
+        v-if="error"
+        class="banner banner-error"
       >
-        <div
-          v-for="i in 8"
-          :key="i"
-          class="skeleton"
-          style="height: 40px; margin-bottom: 8px"
-        />
+        <AppIcon
+          name="warning"
+          :size="15"
+        /> {{ error }}
       </div>
-      <EmptyState
-        v-else-if="!events.length"
-        icon="shield"
-        title="Записей нет"
-        text="Изменения данных появятся здесь автоматически."
-      />
-      <ol
-        v-else
-        class="timeline"
-      >
-        <li
-          v-for="e in events"
-          :key="e.id"
-          class="event"
+
+      <div class="card">
+        <div
+          v-if="loading"
+          class="card-body"
         >
-          <span
-            class="event-icon"
-            :class="`tone-${meta(e.action).tone}`"
-          ><AppIcon
-            :name="meta(e.action).icon"
-            :size="14"
-          /></span>
-          <div class="event-main">
-            <div class="event-line">
-              <strong>{{ meta(e.action).label }}</strong>
-              <span class="soft small">#{{ e.entityId }}</span>
-            </div>
-            <div class="event-meta">
-              <span
-                v-if="e.actorName"
-                class="person"
-              >
-                <UserAvatar
-                  :name="e.actorName"
-                  :size="18"
-                />
-                <span class="small">{{ e.actorName }}</span>
-              </span>
-              <span
-                v-else
-                class="small soft"
-              >система</span>
-              <span class="small soft">{{ when(e.ts) }}</span>
-              <button
-                v-if="diff(e).length"
-                class="link-btn"
-                type="button"
-                @click="toggle(e.id)"
-              >
-                {{ expanded.has(e.id) ? 'скрыть' : `изменения (${diff(e).length})` }}
-              </button>
-            </div>
-            <table
-              v-if="expanded.has(e.id)"
-              class="diff"
-            >
-              <tr
-                v-for="d in diff(e)"
-                :key="d.key"
-              >
-                <td class="muted">
-                  {{ d.key }}
-                </td>
-                <td><span class="before">{{ d.before }}</span></td>
-                <td>
-                  <AppIcon
-                    name="arrowRight"
-                    :size="12"
+          <div
+            v-for="i in 8"
+            :key="i"
+            class="skeleton"
+            style="height: 40px; margin-bottom: 8px"
+          />
+        </div>
+        <EmptyState
+          v-else-if="!events.length"
+          icon="shield"
+          title="Записей нет"
+          text="Изменения данных появятся здесь автоматически."
+        />
+        <ol
+          v-else
+          class="timeline"
+        >
+          <li
+            v-for="e in events"
+            :key="e.id"
+            class="event"
+          >
+            <span
+              class="event-icon"
+              :class="`tone-${meta(e.action).tone}`"
+            ><AppIcon
+              :name="meta(e.action).icon"
+              :size="14"
+            /></span>
+            <div class="event-main">
+              <div class="event-line">
+                <strong>{{ meta(e.action).label }}</strong>
+                <span class="soft small">#{{ e.entityId }}</span>
+              </div>
+              <div class="event-meta">
+                <span
+                  v-if="e.actorName"
+                  class="person"
+                >
+                  <UserAvatar
+                    :name="e.actorName"
+                    :size="18"
                   />
-                </td>
-                <td><span class="after">{{ d.after }}</span></td>
-              </tr>
-            </table>
+                  <span class="small">{{ e.actorName }}</span>
+                </span>
+                <span
+                  v-else
+                  class="small soft"
+                >система</span>
+                <span class="small soft">{{ when(e.ts) }}</span>
+                <button
+                  v-if="diff(e).length"
+                  class="link-btn"
+                  type="button"
+                  @click="toggle(e.id)"
+                >
+                  {{ expanded.has(e.id) ? 'скрыть' : `изменения (${diff(e).length})` }}
+                </button>
+              </div>
+              <table
+                v-if="expanded.has(e.id)"
+                class="diff"
+              >
+                <tr
+                  v-for="d in diff(e)"
+                  :key="d.key"
+                >
+                  <td class="muted">
+                    {{ d.key }}
+                  </td>
+                  <td><span class="before">{{ d.before }}</span></td>
+                  <td>
+                    <AppIcon
+                      name="arrowRight"
+                      :size="12"
+                    />
+                  </td>
+                  <td><span class="after">{{ d.after }}</span></td>
+                </tr>
+              </table>
+            </div>
+          </li>
+        </ol>
+        <div
+          v-if="pages > 1"
+          class="pager"
+        >
+          <span class="muted small">Стр. {{ page }} из {{ pages }}</span>
+          <div class="toolbar">
+            <button
+              class="btn btn-sm"
+              type="button"
+              :disabled="page <= 1"
+              @click="page--"
+            >
+              <AppIcon
+                name="chevronLeft"
+                :size="14"
+              /> Новее
+            </button>
+            <button
+              class="btn btn-sm"
+              type="button"
+              :disabled="page >= pages"
+              @click="page++"
+            >
+              Старше <AppIcon
+                name="chevronRight"
+                :size="14"
+              />
+            </button>
           </div>
-        </li>
-      </ol>
-      <div
-        v-if="pages > 1"
-        class="pager"
-      >
-        <span class="muted small">Стр. {{ page }} из {{ pages }}</span>
-        <div class="toolbar">
-          <button
-            class="btn btn-sm"
-            type="button"
-            :disabled="page <= 1"
-            @click="page--"
-          >
-            <AppIcon
-              name="chevronLeft"
-              :size="14"
-            /> Новее
-          </button>
-          <button
-            class="btn btn-sm"
-            type="button"
-            :disabled="page >= pages"
-            @click="page++"
-          >
-            Старше <AppIcon
-              name="chevronRight"
-              :size="14"
-            />
-          </button>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
+.entity-filter {
+  width: auto;
+  margin-bottom: 12px;
+}
+
 .timeline {
   list-style: none;
   margin: 0;

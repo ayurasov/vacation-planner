@@ -79,6 +79,18 @@ paths:
               schema: { $ref: '#/components/schemas/Session' }
         '401':
           $ref: '#/components/responses/Problem'
+        '403':
+          description: 'Вход по паролю отключён (единый вход, LOCAL_LOGIN=false)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '423':
+          description: >-
+            auth/account-locked — учётная запись заблокирована после неудачных попыток подряд (порог и время —
+            правила организации). Отвечается только на верный пароль; с неверным — обычный 401.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '429':
           $ref: '#/components/responses/Problem'
     x-rate-limit: 10 запросов в минуту с одного адреса
@@ -88,6 +100,10 @@ paths:
       tags: [auth]
       operationId: refresh
       summary: Новый access-токен по refresh-cookie (ротация; старый refresh отзывается)
+      description: >-
+        Ротация атомарна. Отозванный ротацией токен ещё 30 секунд принимается в том же сеансе (две вкладки
+        с одной cookie); предъявленный позже — признак кражи: сеанс завершается целиком, в журнал входов
+        пишется refresh_reuse.
       security: []
       responses:
         '200':
@@ -106,6 +122,10 @@ paths:
       tags: [auth]
       operationId: changeOwnPassword
       summary: Смена своего пароля (все сессии завершаются)
+      description: >-
+        Новый пароль проверяется политикой (validation/weak-password): длина из правил организации, без логина
+        и фамилии, не из списка распространённых, не последовательность, не совпадает с текущим. Доступна
+        и до смены одноразового пароля.
       requestBody:
         required: true
         content:
@@ -120,6 +140,95 @@ paths:
         '204': { description: Пароль изменён }
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/password-policy:
+    get:
+      tags: [auth]
+      operationId: getPasswordPolicy
+      summary: Требования к паролю — минимальная длина (для форм смены пароля)
+      security: []
+      responses:
+        '200':
+          description: Политика паролей
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [minLength]
+                properties:
+                  minLength: { type: integer, minimum: 8, maximum: 64 }
+
+  /auth/sessions:
+    get:
+      tags: [auth]
+      operationId: listMySessions
+      summary: Мои активные сеансы
+      responses:
+        '200':
+          description: Сеансы; текущий отмечен current
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/UserSession' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/sessions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [auth]
+      operationId: revokeMySession
+      summary: Завершить свой сеанс (текущий — как выход)
+      description: Завершённый сеанс перестаёт работать не позже чем через 10 секунд во всех процессах; чужой сеанс не затрагивается.
+      responses:
+        '204': { description: Сеанс завершён }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /auth/sessions/revoke-others:
+    post:
+      tags: [auth]
+      operationId: revokeOtherSessions
+      summary: Завершить все свои сеансы, кроме текущего
+      responses:
+        '200':
+          description: Сколько сеансов завершено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: integer }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /login-events:
+    get:
+      tags: [audit]
+      operationId: listLoginEvents
+      summary: Журнал входов (администратор, кадровая служба)
+      description: Срок хранения — правило организации loginRetentionDays; старые записи удаляет ежедневная задача.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - { name: employee, in: query, schema: { type: integer } }
+        - { name: login, in: query, description: Часть логина без учёта регистра, schema: { type: string, maxLength: 64 } }
+        - { name: result, in: query, schema: { $ref: '#/components/schemas/LoginResult' } }
+        - { name: failed, in: query, description: Только неуспешные попытки, schema: { type: boolean } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Страница журнала, новые сверху
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LoginEvent' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
 
   /auth/logout:
     post:
@@ -303,7 +412,11 @@ paths:
     put:
       tags: [employees]
       operationId: changePassword
-      summary: Смена пароля (свой — со старым, чужой — только администратор)
+      summary: Смена пароля (свой — со старым; чужой — кадровая служба, пароль одноразовый)
+      description: >-
+        Пароль проверяется политикой (validation/weak-password). Пароль, заданный кадровой службой, сотрудник
+        меняет при первом входе: до смены API отвечает auth/password-change-required на всё, кроме профиля,
+        смены пароля и выхода.
       requestBody:
         required: true
         content:
@@ -319,6 +432,78 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    post:
+      tags: [employees]
+      operationId: resetPassword
+      summary: Сброс пароля — сервер выдаёт одноразовый пароль (кадровая служба)
+      description: Пароль случайный, не короче политики; все сеансы сотрудника завершаются; сброс — в аудите без самого пароля.
+      responses:
+        '200':
+          description: Одноразовый пароль — показать сотруднику один раз
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [temporaryPassword]
+                properties:
+                  temporaryPassword: { type: string }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/security:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [employees]
+      operationId: getEmployeeSecurity
+      summary: 'Учётная запись: последний вход, блокировка, одноразовый пароль, сеансы (кадровая служба)'
+      responses:
+        '200':
+          description: Состояние учётной записи
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountSecurity' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/unlock:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    post:
+      tags: [employees]
+      operationId: unlockEmployee
+      summary: Снять блокировку после неудачных попыток входа (кадровая служба)
+      responses:
+        '204': { description: Блокировка снята, счётчик неудач обнулён }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /employees/{id}/sessions/revoke:
+    parameters:
+      - $ref: '#/components/parameters/EmployeeId'
+    post:
+      tags: [employees]
+      operationId: revokeEmployeeSessions
+      summary: Завершить все сеансы сотрудника (кадровая служба)
+      responses:
+        '200':
+          description: Сколько сеансов завершено; действие — в аудите
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: integer }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 
   /employees/{id}/balance:
     parameters:
@@ -1343,6 +1528,7 @@ components:
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
         isActive: { type: boolean }
+        mustChangePassword: { type: boolean, description: 'Только в /auth/me: пароль выдан кадровой службой — сменить до работы (v0.6.0)' }
 
     EmployeeCreate:
       type: object
@@ -1521,7 +1707,12 @@ components:
       properties:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80, description: 'Порог доли отсутствующих в отделе для конфликта, %' }
         timezone: { type: string, default: 'Europe/Moscow' }
+        limitPolicy: { type: string, enum: [hard, soft] }
         defaultPlannedDays: { type: integer, default: 28 }
+        passwordMinLength: { type: integer, minimum: 8, maximum: 64, default: 8, description: Минимальная длина пароля }
+        lockoutThreshold: { type: integer, minimum: 0, maximum: 50, default: 10, description: 'Неудачных попыток входа подряд до блокировки; 0 — без блокировки' }
+        lockoutMinutes: { type: integer, minimum: 1, maximum: 1440, default: 15, description: Время блокировки }
+        loginRetentionDays: { type: integer, minimum: 30, maximum: 3650, default: 365, description: Срок хранения журнала входов }
         mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
@@ -1530,7 +1721,51 @@ components:
       properties:
         conflictThreshold: { type: integer, minimum: 20, maximum: 80 }
         timezone: { type: string }
+        limitPolicy: { type: string, enum: [hard, soft] }
         defaultPlannedDays: { type: integer, minimum: 20, maximum: 60 }
+        passwordMinLength: { type: integer, minimum: 8, maximum: 64 }
+        lockoutThreshold: { type: integer, minimum: 0, maximum: 50, description: '0 или от 3' }
+        lockoutMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        loginRetentionDays: { type: integer, minimum: 30, maximum: 3650 }
+
+    UserSession:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        current: { type: boolean, description: Сеанс, из которого сделан запрос }
+        method: { type: string, enum: [password, oidc] }
+        startedAt: { type: string, format: date-time, description: Вход }
+        lastActiveAt: { type: string, format: date-time, description: 'Последнее обновление токена (≈ раз в 15 минут работы)' }
+        ip: { type: [string, 'null'] }
+        device: { type: string, description: 'Браузер и система, например «Chrome 130 · Windows»' }
+
+    AccountSecurity:
+      type: object
+      properties:
+        lastLoginAt: { type: [string, 'null'], format: date-time }
+        lockedUntil: { type: [string, 'null'], format: date-time, description: Заблокирована до (null — не заблокирована) }
+        failedLogins: { type: integer, description: Неудачных попыток подряд }
+        mustChangePassword: { type: boolean, description: Пароль выдан кадровой службой и ещё не сменён }
+        passwordChangedAt: { type: [string, 'null'], format: date-time }
+        activeSessions: { type: integer }
+        sessions: { type: array, items: { $ref: '#/components/schemas/UserSession' } }
+
+    LoginResult:
+      type: string
+      enum: [success, bad_password, unknown_login, locked, rate_limited, password_disabled, sso_success, sso_unknown, refresh_reuse]
+
+    LoginEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        ts: { type: string, format: date-time }
+        employeeId: { type: [integer, 'null'], description: null — неизвестный логин }
+        employeeName: { type: [string, 'null'] }
+        login: { type: string }
+        result: { $ref: '#/components/schemas/LoginResult' }
+        method: { type: string, enum: [password, oidc, refresh] }
+        ip: { type: [string, 'null'] }
+        device: { type: string }
 
     ImportRowInput:
       type: object

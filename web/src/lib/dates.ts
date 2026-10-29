@@ -86,6 +86,18 @@ export function fmtDate(iso: string, withYear = true): string {
   return `${d} ${MONTHS_GEN[m - 1]}${withYear ? ` ${y}` : ''}`;
 }
 
+/**
+ * Момент времени для журналов и сеансов: «28 окт., 10:12»; другого года — «28 окт. 2025, 10:12».
+ * Часовой пояс — браузера (сотрудник видит своё время).
+ */
+export function fmtDateTime(ts: string, now = new Date()): string {
+  const d = new Date(ts);
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleString('ru-RU', {
+    day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), hour: '2-digit', minute: '2-digit',
+  });
+}
+
 /** Компактный период: «14–20 сентября 2026», «28 сентября – 4 октября 2026». */
 export function fmtRange(start: string, end: string): string {
   const [sy, sm, sd] = start.split('-').map(Number);

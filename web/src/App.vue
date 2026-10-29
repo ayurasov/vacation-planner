@@ -51,7 +51,8 @@ function pollApprovals(on: boolean): void {
   window.clearInterval(approvalsTimer);
   if (on) approvalsTimer = window.setInterval(() => void approvals.refresh(auth.isAdmin), 60000);
 }
-watch(() => auth.isLoggedIn, (loggedIn) => {
+// До смены одноразового пароля сервер отвечает только на профиль и смену пароля — фоновые данные не нужны
+watch(() => auth.isLoggedIn && !auth.mustChangePassword, (loggedIn) => {
   unsubscribe?.();
   unsubscribe = null;
   pollApprovals(false);
@@ -83,7 +84,7 @@ onBeforeUnmount(() => { window.clearInterval(approvalsTimer); unsubscribe?.(); }
     <span class="boot-spinner" />
   </div>
 
-  <router-view v-else-if="!auth.isLoggedIn" />
+  <router-view v-else-if="!auth.isLoggedIn || route.meta.bare" />
 
   <div
     v-else

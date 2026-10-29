@@ -21,7 +21,25 @@ export class SettingsUpdateDto {
 
   @IsOptional() @IsInt() @Min(20) @Max(60)
     defaultPlannedDays?: number;
+
+  // Безопасность (v0.6.0): политика паролей, блокировка после неудачных попыток, журнал входов
+  @IsOptional() @IsInt() @Min(8) @Max(64)
+    passwordMinLength?: number;
+
+  @IsOptional() @IsInt() @Min(0) @Max(50)
+    lockoutThreshold?: number;
+
+  @IsOptional() @IsInt() @Min(1) @Max(1440)
+    lockoutMinutes?: number;
+
+  @IsOptional() @IsInt() @Min(30) @Max(3650)
+    loginRetentionDays?: number;
 }
+
+type SettingsView = {
+  id: number; conflictThreshold: number; timezone: string; limitPolicy: string; defaultPlannedDays: number;
+  passwordMinLength: number; lockoutThreshold: number; lockoutMinutes: number; loginRetentionDays: number;
+};
 
 @ApiTags('settings')
 @Controller('api/v1/settings')
@@ -32,13 +50,15 @@ export class SettingsController {
     private readonly mail: MailService,
   ) {}
 
-  private async ensure(): Promise<{ id: number; conflictThreshold: number; timezone: string; limitPolicy: string; defaultPlannedDays: number }> {
+  private async ensure(): Promise<SettingsView> {
     const s = await this.prisma.orgSettings.upsert({
       where: { id: 1 }, update: {}, create: { id: 1 },
     });
     return {
       id: s.id, conflictThreshold: s.conflictThreshold, timezone: s.timezone,
       limitPolicy: s.limitPolicy, defaultPlannedDays: s.defaultPlannedDays,
+      passwordMinLength: s.passwordMinLength, lockoutThreshold: s.lockoutThreshold,
+      lockoutMinutes: s.lockoutMinutes, loginRetentionDays: s.loginRetentionDays,
     };
   }
 
@@ -49,6 +69,8 @@ export class SettingsController {
     return {
       conflictThreshold: s.conflictThreshold, timezone: s.timezone,
       limitPolicy: s.limitPolicy, defaultPlannedDays: s.defaultPlannedDays,
+      passwordMinLength: s.passwordMinLength, lockoutThreshold: s.lockoutThreshold,
+      lockoutMinutes: s.lockoutMinutes, loginRetentionDays: s.loginRetentionDays,
       mailEnabled: this.mail.config.enabled,
     };
   }
@@ -77,6 +99,9 @@ export class SettingsController {
   async update(@CurrentUser() user: AccessClaims, @Body() dto: SettingsUpdateDto) {
     const me = await this.prisma.employee.findUnique({ where: { id: user.sub } });
     if (!me?.isAdmin) throw new ProblemException('auth/forbidden');
+    if (dto.lockoutThreshold !== undefined && dto.lockoutThreshold > 0 && dto.lockoutThreshold < 3) {
+      throw new ProblemException('validation/invalid-field', 'Блокировка — после 3 и более неудачных попыток или 0 (без блокировки)');
+    }
     const before = await this.ensure();
     await this.prisma.orgSettings.update({ where: { id: 1 }, data: dto });
     await this.audit.record(this.prisma, {

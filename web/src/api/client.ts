@@ -170,6 +170,8 @@ export interface Me {
     deptId: number | null; projectId: number | null; managerId: number | null;
     role: string; isAdmin: boolean; isHr: boolean; empType: string;
     plannedDays: number; carryOver: number;
+    /** Пароль выдан кадровой службой: до смены доступны только профиль и смена пароля (v0.6.0). */
+    mustChangePassword?: boolean;
   };
   permissions: {
     approveSubordinates: number[]; isAdmin: boolean; isHr: boolean;
@@ -242,8 +244,31 @@ export interface Department {
 export interface OrgSettings {
   conflictThreshold: number; timezone: string;
   limitPolicy: 'hard' | 'soft'; defaultPlannedDays: number;
+  /** Безопасность (v0.6.0): политика паролей, блокировка после неудачных попыток, журнал входов. */
+  passwordMinLength: number; lockoutThreshold: number; lockoutMinutes: number; loginRetentionDays: number;
   /** Почта настроена на сервере (SMTP_HOST). */
   mailEnabled?: boolean;
+}
+
+// ── Безопасность (с v0.6.0) ──
+export interface UserSession {
+  id: string; current: boolean; method: 'password' | 'oidc';
+  startedAt: string; lastActiveAt: string; ip: string | null; device: string;
+}
+
+export type LoginResult =
+  | 'success' | 'bad_password' | 'unknown_login' | 'locked' | 'rate_limited' | 'password_disabled'
+  | 'sso_success' | 'sso_unknown' | 'refresh_reuse';
+
+export interface LoginEvent {
+  id: number; ts: string; employeeId: number | null; employeeName: string | null;
+  login: string; result: LoginResult; method: 'password' | 'oidc' | 'refresh'; ip: string | null; device: string;
+}
+
+export interface AccountSecurity {
+  lastLoginAt: string | null; lockedUntil: string | null; failedLogins: number;
+  mustChangePassword: boolean; passwordChangedAt: string | null; activeSessions: number;
+  sessions: UserSession[];
 }
 
 export interface Notification {

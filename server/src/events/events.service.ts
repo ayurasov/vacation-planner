@@ -27,7 +27,8 @@ export class EventsService implements OnApplicationShutdown {
   private lastDataSent = 0;
   private lastSessionCheck = 0;
   /** Версия пароля, с которой открыт поток. */
-  private readonly pwv = new WeakMap<Response, number>();
+  // Версия пароля и сеанс, с которыми открыт поток: по ним поток закрывается при отзыве
+  private readonly auth = new WeakMap<Response, { pwv: number; sid?: string }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,7 +42,7 @@ export class EventsService implements OnApplicationShutdown {
   }
 
   /** Подключение: заголовки SSE, начальное состояние, учёт до закрытия соединения. */
-  async connect(userId: number, pwVersion: number, res: Response, onClose: (cb: () => void) => void): Promise<void> {
+  async connect(userId: number, pwVersion: number, res: Response, onClose: (cb: () => void) => void, sid?: string): Promise<void> {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -52,7 +53,7 @@ export class EventsService implements OnApplicationShutdown {
     let set = this.clients.get(userId);
     if (!set) this.clients.set(userId, (set = new Set()));
     set.add(res);
-    this.pwv.set(res, pwVersion);
+    this.auth.set(res, { pwv: pwVersion, sid });
     sseConnections.set({}, this.connections);
     onClose(() => this.drop(userId, res));
     // Отсчёт новых уведомлений — с момента подключения: иначе созданные до первого опроса терялись бы
@@ -135,16 +136,24 @@ export class EventsService implements OnApplicationShutdown {
     }
   }
 
-  /** Потоки сотрудников, чей сеанс отозван: событие revoked и закрытие соединения. */
+  /** Потоки сотрудников, чей сеанс отозван (пароль, увольнение, завершённый сеанс): revoked и закрытие. */
   private async closeRevoked(): Promise<void> {
     const ids = [...this.clients.keys()];
     if (!ids.length) return;
-    const rows = await this.prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, isActive: true, pwVersion: true } });
+    const sids = [...new Set(ids.flatMap((id) => [...(this.clients.get(id) ?? [])].map((r) => this.auth.get(r)?.sid).filter((s): s is string => !!s)))];
+    const [rows, alive] = await Promise.all([
+      this.prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, isActive: true, pwVersion: true } }),
+      sids.length
+        ? this.prisma.refreshToken.findMany({ where: { sessionId: { in: sids }, revokedAt: null, expiresAt: { gt: new Date() } }, select: { sessionId: true }, distinct: ['sessionId'] })
+        : Promise.resolve([] as Array<{ sessionId: string }>),
+    ]);
     const state = new Map(rows.map((r) => [r.id, r]));
+    const aliveSids = new Set(alive.map((r) => r.sessionId));
     for (const id of ids) {
       const e = state.get(id);
       for (const res of [...(this.clients.get(id) ?? [])]) {
-        if (e?.isActive && e.pwVersion === this.pwv.get(res)) continue;
+        const a = this.auth.get(res);
+        if (e?.isActive && e.pwVersion === a?.pwv && (!a.sid || aliveSids.has(a.sid))) continue;
         this.send(res, 'revoked', {});
         res.end();
         this.drop(id, res);

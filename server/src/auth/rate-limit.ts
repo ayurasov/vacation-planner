@@ -10,6 +10,8 @@ import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
+import { LoginJournal } from './login-journal.service';
+import { clientInfo } from './client-info';
 
 export const MAX_PER_LOGIN = 10;
 export const MAX_PER_ADDRESS = 60;
@@ -20,7 +22,10 @@ interface Counter { key: string; hits: number; prev: number; elapsed: number }
 export class LoginRateLimitGuard implements CanActivate {
   private lastCleanup = 0;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly journal: LoginJournal,
+  ) {}
 
   /** Только для тестов: сброс счётчиков. */
   static async resetForTests(prisma: PrismaService): Promise<void> {
@@ -28,7 +33,7 @@ export class LoginRateLimitGuard implements CanActivate {
   }
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const req = ctx.switchToHttp().getRequest<{ ip?: string; socket?: { remoteAddress?: string }; body?: { login?: unknown } }>();
+    const req = ctx.switchToHttp().getRequest<{ ip?: string; headers: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string }; body?: { login?: unknown } }>();
     const address = req.ip ?? req.socket?.remoteAddress ?? 'unknown';
     const login = typeof req.body?.login === 'string' ? req.body.login.trim().toLowerCase().slice(0, 64) : '';
     const byAddress = `a:${address}`;
@@ -50,7 +55,11 @@ export class LoginRateLimitGuard implements CanActivate {
       return estimate > (r.key === byAddress ? MAX_PER_ADDRESS : MAX_PER_LOGIN);
     });
     void this.cleanup();
-    if (over) throw new ProblemException('rate-limited', 'Повторите попытку через минуту');
+    if (over) {
+      // Отказ по частоте тоже виден ИБ: так выглядит подбор пароля
+      await this.journal.record({ login, method: 'password', result: 'rate_limited', ...clientInfo(req as never) });
+      throw new ProblemException('rate-limited', 'Повторите попытку через минуту');
+    }
     return true;
   }
 

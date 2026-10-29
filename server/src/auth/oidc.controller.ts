@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { Public } from './guards';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
+import { clientInfo } from './client-info';
 import { setRefreshCookie } from './auth.controller';
 import { authorizationUrl, discovery, exchangeCode, loginFromClaims, newState, oidcConfig, type OidcState } from './oidc';
 
@@ -74,7 +75,7 @@ export class OidcController {
       this.log.warn(`Проверка ответа провайдера не прошла: ${(e as Error).message}`);
       return fail('invalid');
     }
-    const result = login ? await this.auth.loginByLogin(login) : null;
+    const result = login ? await this.auth.loginByLogin(login, clientInfo(req)) : null;
     if (!result) {
       this.log.warn(`Вход через провайдер: сотрудник «${login ?? '—'}» не найден или уволен`);
       return fail('unknown');

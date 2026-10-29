@@ -14,6 +14,7 @@ export default defineConfig({
       JWT_SECRET: process.env.JWT_SECRET ?? 'test-secret-test-secret-test-32ch',
       PORT: '0',
       MAIL_POLL_SECONDS: '0', // фоновая отправка в тестах не нужна: очередь разбирается вызовом flush()
+      JOBS_POLL_SECONDS: '0', // плановые задачи тесты запускают сами: JobsService.tick(now)
     },
   },
 });

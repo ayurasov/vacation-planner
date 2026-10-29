@@ -20,6 +20,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { ImportsModule } from './imports/imports.module';
 import { MailModule } from './mail/mail.module';
 import { EventsModule } from './events/events.module';
+import { JobsModule } from './jobs/jobs.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { EventsModule } from './events/events.module';
     PrismaModule,
     AuditModule,
     AuthModule,
+    JobsModule,
     EmployeesModule,
     RequestsModule,
     DirectoriesModule,

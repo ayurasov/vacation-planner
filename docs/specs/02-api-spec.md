@@ -124,15 +124,19 @@
 # Каталог операций
 
 <!-- BEGIN:api-catalog -->
-Всего операций: **58** в 43 путях; формат — JSON, ошибки — `application/problem+json`.
+Всего операций: **67** в 52 путях; формат — JSON, ошибки — `application/problem+json`.
 
-**Вход и сессии** (9)
+**Вход и сессии** (13)
 
 | Метод | Путь | Назначение | Операция |
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | Вход по логину и паролю | `login` |
 | POST | `/api/v1/auth/refresh` | Новый access-токен по refresh-cookie (ротация; старый refresh отзывается) | `refresh` |
 | POST | `/api/v1/auth/password` | Смена своего пароля (все сессии завершаются) | `changeOwnPassword` |
+| GET | `/api/v1/auth/password-policy` | Требования к паролю — минимальная длина (для форм смены пароля) | `getPasswordPolicy` |
+| GET | `/api/v1/auth/sessions` | Мои активные сеансы | `listMySessions` |
+| DELETE | `/api/v1/auth/sessions/{id}` | Завершить свой сеанс (текущий — как выход) | `revokeMySession` |
+| POST | `/api/v1/auth/sessions/revoke-others` | Завершить все свои сеансы, кроме текущего | `revokeOtherSessions` |
 | POST | `/api/v1/auth/logout` | Завершить сессию | `logout` |
 | GET | `/api/v1/auth/me` | Текущий пользователь и его права | `getMe` |
 | PATCH | `/api/v1/auth/me` | Личные настройки — письма о заявках | `updateMyPreferences` |
@@ -140,7 +144,14 @@
 | GET | `/api/v1/auth/oidc/start` | Начать вход через провайдер OpenID Connect | `startSso` |
 | GET | `/api/v1/auth/oidc/callback` | Возврат от провайдера | `ssoCallback` |
 
-**Сотрудники** (6)
+**Аудит** (2)
+
+| Метод | Путь | Назначение | Операция |
+|---|---|---|---|
+| GET | `/api/v1/login-events` | Журнал входов (администратор, кадровая служба) | `listLoginEvents` |
+| GET | `/api/v1/audit-events` | Журнал изменений (администратор) | `listAuditEvents` |
+
+**Сотрудники** (10)
 
 | Метод | Путь | Назначение | Операция |
 |---|---|---|---|
@@ -149,7 +160,11 @@
 | GET | `/api/v1/employees/{id}` | Карточка сотрудника | `getEmployee` |
 | PATCH | `/api/v1/employees/{id}` | Изменить поля сотрудника | `updateEmployee` |
 | DELETE | `/api/v1/employees/{id}` | Уволить/удалить сотрудника (только администратор) | `deleteEmployee` |
-| PUT | `/api/v1/employees/{id}/password` | Смена пароля (свой — со старым, чужой — только администратор) | `changePassword` |
+| PUT | `/api/v1/employees/{id}/password` | Смена пароля (свой — со старым; чужой — кадровая служба, пароль одноразовый) | `changePassword` |
+| POST | `/api/v1/employees/{id}/password-reset` | Сброс пароля — сервер выдаёт одноразовый пароль (кадровая служба) | `resetPassword` |
+| GET | `/api/v1/employees/{id}/security` | Учётная запись: последний вход, блокировка, одноразовый пароль, сеансы (кадровая служба) | `getEmployeeSecurity` |
+| POST | `/api/v1/employees/{id}/unlock` | Снять блокировку после неудачных попыток входа (кадровая служба) | `unlockEmployee` |
+| POST | `/api/v1/employees/{id}/sessions/revoke` | Завершить все сеансы сотрудника (кадровая служба) | `revokeEmployeeSessions` |
 
 **Баланс** (1)
 
@@ -219,12 +234,6 @@
 | POST | `/api/v1/notifications/read-all` | Пометить прочитанными все уведомления (с v0.5.0) | `markAllNotificationsRead` |
 | POST | `/api/v1/notifications/{id}/read` | Пометить прочитанным | `markNotificationRead` |
 
-**Аудит** (1)
-
-| Метод | Путь | Назначение | Операция |
-|---|---|---|---|
-| GET | `/api/v1/audit-events` | Журнал изменений (администратор) | `listAuditEvents` |
-
 **imports** (2)
 
 | Метод | Путь | Назначение | Операция |
@@ -265,7 +274,10 @@
 | `auth/invalid-credentials` | 401 | Неверный логин или пароль |
 | `auth/token-expired` | 401 | Сессия истекла |
 | `auth/forbidden` | 403 | Недостаточно прав для этого действия |
+| `auth/account-locked` | 423 | Учётная запись временно заблокирована после неудачных попыток входа |
+| `auth/password-change-required` | 403 | Смените пароль, выданный администратором |
 | `validation/invalid-field` | 400 | Некорректно заполнено поле |
+| `validation/weak-password` | 400 | Пароль не соответствует политике паролей |
 | `validation/bad-date-range` | 400 | Дата окончания раньше даты начала или даты в прошлом |
 | `not-found` | 404 | Запись не существует или удалена |
 | `overlapping-request` | 409 | Период пересекается с существующей заявкой |

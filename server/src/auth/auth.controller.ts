@@ -1,10 +1,12 @@
-import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 import type { Request, Response } from 'express';
-import { CurrentUser, Public } from './guards';
+import { AllowedBeforePasswordChange, CurrentUser, Public } from './guards';
 import { LoginRateLimitGuard } from './rate-limit';
 import { AuthService } from './auth.service';
+import { clientInfo } from './client-info';
+import type { AccessClaims } from './token.service';
 
 export class LoginDto {
   @IsString() @IsNotEmpty() @MaxLength(64)
@@ -49,8 +51,8 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ operationId: 'login', summary: 'Вход по логину и паролю' })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.auth.login(dto.login, dto.password);
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.login(dto.login, dto.password, clientInfo(req));
     setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
     return {
       accessToken: result.accessToken,
@@ -65,13 +67,14 @@ export class AuthController {
   @ApiOperation({ operationId: 'refresh', summary: 'Обновление пары токенов' })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = (req.cookies?.[REFRESH_COOKIE] as string) ?? '';
-    const result = await this.auth.refresh(token);
+    const result = await this.auth.refresh(token, clientInfo(req));
     setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
     return { accessToken: result.accessToken, expiresAt: result.expiresAt.toISOString() };
   }
 
   @Post('logout')
   @HttpCode(204)
+  @AllowedBeforePasswordChange()
   @ApiOperation({ operationId: 'logout', summary: 'Завершить сессию' })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     await this.auth.logout(req.cookies?.[REFRESH_COOKIE] as string | undefined);
@@ -79,6 +82,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @AllowedBeforePasswordChange()
   @ApiOperation({ operationId: 'getMe', summary: 'Текущий пользователь и его права' })
   async me(@CurrentUser() user: { sub: number }) {
     const me = await this.auth.me(user.sub);
@@ -93,6 +97,7 @@ export class AuthController {
 
   @Post('password')
   @HttpCode(204)
+  @AllowedBeforePasswordChange()
   @ApiOperation({ operationId: 'changeOwnPassword', summary: 'Смена своего пароля' })
   async changePassword(
     @CurrentUser() user: { sub: number },
@@ -103,13 +108,47 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
   }
 
-  private toMe(e: { id: number; name: string; login: string; position: string | null; email: string | null; emailNotifications: boolean; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; subordinates: number[] }) {
+  @Public()
+  @Get('password-policy')
+  @ApiOperation({ operationId: 'getPasswordPolicy', summary: 'Требования к паролю: минимальная длина (для форм смены пароля)' })
+  passwordPolicy() {
+    return this.auth.passwordPolicy();
+  }
+
+  @Get('sessions')
+  @ApiOperation({ operationId: 'listMySessions', summary: 'Мои активные сеансы' })
+  async sessions(@CurrentUser() user: AccessClaims) {
+    return { items: await this.auth.sessions(user.sub, user.sid) };
+  }
+
+  @Delete('sessions/:id')
+  @HttpCode(204)
+  @ApiOperation({ operationId: 'revokeMySession', summary: 'Завершить свой сеанс; текущий — как выход' })
+  async revokeSession(
+    @CurrentUser() user: AccessClaims,
+      @Param('id', new ParseUUIDPipe()) id: string,
+      @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.auth.revokeSession(user.sub, id);
+    if (id === user.sid) res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
+  }
+
+  @Post('sessions/revoke-others')
+  @HttpCode(200)
+  @ApiOperation({ operationId: 'revokeOtherSessions', summary: 'Завершить все свои сеансы, кроме текущего' })
+  async revokeOthers(@CurrentUser() user: AccessClaims) {
+    return { revoked: await this.auth.revokeSessions(user.sub, { except: user.sid }) };
+  }
+
+  private toMe(e: { id: number; name: string; login: string; position: string | null; email: string | null; emailNotifications: boolean; role: string; isAdmin: boolean; isHr: boolean; empType: string; deptId: number | null; projectId: number | null; managerId: number | null; plannedDays: number; carryOver: number; mustChangePassword: boolean; subordinates: number[] }) {
     return {
       employee: {
         id: e.id, name: e.name, login: e.login, email: e.email, emailNotifications: e.emailNotifications,
         position: e.position, deptId: e.deptId,
         projectId: e.projectId, managerId: e.managerId, role: e.role, isAdmin: e.isAdmin, isHr: e.isHr,
         empType: e.empType, plannedDays: e.plannedDays, carryOver: e.carryOver,
+        // Пароль выдан при создании или сбросе: интерфейс сразу ведёт на смену (v0.6.0)
+        mustChangePassword: e.mustChangePassword,
       },
       permissions: {
         approveSubordinates: e.subordinates,

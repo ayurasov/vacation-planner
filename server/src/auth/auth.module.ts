@@ -5,12 +5,14 @@ import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { JwtAuthGuard } from './guards';
 import { LoginRateLimitGuard } from './rate-limit';
+import { LoginJournal } from './login-journal.service';
+import { LoginEventsController } from './login-events.controller';
 import { PrismaModule } from '../infra/prisma.module';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [AuthController, OidcController],
-  providers: [AuthService, TokenService, JwtAuthGuard, LoginRateLimitGuard],
-  exports: [AuthService, TokenService, JwtAuthGuard],
+  controllers: [AuthController, OidcController, LoginEventsController],
+  providers: [AuthService, TokenService, JwtAuthGuard, LoginRateLimitGuard, LoginJournal],
+  exports: [AuthService, TokenService, JwtAuthGuard, LoginJournal],
 })
 export class AuthModule {}

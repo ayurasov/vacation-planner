@@ -54,15 +54,33 @@ describe('кадровая служба', () => {
     expect((await t.http().delete(`/api/v1/employees/${t.admin.id}`).set(auth(hr))).status).toBe(403);
   });
 
-  it('сбрасывает пароль обычному сотруднику; сброс в аудите без самого пароля', async () => {
-    const res = await t.http().put(`/api/v1/employees/${t.employee.id}/password`).set(auth(hr)).send({ newPassword: 'employee-pass-123' });
-    expect(res.status).toBe(204);
+  it('сбрасывает пароль обычному сотруднику: одноразовый, сменить при первом входе; в аудите без пароля', async () => {
+    const res = await t.http().post(`/api/v1/employees/${t.employee.id}/password-reset`).set(auth(hr));
+    expect(res.status).toBe(200);
+    const temporary = res.body.temporaryPassword as string;
+    expect(temporary.length).toBeGreaterThanOrEqual(10);
+
+    // До смены одноразового пароля API отвечает только на профиль, смену пароля и выход
+    const once = await login(t, { login: t.employee.login, password: temporary });
+    const blocked = await t.http().get('/api/v1/vacation-requests?scope=mine').set(auth(once));
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.type).toMatch(/auth\/password-change-required$/);
+    const me = await t.http().get('/api/v1/auth/me').set(auth(once));
+    expect(me.status).toBe(200);
+    expect(me.body.employee.mustChangePassword).toBe(true);
+
+    const own = 'Lm4-harbor-quiet';
+    const changed = await t.http().put(`/api/v1/employees/${t.employee.id}/password`).set(auth(once)).send({ oldPassword: temporary, newPassword: own });
+    expect(changed.status).toBe(204);
+    t.employee.password = own;
     emp = await login(t, t.employee);
+    expect((await t.http().get('/api/v1/vacation-requests?scope=mine').set(auth(emp))).status).toBe(200);
+
     const audit = await t.http().get('/api/v1/audit-events?entity=employee').set(auth(hr));
     const reset = (audit.body.items as Array<{ action: string; entityId: string; after: unknown }>)
       .find((e) => e.action === 'employee.password_reset' && e.entityId === String(t.employee.id));
     expect(reset).toBeDefined();
-    expect(JSON.stringify(reset)).not.toContain('employee-pass-123');
+    expect(JSON.stringify(reset)).not.toContain(temporary);
   });
 
   it('не меняет настройки организации и не согласует заявки', async () => {
@@ -96,6 +114,8 @@ describe('кадровая служба', () => {
   it('роль снимается сразу, не дожидаясь истечения токена', async () => {
     const other = await t.http().post('/api/v1/employees').set(auth(adm))
       .send({ name: 'Временная Анна Сергеевна', login: 'hr.temp', password: 'hr-temp-1234', isHr: true });
+    // Пароль, заданный при создании, одноразовый; здесь проверяется не он, а снятие роли
+    await t.prisma.employee.update({ where: { id: other.body.employee.id }, data: { mustChangePassword: false } });
     const token = await login(t, { login: 'hr.temp', password: 'hr-temp-1234' });
     expect((await t.http().get('/api/v1/audit-events').set(auth(token))).status).toBe(200);
     await t.http().patch(`/api/v1/employees/${other.body.employee.id}`).set(auth(adm)).send({ isHr: false });

@@ -22,8 +22,15 @@ export function translitLogin(name: string): string {
   return `${last}.${initials.join('')}`;
 }
 
-export function generatePassword(): string {
-  return randomBytes(6).toString('base64url');
+/** Случайный пароль для выдачи сотруднику; не короче 10 символов (base64url — 6 бит на символ). */
+export function generatePassword(length = 10): string {
+  const n = Math.max(length, 10);
+  return randomBytes(Math.ceil((n * 3) / 4)).toString('base64url').slice(0, n);
+}
+
+/** Длина выдаваемого пароля — не меньше минимальной по политике организации (v0.6.0). */
+export async function oneTimePasswordLength(prisma: { orgSettings: { findUnique: (a: { where: { id: number } }) => Promise<{ passwordMinLength: number } | null> } }): Promise<number> {
+  return (await prisma.orgSettings.findUnique({ where: { id: 1 } }))?.passwordMinLength ?? 10;
 }
 
 export function toPublic(e: {
@@ -111,7 +118,7 @@ export class EmployeesService {
     const dup = await this.prisma.employee.findFirst({ where: { login } });
     if (dup) throw new ProblemException('validation/invalid-field', `Логин «${login}» уже занят`);
     await this.assertEmailFree(input.email);
-    const generated = input.password ? undefined : generatePassword();
+    const generated = input.password ? undefined : generatePassword(await oneTimePasswordLength(this.prisma));
     const passwordHash = await hashPassword(input.password ?? generated!);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -131,6 +138,8 @@ export class EmployeesService {
           projectId: input.projectId ?? null,
           plannedDays: input.plannedDays ?? 28,
           carryOver: input.carryOver ?? 0,
+          // Пароль выдаёт кадровая служба — сотрудник меняет его при первом входе (v0.6.0)
+          mustChangePassword: true,
         },
       });
       await this.audit.record(tx, {

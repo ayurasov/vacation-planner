@@ -55,6 +55,8 @@
 | `carry_over` | Float |  |  |
 | `is_active` | Boolean |  |  |
 | `email_notifications` | Boolean |  | отписка — в профиле |
+| `must_change_password` | Boolean |  | пароль выдан при создании или сбросе (v0.6.0) |
+| `password_changed_at` | DateTime | null |  |
 | `created_at` | DateTime |  |  |
 | `updated_at` | DateTime |  |  |
 
@@ -144,6 +146,10 @@
 | `timezone` | String |  |  |
 | `limit_policy` | String |  | hard \| soft |
 | `default_planned_days` | Int |  |  |
+| `password_min_length` | Int |  |  |
+| `lockout_threshold` | Int |  | неудачных попыток подряд; 0 — без блокировки |
+| `lockout_minutes` | Int |  |  |
+| `login_retention_days` | Int |  |  |
 
 **`calendars`** — Производственный календарь по годам
 
@@ -188,6 +194,32 @@
 | `expires_at` | DateTime |  |  |
 | `revoked_at` | DateTime | null |  |
 | `created_at` | DateTime |  |  |
+| `session_id` | String |  |  |
+| `session_started_at` | DateTime |  |  |
+| `method` | String |  | password \| oidc |
+| `ip` | String | null |  |
+| `user_agent` | String | null |  |
+
+**`login_state`** — 
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `employee_id` | Int | PK |  |
+| `last_login_at` | DateTime | null |  |
+| `failed_logins` | Int |  |  |
+| `locked_until` | DateTime | null |  |
+
+**`login_events`** — 
+
+| Поле | Тип | Признаки | Примечание |
+|---|---|---|---|
+| `ts` | DateTime |  |  |
+| `employee_id` | Int | null |  |
+| `login` | String |  |  |
+| `result` | String |  |  |
+| `method` | String |  |  |
+| `ip` | String | null |  |
+| `user_agent` | String | null |  |
 
 **`email_outbox`** — Очередь писем (outbox): пишется в транзакции события, отправляется фоном с повторами
 

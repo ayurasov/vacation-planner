@@ -7,14 +7,14 @@ import {
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
-import { CurrentUser } from '../auth/guards';
+import { AllowedBeforePasswordChange, CurrentUser } from '../auth/guards';
 import { assertStaff } from '../auth/access';
 import type { AccessClaims } from '../auth/token.service';
 import { AuthService } from '../auth/auth.service';
 import { RequestsService } from '../requests/requests.service';
 import { AuditService } from '../audit/audit.service';
 import { calendarDays, toIso } from '../requests/balance';
-import { EmployeesService, assertCanTouch } from './employees.service';
+import { EmployeesService, assertCanTouch, translitLogin } from './employees.service';
 
 export class EmployeeCreateDto {
   @IsString() @MinLength(3) @MaxLength(128)
@@ -193,6 +193,8 @@ export class EmployeesController {
   @ApiOperation({ operationId: 'createEmployee', summary: 'Создать сотрудника (администратор, кадровая служба)' })
   async create(@CurrentUser() user: AccessClaims, @Body() dto: EmployeeCreateDto) {
     const actor = await assertStaff(this.prisma, user, 'hr');
+    // Пароль, заданный кадровой службой, проверяется политикой; сотрудник сменит его при первом входе
+    if (dto.password) await this.auth.assertStrong(dto.password, { login: dto.login?.trim() || translitLogin(dto.name), name: dto.name });
     return this.employees.create(actor, dto);
   }
 
@@ -331,7 +333,8 @@ export class EmployeesController {
 
   @Put(':id/password')
   @HttpCode(204)
-  @ApiOperation({ operationId: 'changePassword', summary: 'Смена пароля (свой со старым; чужой — администратор)' })
+  @AllowedBeforePasswordChange()
+  @ApiOperation({ operationId: 'changePassword', summary: 'Смена пароля (свой со старым; чужой — кадровая служба, сменить при первом входе)' })
   async setPassword(
     @CurrentUser() user: AccessClaims,
       @Param('id', ParseIntPipe) id: number,
@@ -344,10 +347,49 @@ export class EmployeesController {
       await this.auth.changeOwnPassword(id, dto.oldPassword, dto.newPassword);
       return;
     }
+    const actor = await this.touchable(user, id);
+    await this.auth.setPasswordByStaff(id, dto.newPassword, actor.id);
+  }
+
+  @Post(':id/password-reset')
+  @HttpCode(200)
+  @ApiOperation({ operationId: 'resetPassword', summary: 'Сброс пароля: сервер выдаёт одноразовый пароль (кадровая служба)' })
+  async resetPassword(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number) {
+    const actor = await this.touchable(user, id);
+    return { temporaryPassword: await this.auth.resetPassword(id, actor.id) };
+  }
+
+  @Get(':id/security')
+  @ApiOperation({ operationId: 'getEmployeeSecurity', summary: 'Учётная запись: последний вход, блокировка, одноразовый пароль, сеансы (кадровая служба)' })
+  async security(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number) {
+    await assertStaff(this.prisma, user, 'hr');
+    const target = await this.prisma.employee.findUnique({ where: { id }, select: { id: true } });
+    if (!target) throw new ProblemException('not-found');
+    return { ...(await this.auth.securityOf(id)), sessions: await this.auth.sessions(id) };
+  }
+
+  @Post(':id/unlock')
+  @HttpCode(204)
+  @ApiOperation({ operationId: 'unlockEmployee', summary: 'Снять блокировку после неудачных попыток входа (кадровая служба)' })
+  async unlock(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number) {
+    const actor = await this.touchable(user, id);
+    await this.auth.unlock(id, actor.id);
+  }
+
+  @Post(':id/sessions/revoke')
+  @HttpCode(200)
+  @ApiOperation({ operationId: 'revokeEmployeeSessions', summary: 'Завершить все сеансы сотрудника (кадровая служба)' })
+  async revokeSessions(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number) {
+    const actor = await this.touchable(user, id);
+    return { revoked: await this.auth.revokeSessions(id, { actorId: actor.id }) };
+  }
+
+  /** Кадровая служба и сотрудник, учётную запись которого ей можно менять (не администратор и не коллега). */
+  private async touchable(user: AccessClaims, id: number) {
     const actor = await assertStaff(this.prisma, user, 'hr');
     const target = await this.prisma.employee.findUnique({ where: { id } });
     if (!target) throw new ProblemException('not-found');
     assertCanTouch(actor, target);
-    await this.auth.setPassword(id, dto.newPassword, actor.id);
+    return actor;
   }
 }
