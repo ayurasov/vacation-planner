@@ -46,7 +46,7 @@ function fakePrisma(alive: Set<string>, hold = false) {
 
 const version = { current: async () => 1n } as unknown as DataVersionService;
 let service: EventsService | null = null;
-afterEach(() => { service?.onApplicationShutdown(); service = null; });
+afterEach(() => { service?.beforeApplicationShutdown(); service = null; });
 
 const check = (s: EventsService) => (s as unknown as { closeRevoked(): Promise<void> }).closeRevoked();
 const connect = (s: EventsService, f: FakeStream, sid: string) => s.connect(1, 0, f.res, () => undefined, sid);

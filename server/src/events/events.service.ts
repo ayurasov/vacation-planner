@@ -1,7 +1,7 @@
 // Живые обновления (E40-04): поток событий сервера (SSE) вместо опроса раз в 30 секунд.
 // Несколько процессов и экземпляров: каждый раз в 2 секунды одним запросом проверяет новые
 // уведомления и версию данных в PostgreSQL — общий источник, без отдельного брокера сообщений.
-import { Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
+import { Injectable, Logger, type BeforeApplicationShutdown } from '@nestjs/common';
 import type { Response } from 'express';
 import { PrismaService } from '../infra/prisma.service';
 import { DataVersionService } from '../infra/data-version';
@@ -16,7 +16,7 @@ const DATA_EVERY_MS = 15_000;
 const SESSION_CHECK_MS = 10_000;
 
 @Injectable()
-export class EventsService implements OnApplicationShutdown {
+export class EventsService implements BeforeApplicationShutdown {
   private readonly log = new Logger('Events');
   private readonly clients = new Map<number, Set<Response>>();
   private timer: NodeJS.Timeout | null = null;
@@ -166,8 +166,13 @@ export class EventsService implements OnApplicationShutdown {
     }
   }
 
-  /** Остановка процесса: клиенты переподключатся к другому процессу сами (retry). */
-  onApplicationShutdown(): void {
+  /**
+   * Остановка процесса: потоки закрываются до остановки HTTP-сервера — клиенты переподключатся к
+   * другому процессу сами (retry). Nest закрывает сервер между beforeApplicationShutdown и
+   * onApplicationShutdown, а сервер ждёт открытые соединения: до v1.0.0 потоки закрывались в
+   * onApplicationShutdown, и остановка ждала их до таймаута (15 с в кластере, 10 с и SIGKILL в Docker).
+   */
+  beforeApplicationShutdown(): void {
     this.stop();
     for (const set of this.clients.values()) for (const res of set) res.end();
     this.clients.clear();
