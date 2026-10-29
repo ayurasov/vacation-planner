@@ -90,7 +90,7 @@
 | Контейнер | Образ / технологии | Ответственность |
 | --- | --- | --- |
 | `web` | nginx 1.27 Alpine; статическая сборка Vite | Отдача SPA с Content Security Policy и заголовками безопасности; кеширование хешированных ресурсов на год, `index.html` без кеша; проксирование `/api/` на `server:8080` с `X-Forwarded-For` и `X-Request-Id`; поток событий `/api/v1/events` без буферизации; адрес `server` разрешается заново каждые 10 секунд; `worker_connections 16384` для открытых потоков событий |
-| `server` | Node.js 20 Alpine, NestJS 11, Prisma 6 | REST API v1, бизнес-логика, поток событий (SSE), плановые задачи, метрики; кластер из `WEB_CONCURRENCY` процессов (`auto` — по числу ядер, не больше 32); миграции схемы `prisma migrate deploy` при старте контейнера; штатное завершение по `SIGTERM` |
+| `server` | Node.js 22 Alpine, NestJS 11, Prisma 6 | REST API v1, бизнес-логика, поток событий (SSE), плановые задачи, метрики; кластер из `WEB_CONCURRENCY` процессов (`auto` — по числу ядер, не больше 32); миграции схемы `prisma migrate deploy` при старте контейнера; штатное завершение по `SIGTERM` |
 | `postgres` | PostgreSQL 17 Alpine | Все данные приложения; модуль `pg_stat_statements` и журнал медленных запросов (`PG_SLOW_MS`, по умолчанию 1000 мс); том `db-data` |
 | `backup` | postgres:17-alpine | `pg_dump -Fc` раз в `BACKUP_INTERVAL` секунд (по умолчанию сутки), хранение `BACKUP_KEEP_DAYS` дней (по умолчанию 14); запись через временный файл — в томе `db-backups` нет оборванных копий |
 | `postgres-replica` | PostgreSQL 17 Alpine (`docker-compose.replica.yml`) | Горячий резерв: асинхронная потоковая репликация по слоту `replica1`, только чтение; при аварии повышается до основного |
@@ -634,7 +634,7 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 
 | Компонент | Источник | Назначение |
 | --- | --- | --- |
-| `node:20-alpine` | Реестр образов Docker | Сборка и выполнение сервера, сборка клиента |
+| `node:22-alpine` | Реестр образов Docker | Сборка и выполнение сервера, сборка клиента |
 | `nginx:1.27-alpine` | Реестр образов Docker | Отдача клиента и проксирование API |
 | `postgres:17-alpine` | Реестр образов Docker | СУБД, резервные копии, реплика, физические копии |
 | `prom/prometheus:v3.5.0` | Реестр образов Docker | Необязательный сбор метрик |
@@ -665,7 +665,7 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 | Область | Компоненты | Лицензии |
 | --- | --- | --- |
 | Клиент | Vue 3.5, Pinia 2.3, vue-router 4.6, Vite 6, TypeScript 5 | MIT, Apache-2.0 (TypeScript) |
-| Сервер | Node.js 20 (поддерживается 22), NestJS 11 (платформа Express), class-validator, jsonwebtoken, cookie-parser, exceljs, nodemailer, @nestjs/swagger | MIT, MIT-0 (nodemailer) |
+| Сервер | Node.js 22 LTS (минимальная поддерживаемая — 20), NestJS 11 (платформа Express), class-validator, jsonwebtoken, cookie-parser, exceljs, nodemailer, @nestjs/swagger | MIT, MIT-0 (nodemailer) |
 | Данные | PostgreSQL 17, Prisma 6 (схема, миграции, клиент) | PostgreSQL License, Apache-2.0 (Prisma) |
 | Инфраструктура | Docker, Docker Compose, nginx 1.27, Prometheus 3 (необязательно) | — |
 | Качество | Vitest, supertest, Playwright, ESLint 9, vue-tsc, CycloneDX (`@cyclonedx/cyclonedx-npm`) | MIT, Apache-2.0 |

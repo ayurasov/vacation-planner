@@ -14,6 +14,7 @@
 | 30.10.2026 | Пул соединений с БД на процесс — min(10, 40 / WEB_CONCURRENCY), не меньше 3 (`infra/concurrency.ts`) | TL | По умолчанию Prisma открывает 2 × ядер + 1 соединений на процесс: при WEB_CONCURRENCY=auto на 16 ядрах — 528 при max_connections 100. Переопределение — `DB_POOL_SIZE` или `connection_limit` в DATABASE_URL |
 | 30.10.2026 | Метрики пула берутся из `pg_stat_activity`, а не из preview-функции `metrics` Prisma | TL | Preview `metrics` объявлена устаревшей в Prisma 6.14 и удаляется в 7; `pg_stat_activity` видит все процессы и экземпляры сразу |
 | 30.10.2026 | Grafana не входит в стенд: в репозитории только панель `deploy/monitoring/grafana-dashboard.json` для импорта в Grafana организации; Prometheus — профиль `monitoring` | TL | Grafana распространяется под AGPL-3.0 — вне поставки, чтобы не смешивать с компонентами для реестра ПО |
+| 29.10.2026 | Образы `server` и сборка `web` — на `node:22-alpine` (Node.js 22 LTS): поддержка Node.js 20 закончилась 30.04.2026. Минимальная версия по-прежнему 20 (`engines`), CI проверяет сервер на 20 и 22 | TL | Самооценка ИБ v1.0.0, ASVS 14.2.1 |
 
 ## Открытые вопросы (владелец, срок)
 

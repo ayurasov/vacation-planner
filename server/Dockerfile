@@ -1,5 +1,5 @@
 # Многоступенчатая сборка API-сервера (docs/specs/07-environments-cicd.md).
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 # Технологическая независимость: Prisma CLI не обращается к checkpoint.prisma.io, установка пакетов
 # не отправляет статистику (@scarf/scarf из swagger-ui-dist), npm не проверяет свою новую версию
@@ -13,7 +13,7 @@ COPY src ./src
 # Seed компилируется в JS: в рабочем образе нет tsx и dev-зависимостей
 RUN npm run build && npm run build:seed && npm prune --omit=dev
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production CHECKPOINT_DISABLE=1 NPM_CONFIG_UPDATE_NOTIFIER=false
 # openssl — для движка Prisma на alpine

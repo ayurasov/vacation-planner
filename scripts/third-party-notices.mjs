@@ -81,7 +81,7 @@ const COMPONENT_NOTES = {
 // Образы контейнеров: что в них главное и на каких лицензиях. Ключ — имя образа без тега.
 const ALPINE = 'Alpine Linux: musl (MIT), BusyBox (GPL-2.0-only), apk-tools (GPL-2.0-only), OpenSSL (Apache-2.0), zlib (Zlib), ca-certificates (MPL-2.0 AND MIT)';
 const IMAGES = {
-  node: { software: 'Node.js — MIT (в составе — V8, libuv, OpenSSL, ICU и др. на условиях их лицензий); npm — Artistic-2.0 (`npx` применяет миграции при старте)', base: ALPINE },
+  node: { software: 'Node.js — MIT (в составе — V8, libuv, OpenSSL, ICU и др. на условиях их лицензий); npm — Artistic-2.0 (входит в образ, программой при работе не вызывается)', base: ALPINE },
   nginx: { software: 'nginx — BSD-2-Clause; envsubst из GNU gettext (GPL-3.0-or-later) подставляет переменные в шаблон конфигурации при старте как отдельная программа', base: ALPINE },
   postgres: { software: 'PostgreSQL — PostgreSQL License; расширение pg_stat_statements (PostgreSQL License); сценарий входа образа — bash (GPL-3.0-or-later)', base: ALPINE },
   'prom/prometheus': { software: 'Prometheus — Apache-2.0', base: 'BusyBox (GPL-2.0-only)' },
