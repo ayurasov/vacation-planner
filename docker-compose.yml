@@ -30,6 +30,8 @@ services:
 
   server:
     profiles: ["full"]
+    # Имя образа с версией: дистрибутив загружает готовые образы (docker load) и запускается без сборки
+    image: vacation-planner-server:${VP_VERSION:-local}
     build:
       context: ./server
     environment:
@@ -70,6 +72,7 @@ services:
 
   web:
     profiles: ["full"]
+    image: vacation-planner-web:${VP_VERSION:-local}
     build:
       context: ./web
     ports:
