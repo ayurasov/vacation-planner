@@ -100,6 +100,20 @@ await page.getByRole('button', { name: 'Изменить' }).click()
 await page.waitForTimeout(300)
 await shot(page, 'calendar-edit')
 await page.getByRole('button', { name: 'Отмена' }).click()
+// Импорт и экспорт (v1.1.0): план загрузки сотрудников — коллизия, новый сотрудник и новое подразделение
+await go(page, '/exchange')
+await page.getByRole('tab', { name: 'Сотрудники' }).click()
+await page.locator('input[type=file]').setInputFiles({
+  name: 'employees.csv', mimeType: 'text/csv',
+  buffer: Buffer.from([
+    'email;Логин;ФИО;Должность;Подразделение;Норма дней',
+    ';balashova.av;;Руководитель службы персонала;Служба персонала;',
+    'novikova@example.ru;;Новикова Ольга Игоревна;Аналитик;Служба персонала / Кадровая аналитика;28',
+  ].join('\r\n')),
+})
+await page.getByText('Что изменится').waitFor()
+await page.waitForTimeout(300)
+await shot(page, 'exchange')
 await go(page, '/settings')
 await shot(page, 'settings')
 await page.locator('[aria-labelledby="sessions-title"]').screenshot({ path: join(out, 'ui-settings-sessions.png') })

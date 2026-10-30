@@ -65,7 +65,8 @@ async function main() {
   const deptNames: string[] = snapshot.departments ?? [];
   const deptIds = new Map<string, number>();
   for (const name of deptNames) {
-    const d = await prisma.department.upsert({ where: { name }, update: {}, create: { name } });
+    // Демо-структура плоская: отделы на верхнем уровне (названия уникальны среди соседей, v1.1.0)
+    const d = await prisma.department.findFirst({ where: { name, parentId: null } }) ?? await prisma.department.create({ data: { name } });
     deptIds.set(name, d.id);
   }
 

@@ -275,7 +275,7 @@ server,decompress-response,6.0.0,MIT,dev,pkg:npm/decompress-response@6.0.0
 server,deep-eql,5.0.2,MIT,dev,pkg:npm/deep-eql@5.0.2
 server,deep-extend,0.6.0,MIT,dev,pkg:npm/deep-extend@0.6.0
 server,deep-is,0.1.4,MIT,dev,pkg:npm/deep-is@0.1.4
-server,deepmerge-ts,7.1.5,BSD-3-Clause,runtime,pkg:npm/deepmerge-ts@7.1.5
+server,deepmerge-ts,8.0.2,BSD-3-Clause,runtime,pkg:npm/deepmerge-ts@8.0.2
 server,define-data-property,1.1.4,MIT,runtime,pkg:npm/define-data-property@1.1.4
 server,define-properties,1.2.1,MIT,runtime,pkg:npm/define-properties@1.2.1
 server,defu,6.1.7,MIT,runtime,pkg:npm/defu@6.1.7
@@ -699,7 +699,7 @@ server,unzipper,0.10.14,MIT,runtime,pkg:npm/unzipper@0.10.14
 server,uri-js,4.4.1,BSD-2-Clause,dev,pkg:npm/uri-js@4.4.1
 server,util-deprecate,1.0.2,MIT,runtime,pkg:npm/util-deprecate@1.0.2
 server,utils-merge,1.0.1,MIT,runtime,pkg:npm/utils-merge@1.0.1
-server,uuid,8.3.2,MIT,runtime,pkg:npm/uuid@8.3.2
+server,uuid,11.1.1,MIT,runtime,pkg:npm/uuid@11.1.1
 server,v8-compile-cache-lib,3.0.1,MIT,dev,pkg:npm/v8-compile-cache-lib@3.0.1
 server,validate-npm-package-license,3.0.4,Apache-2.0,dev,pkg:npm/validate-npm-package-license@3.0.4
 server,validator,13.15.35,MIT,runtime,pkg:npm/validator@13.15.35

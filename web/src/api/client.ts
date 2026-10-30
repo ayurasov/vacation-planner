@@ -169,10 +169,11 @@ export const api = {
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  /** Загрузка файла (multipart/form-data, поле file). */
-  upload: <T>(path: string, file: File) => {
+  /** Загрузка файла (multipart/form-data, поле file) и поля формы. */
+  upload: <T>(path: string, file: File, fields: Record<string, string> = {}) => {
     const form = new FormData();
     form.append('file', file);
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
     return request<T>(path, { method: 'POST', body: form });
   },
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
@@ -207,6 +208,8 @@ export interface Employee {
   plannedDays: number; carryOver: number; isActive: boolean;
   /** Табельный номер — графа 4 формы Т-7 (v0.6.0). */
   personnelNumber?: string | null;
+  /** «Первое лицо»: никому не подчиняется; внешний ID — для обмена (v1.1.0). */
+  reportsToNone?: boolean; externalId?: string | null;
 }
 
 export type ImportAction = 'create' | 'update' | 'unchanged' | 'error';
@@ -261,7 +264,13 @@ export interface Schedule {
 
 export interface Department {
   id: number; name: string; managerId: number | null; managerName?: string | null; headcount: number;
+  /** Структура компании (v1.1.0): подпись уникальна в организации — значение фильтра dept. */
+  label: string; parentId: number | null; path: string[]; level: number;
+  kind: string; sortOrder: number; externalId: string | null;
 }
+
+/** Вид уровня структуры — как в «По Делу» (v1.1.0). */
+export interface UnitKind { value: string; label: string; color: string }
 
 export interface OrgSettings {
   conflictThreshold: number; timezone: string;
@@ -275,6 +284,8 @@ export interface OrgSettings {
   /** Реквизиты и подписанты формы Т-7 (v0.6.0). */
   orgName: string | null; orgOkpo: string | null; headPosition: string | null; headName: string | null;
   hrHeadPosition: string | null; hrHeadName: string | null;
+  /** Структура компании (v1.1.0): виды уровней (null — по умолчанию) и наибольшая глубина. */
+  unitKinds?: UnitKind[] | null; orgMaxDepth?: number;
   /** Почта настроена на сервере (SMTP_HOST). */
   mailEnabled?: boolean;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addDays, calendarDays, dayIndex, daysInYear, fmtDateTime, fmtDays, fmtNumber, fmtRange, holidaysIn, isWeekend, monthsOf, plural,
+  addDays, calendarDays, dayIndex, daysInYear, fmtDateTime, fmtDayRanges, fmtDays, fmtNumber, fmtRange, holidaysIn, isWeekend, monthsOf, plural,
   relativeToToday, vacationDays,
 } from './dates';
 
@@ -69,5 +69,15 @@ describe('форматирование', () => {
     expect(relativeToToday('2026-10-29', '2026-11-07', '2026-10-28')).toBe('завтра');
     expect(relativeToToday('2026-10-20', '2026-11-07', '2026-10-28')).toBe('идёт сейчас');
     expect(relativeToToday('2026-10-01', '2026-10-07', '2026-10-28')).toBe('завершён');
+  });
+});
+
+describe('fmtDayRanges', () => {
+  it('соседние дни — диапазоном, одиночные — датой, порядок и повторы не важны', () => {
+    const jan = ['2027-01-03', '2027-01-01', '2027-01-02', '2027-01-04', '2027-01-05', '2027-01-06', '2027-01-07', '2027-01-08', '2027-01-08'];
+    expect(fmtDayRanges(jan)).toBe('1–8 января');
+    expect(fmtDayRanges(['2027-02-23', '2027-03-08'])).toBe('23 февраля, 8 марта');
+    expect(fmtDayRanges(['2026-12-31', '2027-01-01', '2027-01-02'])).toBe('31 декабря – 2 января');
+    expect(fmtDayRanges([])).toBe('');
   });
 });

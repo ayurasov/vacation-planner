@@ -5,6 +5,7 @@ import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PlanningPanel from '@/components/PlanningPanel.vue';
 import NoticesJournal from '@/components/NoticesJournal.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -18,6 +19,7 @@ watch(tab, (t) => { void router.replace({ query: t === 'planning' ? {} : { tab: 
       <div>
         <div class="view-title">
           Кадровый учёт
+          <HelpLink :topic="tab === 'planning' ? 'hrPlanning' : 'hrNotices'" />
         </div>
         <div class="view-subtitle">
           {{ tab === 'planning'

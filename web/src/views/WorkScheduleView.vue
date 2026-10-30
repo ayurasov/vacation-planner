@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, type Department, type Employee, type Page, type Schedule, type WorkSchedule } from '@/api/client';
+import { indented } from '@/lib/departments';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
 import { useUiStore } from '@/stores/ui';
@@ -8,6 +9,7 @@ import { addDays, fmtDate, localIso, MONTHS, weekday } from '@/lib/dates';
 import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 
 type Mode = 'office' | 'remote' | 'off';
 const auth = useAuthStore();
@@ -146,8 +148,8 @@ async function loadPeople(): Promise<void> {
   const me = auth.me!.employee;
   if (auth.isAdmin) {
     departments.value = await api.get<Department[]>('/departments');
-    dept.value = departments.value.find((d) => d.id === me.deptId)?.name ?? departments.value[0]?.name ?? '';
-    ownDept.value = departments.value.find((d) => d.id === me.deptId)?.name ?? null;
+    dept.value = departments.value.find((d) => d.id === me.deptId)?.label ?? departments.value[0]?.label ?? '';
+    ownDept.value = departments.value.find((d) => d.id === me.deptId)?.label ?? null;
     return;
   }
   // Сам руководитель и его прямые подчинённые — фильтром сервера, а не среди первых 200 сотрудников
@@ -185,6 +187,7 @@ onMounted(async () => {
       <div>
         <div class="view-title">
           График работы
+          <HelpLink topic="workSchedule" />
         </div>
         <div class="view-subtitle">
           Офис и удалёнка: недельный шаблон и разовые исключения{{ selected && selected.id !== auth.me?.employee.id ? ` · ${selected.name}` : '' }}
@@ -199,14 +202,14 @@ onMounted(async () => {
           v-model="dept"
           class="input"
           style="width: auto"
-          aria-label="Отдел"
+          aria-label="Подразделение"
         >
           <option
             v-for="d in departments"
             :key="d.id"
-            :value="d.name"
+            :value="d.label"
           >
-            {{ d.name }}
+            {{ indented(d) }}
           </option>
         </select>
         <select

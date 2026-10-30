@@ -44,6 +44,7 @@ const sections = computed(() => {
       items: [
         { path: '/employees', label: 'Сотрудники', icon: 'user' },
         { path: '/directories', label: 'Справочники', icon: 'building' },
+        { path: '/exchange', label: 'Импорт и экспорт', icon: 'swap' },
         { path: '/hr', label: 'Кадровый учёт', icon: 'signature' },
         { path: '/audit', label: 'Журнал аудита', icon: 'shield' },
       ],
@@ -131,6 +132,22 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
     </nav>
 
     <div class="sidebar-bottom">
+      <router-link
+        to="/guide"
+        class="nav-item"
+        :class="{ active: isActive('/guide') }"
+        :title="collapsed ? 'Руководство пользователя' : undefined"
+        @click="emit('navigate')"
+      >
+        <AppIcon
+          name="book"
+          :size="17"
+        />
+        <span
+          v-if="!collapsed"
+          class="nav-label nav-label-wrap"
+        >Руководство пользователя</span>
+      </router-link>
       <router-link
         to="/settings"
         class="nav-item"
@@ -319,6 +336,12 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Длинная подпись не обрезается многоточием, а переходит на вторую строку, если не помещается */
+.nav-label-wrap {
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .nav-count {

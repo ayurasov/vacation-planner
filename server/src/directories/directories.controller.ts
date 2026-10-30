@@ -1,14 +1,15 @@
-// Справочники: отделы, проекты, группы (docs/specs/02-api-spec.md).
+// Справочники: подразделения, проекты, группы (docs/specs/02-api-spec.md).
 import {
   Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
-  ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, MinLength, MaxLength,
+  ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, Matches, Max, Min, MinLength, MaxLength,
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
+import { OrgService } from '../org/org.service';
 import { assertStaff } from '../auth/access';
 import { CurrentUser } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
@@ -17,8 +18,21 @@ export class DeptCreateDto {
   @IsString() @MinLength(1) @MaxLength(128)
     name!: string;
 
+  /** Вышестоящее подразделение; null — верхний уровень. */
+  @IsOptional() @IsInt()
+    parentId?: number | null;
+
+  @IsOptional() @IsString() @Matches(/^[a-z][a-z0-9_-]{0,31}$/)
+    kind?: string;
+
+  @IsOptional() @IsInt() @Min(-100000) @Max(100000)
+    sortOrder?: number;
+
   @IsOptional() @IsInt()
     managerId?: number | null;
+
+  @IsOptional() @IsString() @MaxLength(128)
+    externalId?: string | null;
 }
 
 export class DeptUpdateDto {
@@ -26,7 +40,19 @@ export class DeptUpdateDto {
     name?: string;
 
   @IsOptional() @IsInt()
+    parentId?: number | null;
+
+  @IsOptional() @IsString() @Matches(/^[a-z][a-z0-9_-]{0,31}$/)
+    kind?: string;
+
+  @IsOptional() @IsInt() @Min(-100000) @Max(100000)
+    sortOrder?: number;
+
+  @IsOptional() @IsInt()
     managerId?: number | null;
+
+  @IsOptional() @IsString() @MaxLength(128)
+    externalId?: string | null;
 }
 
 export class ProjectCreateDto {
@@ -64,64 +90,47 @@ export class DirectoriesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly org: OrgService,
   ) {}
 
-  // ── Отделы ──
+  // ── Подразделения (дерево, v1.1.0) ──
   @Get('departments')
-  @ApiOperation({ operationId: 'listDepartments', summary: 'Отделы с руководителями и численностью' })
-  async departments() {
-    const depts = await this.prisma.department.findMany({
-      orderBy: { name: 'asc' },
-      include: { _count: { select: { members: { where: { isActive: true } } } }, manager: { select: { name: true } } },
-    });
-    // managerName: справочникам не нужно загружать всех сотрудников ради имён руководителей
-    return depts.map((d) => ({ id: d.id, name: d.name, managerId: d.managerId, managerName: d.manager?.name ?? null, headcount: d._count.members }));
+  @ApiOperation({ operationId: 'listDepartments', summary: 'Подразделения в порядке дерева: путь, уровень, подпись, руководитель, численность' })
+  departments() {
+    return this.org.list();
+  }
+
+  /** Строка списка по id — тот же вид, что в GET /departments. */
+  private async item(id: number) {
+    return (await this.org.list()).find((d) => d.id === id)!;
   }
 
   @Post('departments')
   @HttpCode(201)
-  @ApiOperation({ operationId: 'createDepartment', summary: 'Создать отдел (администратор)' })
+  @ApiOperation({ operationId: 'createDepartment', summary: 'Создать подразделение' })
   async createDept(@CurrentUser() user: AccessClaims, @Body() dto: DeptCreateDto) {
     const actorId = await adminOr(user, this.prisma);
-    const dup = await this.prisma.department.findUnique({ where: { name: dto.name } });
-    if (dup) throw new ProblemException('validation/invalid-field', 'Отдел с таким названием уже есть');
-    const d = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.department.create({ data: { name: dto.name, managerId: dto.managerId ?? null } });
-      await this.audit.record(tx, { actorId, action: 'department.created', entity: 'department', entityId: created.id, after: { name: dto.name } });
-      return created;
-    });
-    return { id: d.id, name: d.name, managerId: d.managerId, headcount: 0 };
+    const d = await this.org.create(actorId, dto);
+    return this.item(d.id);
   }
 
-  @Patch('departments/:name')
-  @ApiOperation({ operationId: 'updateDepartment', summary: 'Переименовать, сменить руководителя' })
-  async updateDept(@CurrentUser() user: AccessClaims, @Param('name') name: string, @Body() dto: DeptUpdateDto) {
+  // :ref — id или подпись подразделения (одноимённые различаются подписью «Отдел — Родитель»)
+  @Patch('departments/:ref')
+  @ApiOperation({ operationId: 'updateDepartment', summary: 'Переименовать, перенести, сменить вид или руководителя' })
+  async updateDept(@CurrentUser() user: AccessClaims, @Param('ref') ref: string, @Body() dto: DeptUpdateDto) {
     const actorId = await adminOr(user, this.prisma);
-    const d = await this.prisma.department.findUnique({ where: { name } });
-    if (!d) throw new ProblemException('not-found');
-    if (dto.name && dto.name !== name) {
-      const dup = await this.prisma.department.findUnique({ where: { name: dto.name } });
-      if (dup) throw new ProblemException('validation/invalid-field', 'Отдел с таким названием уже есть');
-    }
-    await this.prisma.$transaction(async (tx) => {
-      await tx.department.update({ where: { id: d.id }, data: { name: dto.name, managerId: dto.managerId } });
-      await this.audit.record(tx, { actorId, action: 'department.updated', entity: 'department', entityId: d.id, before: { name: d.name, managerId: d.managerId }, after: { name: dto.name ?? d.name, managerId: dto.managerId ?? d.managerId } });
-    });
-    return { id: d.id, name: dto.name ?? d.name, managerId: dto.managerId ?? d.managerId };
+    const { id } = await this.org.resolve(ref);
+    await this.org.update(actorId, id, dto);
+    return this.item(id);
   }
 
-  @Delete('departments/:name')
+  @Delete('departments/:ref')
   @HttpCode(204)
-  @ApiOperation({ operationId: 'deleteDepartment', summary: 'Удалить отдел (нельзя при наличии сотрудников)' })
-  async deleteDept(@CurrentUser() user: AccessClaims, @Param('name') name: string) {
+  @ApiOperation({ operationId: 'deleteDepartment', summary: 'Удалить подразделение (нельзя при сотрудниках и вложенных)' })
+  async deleteDept(@CurrentUser() user: AccessClaims, @Param('ref') ref: string) {
     const actorId = await adminOr(user, this.prisma);
-    const d = await this.prisma.department.findUnique({ where: { name }, include: { _count: { select: { members: { where: { isActive: true } } } } } });
-    if (!d) throw new ProblemException('not-found');
-    if (d._count.members > 0) throw new ProblemException('department-not-empty');
-    await this.prisma.$transaction(async (tx) => {
-      await tx.department.delete({ where: { id: d.id } });
-      await this.audit.record(tx, { actorId, action: 'department.deleted', entity: 'department', entityId: d.id, before: { name: d.name } });
-    });
+    const { id } = await this.org.resolve(ref);
+    await this.org.remove(actorId, id);
   }
 
   // ── Проекты ──

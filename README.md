@@ -31,6 +31,7 @@ make web-dev     # интерфейс → http://localhost:5173
 | `make lint` | ESLint сервера и клиента |
 | `make sbom` | SBOM CycloneDX и отчёт лицензий (copyleft и неизвестные — блокер) |
 | `make docs` | Комплект документов в PDF и DOCX |
+| `cd web && npm run guide:sync` | Копия руководств пользователя и администратора (Markdown, рисунки, PDF) для чтения в приложении; `make docs` делает её сам, устаревшую копию ловит `npm test` |
 | `node tools/load/run.mjs --profile average --population 2000` | Нагрузочный прогон по модели рабочего дня (БД наполняется `npm run db:seed:load`) — [модель](docs/performance/workday-model.md), [регламент](docs/performance/runbook.md), [отчёт 1.0.0](docs/performance/report-v1.0.0.md) |
 | `scripts/build-dist.sh` | Дистрибутив: исходные тексты, образы, комплект установки, SHA-256 |
 

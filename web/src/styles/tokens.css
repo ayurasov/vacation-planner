@@ -43,6 +43,8 @@
   --color-hover-strong: #f0f2f8;
   --color-row-hover: #fafbfe;
   --color-overlay: rgba(20, 25, 40, 0.42);
+  /* Затемнение под увеличенным рисунком руководства: снимок экрана — на почти чёрном фоне в обеих темах */
+  --color-scrim: rgba(12, 15, 24, 0.88);
   --color-weekend: #f3f5fa;
   --color-holiday: #fdeeee;
   --color-scrollbar: #d3d8e4;
@@ -100,6 +102,7 @@
   --color-hover-strong: #232a36;
   --color-row-hover: #1a1f28;
   --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-scrim: rgba(0, 0, 0, 0.9);
   --color-weekend: #141820;
   --color-holiday: #2a1b20;
   --color-scrollbar: #3a4252;

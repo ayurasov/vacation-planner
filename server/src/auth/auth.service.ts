@@ -13,7 +13,7 @@ import { LoginJournal } from './login-journal.service';
 import { type ClientInfo, describeAgent } from './client-info';
 import { weakPasswordReason } from './password-policy';
 import { generatePassword } from '../employees/employees.service';
-import { approvesAnything } from '../requests/approval-scope';
+import { approvesAnything, directReports } from '../requests/approval-scope';
 import { orgToday } from '../infra/clock';
 
 export interface LoginResult {
@@ -342,12 +342,9 @@ export class AuthService {
   }
 
   async me(userId: number): Promise<Employee & { subordinates: number[] }> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: userId },
-      include: { subordinates: { where: { isActive: true }, select: { id: true } } },
-    });
+    const employee = await this.prisma.employee.findUnique({ where: { id: userId } });
     if (!employee || !employee.isActive) throw new ProblemException('not-found');
-    return { ...employee, subordinates: employee.subordinates.map((s) => s.id) };
+    return { ...employee, subordinates: await directReports(this.prisma, userId) };
   }
 
   private async securitySettings(): Promise<SecuritySettings> {
@@ -361,10 +358,7 @@ export class AuthService {
   }
 
   private async issueFor(db: Db, userId: number, seed: SessionSeed): Promise<LoginResult> {
-    const employee = await db.employee.findUnique({
-      where: { id: userId },
-      include: { subordinates: { where: { isActive: true }, select: { id: true } } },
-    });
+    const employee = await db.employee.findUnique({ where: { id: userId } });
     if (!employee || !employee.isActive) throw new ProblemException('auth/invalid-credentials');
     const sessionId = seed.sessionId ?? randomUUID();
     const access = this.tokens.signAccess({
@@ -382,7 +376,7 @@ export class AuthService {
     return {
       accessToken: access.token, expiresAt: access.expiresAt, refreshToken: refresh.token,
       refreshExpiresAt: refresh.expiresAt,
-      user: { ...employee, subordinates: employee.subordinates.map((s) => s.id) },
+      user: { ...employee, subordinates: await directReports(db, employee.id) },
     };
   }
 }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Vacation Planner API
-  version: 1.0.0
+  version: 1.1.0
   summary: Корпоративный планировщик отпусков — публичный контракт API v1
   description: |
     Целевой контракт этапа 1 (см. docs/specs/01-architecture.md, docs/specs/02-api-spec.md).
@@ -63,6 +63,8 @@ tags:
     description: Извещение о начале отпуска за две недели под подпись (ТК РФ, ст. 123; v0.6.0)
   - name: planning
     description: 'Кампания планирования на год, утверждение графика отпусков, форма Т-7 (ТК РФ, ст. 123; v0.6.0)'
+  - name: org
+    description: 'Структура компании: импорт и экспорт в форматах «По Делу» — podelu.org-structure и podelu.employees (v1.1.0, ADR-018)'
 
 paths:
   /auth/login:
@@ -338,7 +340,7 @@ paths:
           in: query
           description: 'pending — не подтверждено; acknowledged — подтверждено; overdue — не подтверждено, а до начала 3 дня и меньше'
           schema: { type: string, enum: [pending, acknowledged, overdue] }
-        - { name: dept, in: query, description: Название отдела, schema: { type: string, maxLength: 200 } }
+        - { name: dept, in: query, description: 'Подпись подразделения (название; одноимённые — «Отдел — Родитель»); с вложенными (v1.1.0)', schema: { type: string, maxLength: 200 } }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
       responses:
@@ -654,7 +656,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
-        - { name: dept, in: query, schema: { type: string }, description: Отдел (точное имя) }
+        - { name: dept, in: query, schema: { type: string }, description: 'Подпись подразделения; с вложенными (v1.1.0)' }
         - { name: project, in: query, schema: { type: integer }, description: Идентификатор проекта }
         - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: Поиск по ФИО/должности }
         - { name: manager, in: query, schema: { type: integer }, description: 'Только прямые подчинённые сотрудника с этим идентификатором (с v0.5.0)' }
@@ -1119,10 +1121,10 @@ paths:
     get:
       tags: [directories]
       operationId: listDepartments
-      summary: Отделы с руководителями и численностью
+      summary: 'Подразделения в порядке дерева: путь, уровень, подпись, руководитель, численность'
       responses:
         '200':
-          description: Список
+          description: Список — родитель раньше вложенных
           content:
             application/json:
               schema:
@@ -1132,20 +1134,18 @@ paths:
     post:
       tags: [directories]
       operationId: createDepartment
-      summary: Создать отдел (кадровая служба, администратор)
+      summary: Создать подразделение (кадровая служба, администратор)
+      description: |
+        Название уникально среди соседей (без учёта регистра и лишних пробелов); глубина — не больше
+        orgMaxDepth; вид — из настройки unitKinds (v1.1.0).
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name: { type: string, minLength: 1, maxLength: 128 }
-                managerId: { type: [integer, 'null'] }
+            schema: { $ref: '#/components/schemas/DepartmentInput' }
       responses:
         '201':
-          description: Создан
+          description: Создано
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Department' }
@@ -1154,26 +1154,24 @@ paths:
         '403': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
 
-  /departments/{name}:
+  /departments/{ref}:
     parameters:
-      - { name: name, in: path, required: true, schema: { type: string } }
+      - { name: ref, in: path, required: true, description: 'id подразделения или его подпись (название — как до v1.1.0)', schema: { type: string } }
     patch:
       tags: [directories]
       operationId: updateDepartment
-      summary: Переименовать, сменить руководителя
+      summary: Переименовать, перенести, сменить вид или руководителя
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              allOf: [{ $ref: '#/components/schemas/DepartmentInput' }]
               minProperties: 1
-              properties:
-                name: { type: string, minLength: 1, maxLength: 128 }
-                managerId: { type: [integer, 'null'] }
+              required: []
       responses:
         '200':
-          description: Обновлён
+          description: Обновлено
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Department' }
@@ -1184,9 +1182,9 @@ paths:
     delete:
       tags: [directories]
       operationId: deleteDepartment
-      summary: Удалить отдел (нельзя при наличии сотрудников)
+      summary: Удалить подразделение (нельзя при сотрудниках и вложенных)
       responses:
-        '204': { description: Удалён }
+        '204': { description: Удалено }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
@@ -1551,6 +1549,127 @@ paths:
               schema: { type: string, format: binary }
         '403': { $ref: '#/components/responses/Problem' }
 
+  /org/export:
+    get:
+      tags: [org]
+      operationId: exportOrgStructure
+      summary: Структура компании и её настройки — файл podelu.org-structure (JSON)
+      description: 'Родители раньше вложенных; руководители — по email. Выгрузка записывается в аудит (report.exported).'
+      responses:
+        '200':
+          description: Файл структуры
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgStructureBundle' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /org/import/structure:
+    post:
+      tags: [org]
+      operationId: importOrgStructure
+      summary: Загрузка структуры — план или применение одной транзакцией
+      description: |
+        Подразделения сопоставляются по пути от корня; новые создаются, у существующих меняются вид и порядок.
+        Ничего не удаляется, не переименовывается и не переносится. Руководители — по email; у подразделения
+        один руководитель — основной из файла. Настройки «По Делу», которых нет в планировщике, пропускаются.
+        Настройки структуры из файла (applySettings) применяет администратор.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: 'podelu.org-structure версии 1, до 5 МБ' }
+                apply: { type: boolean, default: false }
+                applySettings: { type: boolean, default: true }
+      responses:
+        '200':
+          description: План; при apply=true — применённый (applied=false, если в плане ошибки)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgStructurePlan' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /org/employees/export:
+    get:
+      tags: [org]
+      operationId: exportOrgEmployees
+      summary: Сотрудники — CSV или JSON podelu.employees с полями отпусков
+      description: |
+        CSV: «;», BOM, CRLF; столбцы «По Делу» (email … Внешний ID), затем «Табельный номер», «Норма дней», «Перенос»,
+        «Тип занятости». JSON: документ podelu.employees, поля отпусков — объект vacation. Пароли не выгружаются.
+        Выгрузка записывается в аудит (report.exported).
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [csv, json], default: csv } }
+        - { name: inactive, in: query, description: 'Уволенные тоже', schema: { type: boolean, default: true } }
+      responses:
+        '200':
+          description: Файл
+          content:
+            text/csv: { schema: { type: string } }
+            application/json: { schema: { $ref: '#/components/schemas/EmployeesDocument' } }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /org/employees/import:
+    post:
+      tags: [org]
+      operationId: importOrgEmployees
+      summary: Загрузка сотрудников с решением коллизий — план или применение одной транзакцией
+      description: |
+        Сопоставление: email, затем логин, затем табельный номер. Коллизия — поле с разными непустыми значениями:
+        current (по умолчанию) / incoming / merge (списки) / custom. Пустое в планировщике заполняется из файла,
+        пустое в файле ничего не стирает. Недостающие подразделения создаются по пути. Явный руководитель
+        записывается, только если отличается от руководителя по структуре. Новым — одноразовые пароли.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: 'CSV или JSON podelu.employees, до 5 МБ, до 5000 сотрудников' }
+                apply: { type: boolean, default: false }
+                decisions: { type: string, description: 'JSON: { ключ записи: { fields: { поле: { choice, value } } } }' }
+                newUsers: { type: string, enum: [active, inactive, file], default: active }
+      responses:
+        '200':
+          description: План; при apply=true — применённый
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeTransferPlan' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /org/import/csv:
+    post:
+      tags: [org]
+      operationId: importOrgCsv
+      summary: 'Быстрый импорт CSV: сотрудник → подразделение, руководитель; файл главнее'
+      description: 'Тот же план, что у загрузки сотрудников, но коллизии решаются в пользу файла, а новые создаются только с createMissing.'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                apply: { type: boolean, default: false }
+                createMissing: { type: boolean, default: false }
+      responses:
+        '200':
+          description: План; при apply=true — применённый
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeTransferPlan' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
   /events/ticket:
     post:
       tags: [events]
@@ -1911,6 +2030,8 @@ components:
         carryOver: { type: number, minimum: 0 }
         isActive: { type: boolean }
         personnelNumber: { type: [string, 'null'], pattern: '^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$', description: 'Табельный номер — графа 4 формы Т-7; уникален (v0.6.0)' }
+        reportsToNone: { type: boolean, description: '«Первое лицо»: никому не подчиняется — заявки решает администратор (v1.1.0)' }
+        externalId: { type: [string, 'null'], maxLength: 128, description: 'Идентификатор в другой системе (v1.1.0)' }
         mustChangePassword: { type: boolean, description: 'Только в /auth/me: пароль выдан кадровой службой — сменить до работы (v0.6.0)' }
 
     EmployeeCreate:
@@ -1932,6 +2053,8 @@ components:
         plannedDays: { type: number, minimum: 0, default: 28 }
         carryOver: { type: number, minimum: 0, default: 0 }
         personnelNumber: { type: [string, 'null'], pattern: '^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$', description: 'Табельный номер — графа 4 формы Т-7; уникален (v0.6.0)' }
+        reportsToNone: { type: boolean, description: '«Первое лицо»: никому не подчиняется — заявки решает администратор (v1.1.0)' }
+        externalId: { type: [string, 'null'], maxLength: 128, description: 'Идентификатор в другой системе (v1.1.0)' }
 
     EmployeeUpdate:
       type: object
@@ -1950,6 +2073,8 @@ components:
         plannedDays: { type: number, minimum: 0 }
         carryOver: { type: number, minimum: 0 }
         personnelNumber: { type: [string, 'null'], pattern: '^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$', description: 'null или пустая строка — очистить' }
+        reportsToNone: { type: boolean, description: '«Первое лицо»: никому не подчиняется — заявки решает администратор (v1.1.0)' }
+        externalId: { type: [string, 'null'], maxLength: 128, description: 'Идентификатор в другой системе (v1.1.0)' }
 
     PageMeta:
       type: object
@@ -2068,11 +2193,173 @@ components:
     Department:
       type: object
       properties:
-        id: { type: integer, description: 'Идентификатор (с v0.3.0); в путях отдел адресуется по имени' }
+        id: { type: integer, description: 'Идентификатор (с v0.3.0); в путях — id или подпись' }
         name: { type: string }
+        label: { type: string, description: 'Подпись, уникальная в организации: название; одноимённые — «Отдел — Родитель» или полный путь (v1.1.0)' }
+        parentId: { type: [integer, 'null'], description: 'Вышестоящее подразделение (v1.1.0)' }
+        path: { type: array, items: { type: string }, description: 'Названия от корня (v1.1.0)' }
+        level: { type: integer, minimum: 1, description: '1 — верхний уровень (v1.1.0)' }
+        kind: { type: string, description: 'Вид уровня из unitKinds (v1.1.0)' }
+        sortOrder: { type: integer }
+        externalId: { type: [string, 'null'], description: 'Идентификатор в другой системе (v1.1.0)' }
         managerId: { type: [integer, 'null'] }
         managerName: { type: [string, 'null'], description: 'ФИО руководителя (с v0.5.0)' }
         headcount: { type: integer }
+
+    DepartmentInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        parentId: { type: [integer, 'null'], description: 'null — верхний уровень' }
+        kind: { type: string, pattern: '^[a-z][a-z0-9_-]{0,31}$', default: department }
+        sortOrder: { type: integer, minimum: -100000, maximum: 100000, default: 0 }
+        managerId: { type: [integer, 'null'] }
+        externalId: { type: [string, 'null'], maxLength: 128 }
+
+    UnitKind:
+      type: object
+      required: [value, label, color]
+      properties:
+        value: { type: string, pattern: '^[a-z][a-z0-9_-]{0,31}$' }
+        label: { type: string, minLength: 1, maxLength: 40 }
+        color: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+
+    OrgStructureBundle:
+      type: object
+      description: 'Файл структуры «По Делу» версии 1 (podelu.org-structure)'
+      properties:
+        format: { type: string, const: podelu.org-structure }
+        version: { type: integer, const: 1 }
+        exportedAt: { type: string, format: date-time }
+        app: { type: string }
+        settings:
+          type: object
+          properties:
+            org_unit_kinds: { type: array, items: { $ref: '#/components/schemas/UnitKind' } }
+            org_max_depth: { type: integer, minimum: 2, maximum: 30 }
+        departments:
+          type: array
+          maxItems: 5000
+          items:
+            type: object
+            required: [key, name]
+            properties:
+              key: { type: string }
+              name: { type: string }
+              parent: { type: [string, 'null'], description: 'key родителя — идёт в файле раньше' }
+              kind: { type: string }
+              sortOrder: { type: integer }
+              externalId: { type: [string, 'null'] }
+              heads: { type: array, items: { type: object, properties: { email: { type: string }, primary: { type: boolean } } } }
+
+    OrgStructurePlan:
+      type: object
+      properties:
+        applied: { type: boolean, description: Только в ответе применения }
+        summary:
+          type: object
+          properties:
+            departments: { type: integer }
+            create: { type: integer }
+            update: { type: integer }
+            unchanged: { type: integer }
+            settings: { type: integer }
+            addHeads: { type: integer }
+            pendingHeads: { type: integer }
+            skippedHeads: { type: integer }
+            missingInFile: { type: integer }
+            errors: { type: integer }
+        settings: { type: array, items: { type: object, properties: { key: { type: string }, label: { type: string }, current: { type: string }, incoming: { type: string } } } }
+        departments: { type: array, items: { type: object, properties: { key: { type: string }, path: { type: string }, action: { type: string, enum: [create, update, unchanged] }, changes: { type: array, items: { type: object } } } } }
+        heads: { type: array, items: { type: object, properties: { path: { type: string }, email: { type: string }, name: { type: string }, primary: { type: boolean }, action: { type: string, enum: [add, exists, pending, skip] }, note: { type: [string, 'null'] } } } }
+        missingInFile: { type: array, items: { type: string } }
+        notes: { type: array, items: { type: string } }
+        errors: { type: array, items: { type: string } }
+        canApply: { type: boolean }
+
+    EmployeesDocument:
+      type: object
+      description: 'Файл сотрудников «По Делу» версии 1 (podelu.employees) с полями отпусков'
+      properties:
+        format: { type: string, const: podelu.employees }
+        version: { type: integer, const: 1 }
+        exportedAt: { type: string, format: date-time }
+        app: { type: string }
+        employees:
+          type: array
+          items:
+            type: object
+            properties:
+              email: { type: string }
+              login: { type: string }
+              name: { type: string }
+              position: { type: string }
+              department: { type: array, items: { type: string }, description: Путь от корня }
+              manager: { type: string, description: 'Явный руководитель: email или логин' }
+              reportsToNone: { type: boolean }
+              heads: { type: array, items: { type: object, properties: { department: { type: array, items: { type: string } }, primary: { type: boolean } } } }
+              role: { type: string, enum: [user, manager, admin] }
+              capabilities: { type: array, items: { type: string }, description: 'Кадровая служба — org.manage, users.manage' }
+              isActive: { type: boolean }
+              externalId: { type: string }
+              vacation:
+                type: object
+                properties:
+                  personnelNumber: { type: string }
+                  plannedDays: { type: number }
+                  carryOver: { type: number }
+                  empType: { type: string, enum: [staff, ipsz] }
+
+    EmployeeTransferPlan:
+      type: object
+      properties:
+        applied: { type: boolean, description: Только в ответе применения }
+        summary:
+          type: object
+          properties:
+            records: { type: integer }
+            create: { type: integer }
+            update: { type: integer }
+            unchanged: { type: integer }
+            skip: { type: integer }
+            conflicts: { type: integer }
+            errors: { type: integer }
+            createDepartments: { type: integer }
+        departments: { type: array, items: { type: object, properties: { key: { type: string }, path: { type: string } } }, description: Подразделения, которые будут созданы }
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string, description: 'Ключ для decisions: email, login:<логин>, pn:<номер> или line:<n>' }
+              line: { type: integer }
+              action: { type: string, enum: [create, update, unchanged, skip, error] }
+              employeeId: { type: [integer, 'null'] }
+              name: { type: string }
+              email: { type: string }
+              changes: { type: array, items: { type: object, properties: { field: { type: string }, label: { type: string }, old: {}, new: {} } } }
+              conflicts:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field: { type: string }
+                    label: { type: string }
+                    current: {}
+                    incoming: {}
+                    merged: {}
+                    choices: { type: array, items: { type: string, enum: [current, incoming, merge, custom] } }
+                    choice: { type: string }
+                    value: {}
+                    note: { type: [string, 'null'] }
+              errors: { type: array, items: { type: string } }
+              warnings: { type: array, items: { type: string } }
+        canApply: { type: boolean }
+        credentials:
+          type: array
+          description: Логины и одноразовые пароли созданных — только в ответе применения
+          items: { type: object, properties: { login: { type: string }, name: { type: string }, password: { type: string } } }
 
     Project:
       type: object
@@ -2109,6 +2396,8 @@ components:
         headName: { type: [string, 'null'] }
         hrHeadPosition: { type: [string, 'null'], description: 'Руководитель кадровой службы — подпись под графиком' }
         hrHeadName: { type: [string, 'null'] }
+        unitKinds: { type: [array, 'null'], items: { $ref: '#/components/schemas/UnitKind' }, description: 'Виды уровней структуры; null — по умолчанию, как в «По Делу» (v1.1.0)' }
+        orgMaxDepth: { type: integer, minimum: 2, maximum: 30, default: 15, description: 'Наибольшая глубина структуры (v1.1.0)' }
         mailEnabled: { type: boolean, readOnly: true, description: 'Почта настроена (SMTP_HOST): письма о заявках и сводки отправляются' }
 
     OrgSettingsUpdate:
@@ -2131,6 +2420,8 @@ components:
         headName: { type: string, maxLength: 128 }
         hrHeadPosition: { type: string, maxLength: 128 }
         hrHeadName: { type: string, maxLength: 128 }
+        unitKinds: { type: array, minItems: 1, maxItems: 30, items: { $ref: '#/components/schemas/UnitKind' }, description: 'Вид, который носят подразделения, удалить нельзя' }
+        orgMaxDepth: { type: integer, minimum: 2, maximum: 30, description: 'Не меньше текущей глубины структуры' }
 
     Delegation:
       type: object

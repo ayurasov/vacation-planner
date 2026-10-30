@@ -2,7 +2,7 @@
 
 | Параметр | Значение |
 |---|---|
-| Дата формирования | 2026-10-29 |
+| Дата формирования | 2026-10-30 |
 | Источник | sbom/*.cdx.json (CycloneDX 1.5, сгенерированы cyclonedx-npm из package-lock) |
 | Компонентов всего | 852 (уникальных name@version) |
 | Пакеты | server, web |
@@ -214,7 +214,7 @@
 | 168 | deep-eql | 5.0.2 | MIT | server+web | permissive (low) |
 | 169 | deep-extend | 0.6.0 | MIT | server+web | permissive (low) |
 | 170 | deep-is | 0.1.4 | MIT | server+web | permissive (low) |
-| 171 | deepmerge-ts | 7.1.5 | BSD-3-Clause | server | permissive (low) |
+| 171 | deepmerge-ts | 8.0.2 | BSD-3-Clause | server | permissive (low) |
 | 172 | define-data-property | 1.1.4 | MIT | server | permissive (low) |
 | 173 | define-properties | 1.2.1 | MIT | server | permissive (low) |
 | 174 | defu | 6.1.7 | MIT | server | permissive (low) |
@@ -851,7 +851,7 @@
 | 805 | utils | 8.72.1 | MIT | server+web | permissive (low) |
 | 806 | utils | 3.2.7 | MIT | server+web | permissive (low) |
 | 807 | utils-merge | 1.0.1 | MIT | server | permissive (low) |
-| 808 | uuid | 8.3.2 | MIT | server | permissive (low) |
+| 808 | uuid | 11.1.1 | MIT | server | permissive (low) |
 | 809 | v8-compile-cache-lib | 3.0.1 | MIT | server | permissive (low) |
 | 810 | validate-npm-package-license | 3.0.4 | Apache-2.0 | server+web | permissive (low) |
 | 811 | validator | 13.15.10 | MIT | server | permissive (low) |

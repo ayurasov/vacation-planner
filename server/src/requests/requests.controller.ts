@@ -4,6 +4,7 @@ import {
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsISO8601, IsIn, IsInt, IsOptional, IsString, Length, Max, Min, MaxLength } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
+import { directReports } from './approval-scope';
 import { ProblemException } from '../infra/problems';
 import { CurrentUser } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
@@ -71,12 +72,9 @@ export class RequestsController {
   ) {}
 
   private async actor(user: AccessClaims): Promise<Actor> {
-    const me = await this.prisma.employee.findUnique({
-      where: { id: user.sub },
-      include: { subordinates: { where: { isActive: true }, select: { id: true } } },
-    });
+    const me = await this.prisma.employee.findUnique({ where: { id: user.sub }, select: { id: true, isAdmin: true } });
     if (!me) throw new ProblemException('not-found');
-    return { id: me.id, isAdmin: me.isAdmin, subordinates: me.subordinates.map((s) => s.id) };
+    return { id: me.id, isAdmin: me.isAdmin, subordinates: await directReports(this.prisma, me.id) };
   }
 
   @Get()

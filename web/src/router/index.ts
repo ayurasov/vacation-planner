@@ -6,6 +6,7 @@ const ScheduleView = () => import('@/views/ScheduleView.vue');
 const MyVacationView = () => import('@/views/MyVacationView.vue');
 const ApprovalsView = () => import('@/views/ApprovalsView.vue');
 const EmployeesView = () => import('@/views/EmployeesView.vue');
+const ExchangeView = () => import('@/views/ExchangeView.vue');
 const DirectoriesView = () => import('@/views/DirectoriesView.vue');
 const SettingsView = () => import('@/views/SettingsView.vue');
 const AuditView = () => import('@/views/AuditView.vue');
@@ -14,6 +15,7 @@ const WorkScheduleView = () => import('@/views/WorkScheduleView.vue');
 const ChangePasswordView = () => import('@/views/ChangePasswordView.vue');
 const HrView = () => import('@/views/HrView.vue');
 const NoticePrintView = () => import('@/views/NoticePrintView.vue');
+const GuideView = () => import('@/views/GuideView.vue');
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -32,6 +34,10 @@ export const router = createRouter({
     { path: '/settings', component: SettingsView, meta: { title: 'Профиль и настройки' } },
     { path: '/audit', component: AuditView, meta: { staff: true, title: 'Журнал аудита' } },
     { path: '/hr', component: HrView, meta: { staff: true, title: 'Кадровый учёт' } },
+    { path: '/exchange', component: ExchangeView, meta: { staff: true, title: 'Импорт и экспорт' } },
+    // Руководства внутри приложения (v1.1.0, E71); глава — в якоре: /guide#график-отпусков
+    { path: '/guide', component: GuideView, meta: { title: 'Руководство пользователя', guide: 'user' } },
+    { path: '/guide/admin', component: GuideView, meta: { staff: true, title: 'Руководство администратора', guide: 'admin' } },
     // Лист для печати под подпись — без меню; своё извещение — сотруднику, любое — кадровой службе
     { path: '/notices/:id(\\d+)/print', component: NoticePrintView, meta: { bare: true, title: 'Извещение о начале отпуска' } },
     { path: '/:pathMatch(.*)*', redirect: '/schedule' },

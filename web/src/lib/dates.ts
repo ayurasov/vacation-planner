@@ -108,6 +108,26 @@ export function fmtRange(start: string, end: string): string {
   return `${fmtDate(start)} – ${fmtDate(end)}`;
 }
 
+/**
+ * Список дат без года, соседние дни — диапазоном: «1–8 января, 23 февраля»; через границу месяца —
+ * «31 декабря – 2 января». Даты — ISO, порядок любой, повторы не важны.
+ */
+export function fmtDayRanges(dates: readonly string[]): string {
+  const sorted = [...new Set(dates)].sort();
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length;) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === addDays(sorted[j], 1)) j++;
+    const [, sm, sd] = sorted[i].split('-').map(Number);
+    const [, em, ed] = sorted[j].split('-').map(Number);
+    if (i === j) parts.push(fmtDate(sorted[i], false));
+    else if (sm === em) parts.push(`${sd}–${ed} ${MONTHS_GEN[em - 1]}`);
+    else parts.push(`${fmtDate(sorted[i], false)} – ${fmtDate(sorted[j], false)}`);
+    i = j + 1;
+  }
+  return parts.join(', ');
+}
+
 /** Относительное описание: «через 12 дней», «идёт сейчас», «завершён». */
 export function relativeToToday(start: string, end: string, today: string): string {
   if (end < today) return 'завершён';

@@ -46,13 +46,13 @@
 <!-- BEGIN:code-metrics -->
 | Показатель | Значение |
 |---|---|
-| Сервер: файлов TypeScript / строк | 85 / 8 283 |
-| Сервер: контроллеров / операций API | 20 / 83 |
-| Модель данных: таблиц / миграций | 24 / 12 |
-| Клиент: файлов TS и Vue / строк | 50 / 14 502 |
-| Клиент: экранов | 13 |
-| Тесты сервера: файлов / сценариев | 28 / 222 |
-| Тесты клиента (модульные и e2e): файлов / сценариев | 11 / 53 |
+| Сервер: файлов TypeScript / строк | 92 / 10 098 |
+| Сервер: контроллеров / операций API | 21 / 88 |
+| Модель данных: таблиц / миграций | 24 / 13 |
+| Клиент: файлов TS и Vue / строк | 63 / 17 406 |
+| Клиент: экранов | 15 |
+| Тесты сервера: файлов / сценариев | 30 / 246 |
+| Тесты клиента (модульные и e2e): файлов / сценариев | 17 / 94 |
 <!-- END:code-metrics -->
 
 | Показатель | Значение |
@@ -336,7 +336,7 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 Полный каталог операций сформирован из контракта; права по ролям — подраздел «Модель авторизации» раздела «Информационная безопасность», права на каждое действие — матрица прав документа 2 «Спецификация API v1».
 
 <!-- BEGIN:api-catalog -->
-Всего операций: **83** в 67 путях; формат — JSON, ошибки — `application/problem+json`.
+Всего операций: **88** в 72 путях; формат — JSON, ошибки — `application/problem+json`.
 
 **Вход и сессии** (13)
 
@@ -439,10 +439,10 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 
 | Метод | Путь | Назначение | Операция |
 |---|---|---|---|
-| GET | `/api/v1/departments` | Отделы с руководителями и численностью | `listDepartments` |
-| POST | `/api/v1/departments` | Создать отдел (кадровая служба, администратор) | `createDepartment` |
-| PATCH | `/api/v1/departments/{name}` | Переименовать, сменить руководителя | `updateDepartment` |
-| DELETE | `/api/v1/departments/{name}` | Удалить отдел (нельзя при наличии сотрудников) | `deleteDepartment` |
+| GET | `/api/v1/departments` | Подразделения в порядке дерева: путь, уровень, подпись, руководитель, численность | `listDepartments` |
+| POST | `/api/v1/departments` | Создать подразделение (кадровая служба, администратор) | `createDepartment` |
+| PATCH | `/api/v1/departments/{ref}` | Переименовать, перенести, сменить вид или руководителя | `updateDepartment` |
+| DELETE | `/api/v1/departments/{ref}` | Удалить подразделение (нельзя при сотрудниках и вложенных) | `deleteDepartment` |
 | GET | `/api/v1/projects` | Проекты | `listProjects` |
 | POST | `/api/v1/projects` | Создать проект (кадровая служба, администратор) | `createProject` |
 | PATCH | `/api/v1/projects/{id}` | Изменить проект | `updateProject` |
@@ -481,6 +481,16 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 |---|---|---|---|
 | POST | `/api/v1/imports/employees` | Импорт сотрудников и остатков — предпросмотр или применение | `importEmployees` |
 | GET | `/api/v1/imports/employees/template` | Шаблон XLSX для импорта сотрудников | `getImportTemplate` |
+
+**org** (5)
+
+| Метод | Путь | Назначение | Операция |
+|---|---|---|---|
+| GET | `/api/v1/org/export` | Структура компании и её настройки — файл podelu.org-structure (JSON) | `exportOrgStructure` |
+| POST | `/api/v1/org/import/structure` | Загрузка структуры — план или применение одной транзакцией | `importOrgStructure` |
+| GET | `/api/v1/org/employees/export` | Сотрудники — CSV или JSON podelu.employees с полями отпусков | `exportOrgEmployees` |
+| POST | `/api/v1/org/employees/import` | Загрузка сотрудников с решением коллизий — план или применение одной транзакцией | `importOrgEmployees` |
+| POST | `/api/v1/org/import/csv` | Быстрый импорт CSV: сотрудник → подразделение, руководитель; файл главнее | `importOrgCsv` |
 
 **events** (2)
 
@@ -733,15 +743,23 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 | `must_change_password` | Boolean |  | пароль выдан при создании или сбросе (v0.6.0) |
 | `password_changed_at` | DateTime | null |  |
 | `personnel_number` | String | UK null | табельный номер — графа 4 формы Т-7 (v0.6.0) |
+| `external_id` | String | null | идентификатор в другой системе (v1.1.0, обмен с «По Делу») |
+| `org_source` | String |  | manual \| import \| transfer \| csv |
+| `reports_to_none` | Boolean |  | «первое лицо»: никому не подчиняется |
 | `created_at` | DateTime |  |  |
 | `updated_at` | DateTime |  |  |
 
-**`departments`** — Отделы и их руководители
+**`departments`** — Подразделения: дерево, вид уровня, руководитель (v1.1.0)
 
 | Поле | Тип | Признаки | Примечание |
 |---|---|---|---|
 | `id` | Int | PK |  |
-| `name` | String | UK |  |
+| `name` | String |  |  |
+| `parent_id` | Int | null |  |
+| `kind` | String |  | вид уровня: org_settings.unit_kinds |
+| `sort_order` | Int |  |  |
+| `external_id` | String | null |  |
+| `org_source` | String |  | manual \| import \| transfer \| csv |
 | `manager_id` | Int | null |  |
 
 **`projects`** — Проекты и руководители проектов
@@ -837,6 +855,8 @@ REST API v1 доступен по префиксу `/api/v1`; обмен — JSO
 | `head_name` | String | null |  |
 | `hr_head_position` | String | null |  |
 | `hr_head_name` | String | null |  |
+| `unit_kinds` | Json | null |  |
+| `org_max_depth` | Int |  |  |
 
 **`calendars`** — Производственный календарь по годам
 

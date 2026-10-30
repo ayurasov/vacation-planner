@@ -358,6 +358,14 @@ async function copyCredentials(): Promise<void> {
           </button>
         </template>
         <template v-else>
+          <!-- Импорт применяется целиком: с ошибками в файле — ни одной строки; причина видна, а не только во всплывающей подсказке -->
+          <p
+            v-if="preview?.summary.error"
+            class="import-blocked"
+            role="status"
+          >
+            Исправьте {{ plural(preview.summary.error, ['строку', 'строки', 'строк']) }} с ошибками и загрузите файл снова — файл применяется целиком.
+          </p>
           <button
             class="btn btn-ghost"
             type="button"
@@ -369,13 +377,12 @@ async function copyCredentials(): Promise<void> {
             class="btn btn-primary"
             type="button"
             :disabled="busy || !preview || !!preview.summary.error || !toApply"
-            :title="preview?.summary.error ? 'Исправьте ошибки в файле и загрузите его снова' : ''"
             @click="apply"
           >
             <AppIcon
               name="check"
               :size="14"
-            /> Применить<template v-if="toApply">
+            /> Применить<template v-if="toApply && !preview?.summary.error">
               ({{ toApply }})
             </template>
           </button>
@@ -469,5 +476,11 @@ async function copyCredentials(): Promise<void> {
 
 .err {
   color: var(--color-danger-dark);
+}
+.import-blocked {
+  margin: 0 auto 0 0;
+  align-self: center;
+  color: var(--color-danger);
+  font-size: 13px;
 }
 </style>

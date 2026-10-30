@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
+import { indented, subtreeIds } from '@/lib/departments';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
 import { useLiveStore } from '@/stores/live';
 import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import { useUiStore } from '@/stores/ui';
 import {
-  addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
+  WEEKDAYS_SHORT, addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, plural, vacationDays, weekday,
 } from '@/lib/dates';
 import { absentPerDay, barsForYear, conflictDatesFor, isAbsent, segments, virtualWindow, type Bar } from '@/lib/schedule';
 import { shortName } from '@/lib/people';
@@ -15,6 +16,7 @@ import { statusMeta } from '@/lib/requests';
 import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import { vDialog } from '@/directives/dialog';
 
@@ -26,6 +28,9 @@ const today = localIso(new Date());
 const year = ref(Number(today.slice(0, 4)));
 const schedule = ref<Schedule | null>(null);
 const departments = ref<Department[]>([]);
+/** Численность в списке — с вложенными: фильтр показывает всё поддерево. */
+const headcountOf = (d: Department) => departments.value.filter((x) => subtreeIds(departments.value, d.id).has(x.id))
+  .reduce((n, x) => n + x.headcount, 0);
 const holidays = ref<Set<string>>(new Set());
 const workCal = ref<WorkCalendar>(workCalendar([]));
 const dept = ref('');
@@ -339,9 +344,10 @@ const selectedDays = computed(() => selected.value
       <div>
         <div class="view-title">
           График отпусков
+          <HelpLink topic="schedule" />
         </div>
         <div class="view-subtitle">
-          {{ stats.people }} сотрудников{{ dept ? ` · ${dept}` : ' · вся организация' }}
+          {{ stats.people }} {{ plural(stats.people, ['сотрудник', 'сотрудника', 'сотрудников']) }}{{ dept ? ` · ${dept}` : ' · вся организация' }}
         </div>
       </div>
       <div class="toolbar">
@@ -431,17 +437,18 @@ const selectedDays = computed(() => selected.value
       <select
         v-model="dept"
         class="input dept-select"
-        aria-label="Отдел"
+        aria-label="Подразделение"
+        title="Подразделение — вместе с вложенными"
       >
         <option value="">
-          Все отделы
+          Все подразделения
         </option>
         <option
           v-for="d in departments"
-          :key="d.name"
-          :value="d.name"
+          :key="d.id"
+          :value="d.label"
         >
-          {{ d.name }} · {{ d.headcount }}
+          {{ indented(d) }} · {{ headcountOf(d) }}
         </option>
       </select>
       <div class="input-icon search">
@@ -536,7 +543,7 @@ const selectedDays = computed(() => selected.value
             {{ stats.people }}
           </div>
           <div class="stat-label">
-            сотрудников в выборке
+            {{ plural(stats.people, ['сотрудник', 'сотрудника', 'сотрудников']) }} в выборке
           </div>
         </div>
       </div>
@@ -564,7 +571,7 @@ const selectedDays = computed(() => selected.value
             {{ stats.pending }}
           </div>
           <div class="stat-label">
-            заявок на согласовании
+            {{ plural(stats.pending, ['заявка', 'заявки', 'заявок']) }} на согласовании
           </div>
         </div>
       </div>
@@ -581,7 +588,7 @@ const selectedDays = computed(() => selected.value
             {{ stats.conflictDays }}
           </div>
           <div class="stat-label">
-            конфликтных дней в отделах
+            {{ plural(stats.conflictDays, ['конфликтный день', 'конфликтных дня', 'конфликтных дней']) }} в отделах
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './infra/prisma.module';
 import { ProblemFilter } from './infra/problems';
 import { AuditModule } from './audit/audit.module';
+import { OrgModule } from './org/org.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards';
 import { EmployeesModule } from './employees/employees.module';
@@ -30,6 +31,7 @@ import { PlanningModule } from './planning/planning.module';
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuditModule,
+    OrgModule,
     AuthModule,
     JobsModule,
     DelegationsModule,

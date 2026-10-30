@@ -72,7 +72,7 @@ export class DelegationsService {
       ]);
       if (!manager?.isActive) throw new ProblemException('not-found', 'Руководитель не найден');
       if (!deputy?.isActive) throw new ProblemException('validation/invalid-field', 'Заместитель не найден или уволен');
-      const team = await tx.employee.count({ where: { ...teamOf([managerId]), id: { not: managerId } } });
+      const team = await tx.employee.count({ where: { ...(await teamOf(tx, [managerId])), id: { not: managerId } } });
       if (!team) throw new ProblemException('validation/invalid-field', 'У сотрудника нет подчинённых — передавать нечего');
       const clash = await tx.approvalDelegation.findFirst({
         where: { managerId, revokedAt: null, startDate: { lte: day(input.end) }, endDate: { gte: day(input.start) } },

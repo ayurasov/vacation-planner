@@ -4,6 +4,7 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShutdown } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
+import { directReports } from '../requests/approval-scope';
 import { toIso } from '../requests/balance';
 import { mailConfig, type MailConfig } from './mail.config';
 import { backoffMinutes, digestLetter, digestWeek, letterFor, MAX_ATTEMPTS, type Letter } from './letters';
@@ -154,7 +155,7 @@ export class MailService implements OnApplicationBootstrap, OnApplicationShutdow
     return this.sendDigests(week.weekStart, week.weekEnd);
   }
 
-  /** Сводки руководителям: прямые подчинённые и сотрудники руководимых отделов. */
+  /** Сводки руководителям: подчинённые по правилу руководителя и сотрудники руководимых подразделений. */
   async sendDigests(weekStart: string, weekEnd: string): Promise<number> {
     const cfg = this.config;
     const managers = await this.prisma.employee.findMany({
@@ -166,12 +167,13 @@ export class MailService implements OnApplicationBootstrap, OnApplicationShutdow
     });
     let queued = 0;
     for (const m of managers) {
+      const reports = await directReports(this.prisma, m.id);
       const team = await this.prisma.employee.findMany({
         where: {
           isActive: true, id: { not: m.id },
-          OR: [{ managerId: m.id }, { deptId: { in: m.managedDepts.map((d) => d.id) } }],
+          OR: [{ id: { in: reports } }, { deptId: { in: m.managedDepts.map((d) => d.id) } }],
         },
-        select: { id: true, name: true, managerId: true },
+        select: { id: true, name: true },
       });
       const ids = team.map((e) => e.id);
       const [vacations, pending] = await Promise.all([
@@ -179,13 +181,8 @@ export class MailService implements OnApplicationBootstrap, OnApplicationShutdow
           where: { employeeId: { in: ids }, status: 'approved', startDate: { lte: new Date(weekEnd) }, endDate: { gte: new Date(weekStart) } },
           select: { employeeId: true, startDate: true, endDate: true },
         }),
-        // ждут решения именно этого руководителя: прямые подчинённые и сотрудники отдела без своего руководителя
-        this.prisma.vacationRequest.count({
-          where: {
-            status: 'pending',
-            employeeId: { in: team.filter((e) => e.managerId === m.id || e.managerId === null).map((e) => e.id) },
-          },
-        }),
+        // ждут решения именно этого руководителя — его подчинённые по правилу руководителя
+        this.prisma.vacationRequest.count({ where: { status: 'pending', employeeId: { in: reports } } }),
       ]);
       const names = new Map(team.map((e) => [e.id, e.name]));
       const letter = digestLetter({

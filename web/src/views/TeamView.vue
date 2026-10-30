@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, type DayStatus, type DepartmentOverview, type TeamSnapshot } from '@/api/client';
-import { fmtDate, fmtNumber, fmtRange, localIso } from '@/lib/dates';
+import { fmtDate, fmtNumber, fmtRange, localIso, plural } from '@/lib/dates';
 import { shortName } from '@/lib/people';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import MonthlyLoadChart from '@/components/analytics/MonthlyLoadChart.vue';
 
 type Tab = 'today' | 'year';
@@ -73,6 +74,7 @@ onMounted(async () => {
       <div>
         <div class="view-title">
           Команда
+          <HelpLink :topic="tab === 'today' ? 'teamToday' : 'teamYear'" />
         </div>
         <div class="view-subtitle">
           Кто где работает сегодня и как распределены отпуска отдела
@@ -224,7 +226,7 @@ onMounted(async () => {
               {{ team.counts[key] }}
             </div>
             <div class="stat-label">
-              {{ meta.label }}
+              {{ meta.label.toLowerCase() }}
             </div>
           </div>
         </button>
@@ -238,7 +240,7 @@ onMounted(async () => {
               {{ team.counts.pending }}
             </div>
             <div class="stat-label">
-              заявок ждут решения
+              {{ plural(team.counts.pending, ['заявка ждёт', 'заявки ждут', 'заявок ждут']) }} решения
             </div>
           </div>
         </div>
@@ -277,7 +279,9 @@ onMounted(async () => {
               <th class="num">
                 Не распределено
               </th>
-              <th>14 дней</th>
+              <th title="Одна из частей отпуска — не короче 14 календарных дней (ТК РФ, ст. 125)">
+                Часть ≥ 14 дн.
+              </th>
               <th class="num">
                 Заявки
               </th>
@@ -432,7 +436,9 @@ onMounted(async () => {
               <th class="num">
                 Не распределено
               </th>
-              <th>Часть 14 дней</th>
+              <th title="Одна из частей отпуска — не короче 14 календарных дней (ТК РФ, ст. 125)">
+                Часть ≥ 14 дн.
+              </th>
             </tr>
           </thead>
           <tbody>

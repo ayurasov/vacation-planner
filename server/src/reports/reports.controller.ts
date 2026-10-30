@@ -7,8 +7,10 @@ import type { Response } from 'express';
 import ExcelJS from 'exceljs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
+import { directReports } from '../requests/approval-scope';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
+import { deptLabels } from '../org/org.service';
 import { CurrentUser } from '../auth/guards';
 import { calendarDays, vacationDays } from '../requests/balance';
 import type { AccessClaims } from '../auth/token.service';
@@ -43,27 +45,23 @@ export class ReportsController {
 
     const me = await this.prisma.employee.findUnique({
       where: { id: user.sub },
-      include: { dept: true, subordinates: { select: { id: true } } },
+      include: { managedDepts: { select: { id: true } } },
     });
     if (!me) throw new ProblemException('not-found');
-    // Администратор и кадровая служба — вся организация; руководитель отдела — свой отдел;
-    // руководитель без отдела в подчинении — только прямые подчинённые и он сам.
+    const subordinates = await directReports(this.prisma, me.id);
+    const labels = await deptLabels(this.prisma);
+    // Администратор и кадровая служба — вся организация; руководитель подразделения — его подразделения
+    // с вложенными (v1.1.0) и явные подчинённые; руководитель без подразделений — подчинённые и он сам.
     // (До v0.3.0 последний случай получал выгрузку всей организации.)
     let scope: Scope = { kind: 'all' };
     let scopeLabel = 'organization';
     if (!me.isAdmin && !me.isHr) {
-      const isDeptManager = me.dept?.managerId === me.id;
-      const hasSubordinates = me.subordinates.length > 0;
-      if (!isDeptManager && !hasSubordinates) {
+      if (!me.managedDepts.length && !subordinates.length) {
         throw new ProblemException('auth/forbidden', 'Выгрузка доступна руководителям и администраторам');
       }
-      if (isDeptManager && me.dept) {
-        scope = { kind: 'dept', dept: me.dept.name };
-        scopeLabel = me.dept.name;
-      } else {
-        scope = { kind: 'ids', ids: [me.id, ...me.subordinates.map((s) => s.id)] };
-        scopeLabel = 'subordinates';
-      }
+      const depts = [...new Set(me.managedDepts.flatMap((d) => labels.tree.subtree(d.id)))];
+      scope = { kind: 'team', depts, ids: [me.id, ...subordinates] };
+      scopeLabel = me.managedDepts.length ? me.managedDepts.map((d) => labels.label(d.id)).join(', ') : 'subordinates';
     }
 
     // Строки — простым SQL (25 тыс. отпусков организации через вложенную выборку Prisma —
@@ -71,9 +69,9 @@ export class ReportsController {
     // раньше сборка в памяти останавливала обработку всех остальных запросов на ~0,7 с.
     const where = scopeSql(scope);
     const rows = await this.prisma.$queryRaw<ExportRow[]>`
-      SELECT e.name, e.position, d.name AS dept, to_char(v.start_date, 'YYYY-MM-DD') AS s, to_char(v.end_date, 'YYYY-MM-DD') AS e,
+      SELECT e.name, e.position, e.dept_id, to_char(v.start_date, 'YYYY-MM-DD') AS s, to_char(v.end_date, 'YYYY-MM-DD') AS e,
              v.status::text AS status, v.type::text AS type, v.comment
-        FROM vacation_requests v JOIN employees e ON e.id = v.employee_id LEFT JOIN departments d ON d.id = e.dept_id
+        FROM vacation_requests v JOIN employees e ON e.id = v.employee_id
        WHERE v.start_date <= ${to} AND v.end_date >= ${from} AND v.status IN ('approved', 'pending') ${where}
        ORDER BY v.start_date, e.name, v.id`;
 
@@ -96,7 +94,7 @@ export class ReportsController {
     ws.columns = [
       { header: 'Сотрудник', key: 'name', width: 32 },
       { header: 'Должность', key: 'position', width: 28 },
-      { header: 'Отдел', key: 'dept', width: 26 },
+      { header: 'Подразделение', key: 'dept', width: 26 },
       // Даты — значения Excel в формате ДД.ММ.ГГГГ (ТЗ, НФ-6): сортируются и считаются как даты (v1.0.0)
       { header: 'Начало', key: 'start', width: 12, style: { numFmt: 'dd.mm.yyyy' } },
       { header: 'Окончание', key: 'end', width: 12, style: { numFmt: 'dd.mm.yyyy' } },
@@ -115,7 +113,7 @@ export class ReportsController {
       ws.addRow({
         name: r.name,
         position: r.position ?? '',
-        dept: r.dept ?? '',
+        dept: labels.label(r.dept_id) ?? '',
         start: new Date(`${r.s}T00:00:00Z`),
         end: new Date(`${r.e}T00:00:00Z`),
         days: calendarDays(r.s, r.e),
@@ -131,12 +129,11 @@ export class ReportsController {
   }
 }
 
-interface ExportRow { name: string; position: string | null; dept: string | null; s: string; e: string; status: string; type: string; comment: string | null }
+interface ExportRow { name: string; position: string | null; dept_id: number | null; s: string; e: string; status: string; type: string; comment: string | null }
 
-type Scope = { kind: 'all' } | { kind: 'dept'; dept: string } | { kind: 'ids'; ids: number[] };
+type Scope = { kind: 'all' } | { kind: 'team'; depts: number[]; ids: number[] };
 
 function scopeSql(scope: Scope): Prisma.Sql {
-  if (scope.kind === 'dept') return Prisma.sql`AND d.name = ${scope.dept}`;
-  if (scope.kind === 'ids') return Prisma.sql`AND v.employee_id IN (${Prisma.join(scope.ids)})`;
+  if (scope.kind === 'team') return Prisma.sql`AND (e.dept_id = ANY(${scope.depts}::int[]) OR v.employee_id = ANY(${scope.ids}::int[]))`;
   return Prisma.empty;
 }

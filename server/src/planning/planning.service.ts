@@ -6,6 +6,7 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
+import { deptLabels } from '../org/org.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -88,10 +89,10 @@ export class PlanningService implements OnModuleInit {
 
   /** Отпуска года (согласованные и на согласовании) по сотрудникам: часть года — по дате начала. */
   async plans(year: number): Promise<EmployeePlan[]> {
-    const [employees, parts, calendars] = await Promise.all([
+    const [employees, parts, calendars, labels] = await Promise.all([
       this.prisma.employee.findMany({
         where: { isActive: true, empType: 'staff' },
-        select: { id: true, name: true, position: true, plannedDays: true, personnelNumber: true, deptId: true, dept: { select: { name: true } } },
+        select: { id: true, name: true, position: true, plannedDays: true, personnelNumber: true, deptId: true },
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.$queryRaw<Part[]>`
@@ -100,6 +101,7 @@ export class PlanningService implements OnModuleInit {
          WHERE type = 'vacation' AND status IN ('approved', 'pending')
            AND start_date BETWEEN ${`${year}-01-01`}::date AND ${`${year}-12-31`}::date`,
       this.prisma.productionCalendar.findMany({ where: { year: { in: [year, year + 1] } } }),
+      deptLabels(this.prisma),
     ]);
     const holidays = new Set(calendars.flatMap((c) => (Array.isArray(c.holidays) ? (c.holidays as string[]) : [])));
     const byEmployee = new Map<number, Part[]>();
@@ -114,7 +116,7 @@ export class PlanningService implements OnModuleInit {
       const norm = e.plannedDays;
       const status: PlanStatus = !own.length && norm > 0 ? 'none' : plannedDays >= norm && (hasFourteen || norm < 14) ? 'done' : 'partial';
       return {
-        id: e.id, name: e.name, position: e.position, deptId: e.deptId, dept: e.dept?.name ?? null, personnelNumber: e.personnelNumber,
+        id: e.id, name: e.name, position: e.position, deptId: e.deptId, dept: labels.label(e.deptId), personnelNumber: e.personnelNumber,
         norm, plannedDays, approvedDays, pendingDays, parts: own.length, hasFourteen, status,
       };
     });

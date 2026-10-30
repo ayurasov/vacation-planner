@@ -3,8 +3,9 @@
 // по кому до начала отпуска осталось три дня и меньше, а подписи нет.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type Page, type VacationNotice } from '@/api/client';
+import { indented } from '@/lib/departments';
 import { useUiStore } from '@/stores/ui';
-import { addDays, fmtDateTime, fmtNumber, fmtRange, localIso } from '@/lib/dates';
+import { addDays, fmtDateTime, fmtNumber, fmtRange, localIso, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 
@@ -130,17 +131,17 @@ onBeforeUnmount(() => window.clearTimeout(timer));
       <select
         v-model="dept"
         class="input"
-        aria-label="Отдел"
+        aria-label="Подразделение"
       >
         <option value="">
-          Все отделы
+          Все подразделения
         </option>
         <option
           v-for="d in departments"
           :key="d.id"
-          :value="d.name"
+          :value="d.label"
         >
-          {{ d.name }}
+          {{ indented(d) }}
         </option>
       </select>
       <button
@@ -210,7 +211,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
       >
         <table class="data-table">
           <caption class="sr-only">
-            Журнал извещений, {{ total }} записей
+            Журнал извещений, {{ total }} {{ plural(total, ['запись', 'записи', 'записей']) }}
           </caption>
           <thead>
             <tr>
@@ -288,7 +289,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
         v-if="pages > 1"
         class="pager"
       >
-        <span class="muted small">Стр. {{ page }} из {{ pages }} · {{ total }} записей</span>
+        <span class="muted small">Стр. {{ page }} из {{ pages }} · {{ total }} {{ plural(total, ['запись', 'записи', 'записей']) }}</span>
         <div class="toolbar">
           <button
             class="btn btn-sm"

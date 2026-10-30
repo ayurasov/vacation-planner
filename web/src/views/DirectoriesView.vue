@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { api, type Department, type Employee, type Page } from '@/api/client';
+import { api, type Department, type Employee, type OrgSettings, type Page, type UnitKind } from '@/api/client';
 import { useCalendarStore } from '@/stores/calendar';
 import { useUiStore } from '@/stores/ui';
 import { useAuthStore } from '@/stores/auth';
@@ -9,7 +9,9 @@ import { parseCalendarFile, toggleHoliday, type Transfer } from '@/lib/calendar'
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import { vDialog } from '@/directives/dialog';
+import { DEFAULT_UNIT_KINDS, indented, subtreeIds } from '@/lib/departments';
 
 interface Project { id: number; name: string; managerId: number | null; managerName?: string | null; headcount: number }
 type Tab = 'departments' | 'projects' | 'calendar';
@@ -30,8 +32,20 @@ const calEdit = ref<{ holidays: string[]; transfers: Transfer[] } | null>(null);
 const calBusy = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 
-// Диалог отдела/проекта
-const editor = ref<{ kind: 'department' | 'project'; original: Department | Project | null; name: string; managerId: number | null } | null>(null);
+// Диалог подразделения/проекта: у подразделения — место в структуре (v1.1.0)
+interface Editor {
+  kind: 'department' | 'project'; original: Department | Project | null; name: string; managerId: number | null;
+  parentId: number | null; unitKind: string; sortOrder: number; externalId: string;
+}
+const editor = ref<Editor | null>(null);
+const unitKinds = ref<UnitKind[]>(DEFAULT_UNIT_KINDS);
+const kindOf = (value: string) => unitKinds.value.find((k) => k.value === value);
+/** Вышестоящее при переносе — любое, кроме самого подразделения и вложенных в него. */
+const parentOptions = computed(() => {
+  const ed = editor.value;
+  const own = ed?.kind === 'department' && ed.original ? subtreeIds(departments.value, (ed.original as Department).id) : new Set<number>();
+  return departments.value.filter((d) => !own.has(d.id));
+});
 const candidates = ref<Employee[]>([]);
 const candQuery = ref('');
 const busy = ref(false);
@@ -45,12 +59,14 @@ async function reload(): Promise<void> {
   try {
     // Имена руководителей приходят в списках; всех сотрудников (до v0.5.0 — постранично при каждом
     // открытии, 25 запросов на 5000 человек) справочникам загружать не нужно
-    const [d, p] = await Promise.all([
+    const [d, p, s] = await Promise.all([
       api.get<Department[]>('/departments'),
       api.get<Project[]>('/projects'),
+      api.get<OrgSettings>('/settings').catch(() => null),
     ]);
     departments.value = d;
     projects.value = p;
+    if (s?.unitKinds?.length) unitKinds.value = s.unitKinds;
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -145,8 +161,16 @@ const holidaysByMonth = computed(() => MONTHS.map((name, i) => ({
   days: holidays.value.filter((d) => Number(d.slice(5, 7)) === i + 1),
 })).filter((m) => m.days.length));
 
-function openEditor(kind: 'department' | 'project', item: Department | Project | null): void {
-  editor.value = { kind, original: item, name: item?.name ?? '', managerId: item?.managerId ?? null };
+function openEditor(kind: 'department' | 'project', item: Department | Project | null, parent: Department | null = null): void {
+  const dept = kind === 'department' ? item as Department | null : null;
+  // Вложенное получает вид уровнем ниже родителя, верхний уровень — «Компания» в пустой структуре
+  const below = parent ? unitKinds.value[Math.min(unitKinds.value.findIndex((k) => k.value === parent.kind) + 1, unitKinds.value.length - 1)]?.value : undefined;
+  editor.value = {
+    kind, original: item, name: item?.name ?? '', managerId: item?.managerId ?? null,
+    parentId: dept ? dept.parentId : parent?.id ?? null,
+    unitKind: dept?.kind ?? below ?? (departments.value.length ? 'department' : 'company'),
+    sortOrder: dept?.sortOrder ?? 0, externalId: dept?.externalId ?? '',
+  };
   candQuery.value = '';
   void loadCandidates();
 }
@@ -163,7 +187,7 @@ async function loadCandidates(): Promise<void> {
     let list: Employee[] = [];
     if (q.length >= 2) list = (await api.get<Page<Employee>>(`/employees?search=${encodeURIComponent(q)}&per_page=50`)).items;
     else if (ed.kind === 'department' && ed.original) {
-      list = (await api.get<Page<Employee>>(`/employees?dept=${encodeURIComponent(ed.original.name)}&per_page=200`)).items;
+      list = (await api.get<Page<Employee>>(`/employees?dept=${encodeURIComponent((ed.original as Department).label)}&per_page=200`)).items;
     }
     if (ed.managerId && !list.some((e) => e.id === ed.managerId)) {
       const current = await api.get<Employee>(`/employees/${ed.managerId}`).catch(() => null);
@@ -188,14 +212,18 @@ async function saveEditor(): Promise<void> {
   try {
     const body = { name: ed.name.trim(), managerId: ed.managerId ?? undefined };
     if (ed.kind === 'department') {
-      if (ed.original) await api.patch(`/departments/${encodeURIComponent(ed.original.name)}`, body);
-      else await api.post('/departments', body);
+      const dept = {
+        ...body, managerId: ed.managerId, parentId: ed.parentId, kind: ed.unitKind, sortOrder: Number(ed.sortOrder) || 0,
+        externalId: ed.externalId.trim() || null,
+      };
+      if (ed.original) await api.patch(`/departments/${(ed.original as Department).id}`, dept);
+      else await api.post('/departments', dept);
     } else if (ed.original) {
       await api.patch(`/projects/${(ed.original as Project).id}`, body);
     } else {
       await api.post('/projects', body);
     }
-    ui.toast(ed.original ? 'Изменения сохранены' : ed.kind === 'department' ? 'Отдел создан' : 'Проект создан');
+    ui.toast(ed.original ? 'Изменения сохранены' : ed.kind === 'department' ? 'Подразделение создано' : 'Проект создан');
     editor.value = null;
     await reload();
   } catch (e) {
@@ -206,15 +234,17 @@ async function saveEditor(): Promise<void> {
 }
 
 async function remove(kind: 'department' | 'project', item: Department | Project): Promise<void> {
+  const nested = kind === 'department' ? departments.value.filter((d) => d.parentId === item.id).length : 0;
   const answer = await ui.ask({
-    title: `Удалить ${kind === 'department' ? 'отдел' : 'проект'} «${item.name}»?`,
-    text: item.headcount ? `В нём ${item.headcount} чел. — сначала переведите их.` : 'Действие попадёт в журнал аудита.',
+    title: `Удалить ${kind === 'department' ? 'подразделение' : 'проект'} «${item.name}»?`,
+    text: item.headcount ? `В нём ${item.headcount} чел. — сначала переведите их.`
+      : nested ? 'В нём есть вложенные подразделения — сначала перенесите или удалите их.' : 'Действие попадёт в журнал аудита.',
     confirmLabel: 'Удалить',
     danger: true,
   });
   if (!answer.ok) return;
   try {
-    if (kind === 'department') await api.del(`/departments/${encodeURIComponent(item.name)}`);
+    if (kind === 'department') await api.del(`/departments/${item.id}`);
     else await api.del(`/projects/${(item as Project).id}`);
     ui.toast('Удалено', 'info');
     await reload();
@@ -235,6 +265,7 @@ onMounted(() => {
       <div>
         <div class="view-title">
           Справочники
+          <HelpLink :topic="tab === 'calendar' ? 'calendar' : 'departments'" />
         </div>
         <div class="view-subtitle">
           Структура организации и производственный календарь
@@ -249,7 +280,7 @@ onMounted(() => {
         <AppIcon
           name="plus"
           :size="15"
-        /> {{ tab === 'departments' ? 'Отдел' : 'Проект' }}
+        /> {{ tab === 'departments' ? 'Подразделение' : 'Проект' }}
       </button>
     </div>
 
@@ -262,7 +293,7 @@ onMounted(() => {
         <AppIcon
           name="building"
           :size="14"
-        /> Отделы <span class="soft">{{ departments.length }}</span>
+        /> Подразделения <span class="soft">{{ departments.length }}</span>
       </button>
       <button
         type="button"
@@ -315,8 +346,10 @@ onMounted(() => {
         <EmptyState
           v-if="!(tab === 'departments' ? departments : projects).length"
           :icon="tab === 'departments' ? 'building' : 'briefcase'"
-          :title="tab === 'departments' ? 'Отделов пока нет' : 'Проектов пока нет'"
-          text="Добавьте первый — сотрудников можно будет распределить в карточке сотрудника."
+          :title="tab === 'departments' ? 'Подразделений пока нет' : 'Проектов пока нет'"
+          :text="tab === 'departments'
+            ? 'Добавьте компанию и вложенные подразделения или загрузите структуру из «По Делу» на странице «Импорт и экспорт».'
+            : 'Добавьте первый — сотрудников можно будет распределить в карточке сотрудника.'"
         />
         <table
           v-else
@@ -335,9 +368,25 @@ onMounted(() => {
           <tbody>
             <tr
               v-for="item in (tab === 'departments' ? departments : projects)"
-              :key="item.name"
+              :key="item.id"
             >
-              <td><strong>{{ item.name }}</strong></td>
+              <td
+                v-if="tab === 'departments'"
+                class="tree-cell"
+                :style="{ '--level': (item as Department).level - 1 }"
+                :title="(item as Department).path.join(' / ')"
+              >
+                <span
+                  class="kind-dot"
+                  :style="{ background: kindOf((item as Department).kind)?.color ?? 'var(--color-text-muted)' }"
+                  aria-hidden="true"
+                />
+                <strong>{{ item.name }}</strong>
+                <span class="soft small kind-label">{{ kindOf((item as Department).kind)?.label ?? (item as Department).kind }}</span>
+              </td>
+              <td v-else>
+                <strong>{{ item.name }}</strong>
+              </td>
               <td>
                 <div
                   v-if="managerName(item)"
@@ -359,6 +408,19 @@ onMounted(() => {
               </td>
               <td class="actions">
                 <div class="row-actions">
+                  <button
+                    v-if="tab === 'departments'"
+                    class="btn btn-icon btn-sm btn-ghost"
+                    type="button"
+                    title="Добавить вложенное подразделение"
+                    :aria-label="`Добавить подразделение в «${item.name}»`"
+                    @click="openEditor('department', null, item as Department)"
+                  >
+                    <AppIcon
+                      name="plus"
+                      :size="15"
+                    />
+                  </button>
                   <button
                     class="btn btn-icon btn-sm btn-ghost"
                     type="button"
@@ -634,7 +696,7 @@ onMounted(() => {
       >
         <div class="modal-head">
           <div class="modal-title">
-            {{ editor.original ? 'Изменить' : 'Новый' }} {{ editor.kind === 'department' ? 'отдел' : 'проект' }}
+            {{ editor.kind === 'department' ? (editor.original ? 'Изменить подразделение' : 'Новое подразделение') : (editor.original ? 'Изменить проект' : 'Новый проект') }}
           </div>
         </div>
         <div class="modal-body">
@@ -648,6 +710,45 @@ onMounted(() => {
               maxlength="128"
             >
           </div>
+          <template v-if="editor.kind === 'department'">
+            <div class="field-row">
+              <div class="field">
+                <label for="d-parent">Входит в</label>
+                <select
+                  id="d-parent"
+                  v-model="editor.parentId"
+                  class="input"
+                >
+                  <option :value="null">
+                    — верхний уровень —
+                  </option>
+                  <option
+                    v-for="d in parentOptions"
+                    :key="d.id"
+                    :value="d.id"
+                  >
+                    {{ indented(d) }}
+                  </option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="d-kind">Вид</label>
+                <select
+                  id="d-kind"
+                  v-model="editor.unitKind"
+                  class="input"
+                >
+                  <option
+                    v-for="k in unitKinds"
+                    :key="k.value"
+                    :value="k.value"
+                  >
+                    {{ k.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </template>
           <div class="field">
             <label for="d-mgr">Руководитель</label>
             <input
@@ -673,7 +774,35 @@ onMounted(() => {
                 {{ c.name }}{{ c.deptName && editor.kind === 'project' ? ` · ${c.deptName}` : '' }}
               </option>
             </select>
-            <span class="field-hint">{{ editor.kind === 'department' && editor.original ? 'Показаны сотрудники отдела; другого найдите поиском.' : 'Найдите сотрудника поиском (от 2 букв). Руководитель проекта видит график участников.' }}</span>
+            <span class="field-hint">{{ editor.kind === 'department'
+              ? `${editor.original ? 'Показаны сотрудники подразделения; другого найдите поиском. ' : ''}Руководитель согласует отпуска сотрудников без явного руководителя — и вложенных подразделений, где руководителя нет.`
+              : 'Найдите сотрудника поиском (от 2 букв). Руководитель проекта видит график участников.' }}</span>
+          </div>
+          <div
+            v-if="editor.kind === 'department'"
+            class="field-row"
+          >
+            <div class="field">
+              <label for="d-order">Порядок</label>
+              <input
+                id="d-order"
+                v-model.number="editor.sortOrder"
+                class="input"
+                type="number"
+                step="1"
+              >
+              <span class="field-hint">Меньше — выше среди соседних</span>
+            </div>
+            <div class="field">
+              <label for="d-ext">Внешний ID</label>
+              <input
+                id="d-ext"
+                v-model="editor.externalId"
+                class="input"
+                maxlength="128"
+              >
+              <span class="field-hint">Код в кадровой системе или «По Делу»</span>
+            </div>
           </div>
         </div>
         <div class="modal-actions">
@@ -701,6 +830,26 @@ onMounted(() => {
 .cand-search {
   margin-bottom: 6px;
 }
+
+/* Дерево подразделений: отступ по уровню, точка — цвет вида уровня */
+.tree-cell {
+  padding-left: calc(12px + var(--level) * 22px);
+  white-space: nowrap;
+}
+
+.kind-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.kind-label {
+  margin-left: 8px;
+}
+
 
 .tabs {
   margin-bottom: 14px;

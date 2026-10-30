@@ -1,8 +1,10 @@
 // Аналитика пересечений: загрузка данных из БД и вызов чистых функций coverage.ts.
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma.service';
+import { directReports } from '../requests/approval-scope';
 import { ProblemException } from '../infra/problems';
 import { toIso } from '../requests/balance';
+import { deptLabels } from '../org/org.service';
 import {
   conflictPeriods, dayStatus, insightsFor, monthlyLoad, planningStatus, suggestWindows, workCalendar,
   type DayStatus, type Person, type Transfer, type WorkCalendar,
@@ -10,10 +12,11 @@ import {
 
 export interface Viewer {
   id: number;
-  /** Администратор или кадровая служба: видит аналитику всех отделов. */
+  /** Администратор или кадровая служба: видит аналитику всех подразделений. */
   isAdmin: boolean;
+  /** Подпись своего подразделения (v1.1.0: одноимённые различаются подписью). */
   deptName: string | null;
-  /** Отделы, где пользователь руководит или работают его подчинённые. */
+  /** Подразделения, которыми пользователь руководит (с вложенными), и где работают его подчинённые. */
   managedDepts: string[];
   subordinates: number[];
 }
@@ -27,24 +30,28 @@ export class AnalyticsService {
   async viewer(userId: number): Promise<Viewer> {
     const me = await this.prisma.employee.findUnique({
       where: { id: userId },
-      include: {
-        dept: { select: { name: true } },
-        managedDepts: { select: { name: true } },
-        subordinates: { where: { isActive: true }, select: { id: true, dept: { select: { name: true } } } },
-      },
+      include: { managedDepts: { select: { id: true } } },
     });
     if (!me) throw new ProblemException('not-found');
-    const managed = new Set<string>(me.managedDepts.map((d) => d.name));
-    for (const s of me.subordinates) if (s.dept) managed.add(s.dept.name);
+    const labels = await deptLabels(this.prisma);
+    const subordinates = await this.prisma.employee.findMany({
+      where: { id: { in: await directReports(this.prisma, me.id) } }, select: { id: true, deptId: true },
+    });
+    const managed = new Set<string>();
+    for (const d of me.managedDepts) for (const id of labels.tree.subtree(d.id)) managed.add(labels.label(id)!);
+    for (const s of subordinates) if (s.deptId !== null) managed.add(labels.label(s.deptId)!);
     return {
-      id: me.id, isAdmin: me.isAdmin || me.isHr, deptName: me.dept?.name ?? null,
-      managedDepts: [...managed].sort(), subordinates: me.subordinates.map((s) => s.id),
+      id: me.id, isAdmin: me.isAdmin || me.isHr, deptName: labels.label(me.deptId),
+      managedDepts: [...managed].sort((a, b) => a.localeCompare(b, 'ru')), subordinates: subordinates.map((s) => s.id),
     };
   }
 
-  /** Отделы, доступные для аналитики: админ — все, руководитель — свои, сотрудник — собственный. */
+  /** Подразделения, доступные для аналитики: админ — все, руководитель — свои, сотрудник — собственное. */
   async visibleDepts(v: Viewer): Promise<string[]> {
-    if (v.isAdmin) return (await this.prisma.department.findMany({ orderBy: { name: 'asc' }, select: { name: true } })).map((d) => d.name);
+    if (v.isAdmin) {
+      const labels = await deptLabels(this.prisma);
+      return labels.tree.ordered().map((d) => labels.label(d.id)!).sort((a, b) => a.localeCompare(b, 'ru'));
+    }
     const set = new Set(v.managedDepts);
     if (v.deptName) set.add(v.deptName);
     return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
@@ -66,17 +73,21 @@ export class AnalyticsService {
     return (s?.conflictThreshold ?? 50) / 100;
   }
 
-  /** Активные сотрудники отдела (или проекта) с отпусками, пересекающими период. */
-  async people(filter: { dept?: string; project?: number }, from: string, to: string): Promise<Person[]> {
+  /**
+   * Активные сотрудники подразделения (с вложенными) или проекта с отпусками, пересекающими период;
+   * deptIds — ровно эти подразделения, без вложенных.
+   */
+  async people(filter: { dept?: string; deptIds?: Array<number | null>; project?: number }, from: string, to: string): Promise<Person[]> {
+    const labels = await deptLabels(this.prisma);
+    const depts = filter.deptIds ?? (filter.dept ? (filter.dept === NO_DEPT ? [null] : labels.ids(filter.dept)) : undefined);
     const rows = await this.prisma.employee.findMany({
       where: {
         isActive: true,
-        ...(filter.dept ? (filter.dept === NO_DEPT ? { deptId: null } : { dept: { name: filter.dept } }) : {}),
+        ...(depts ? (depts[0] === null ? { deptId: null } : { deptId: { in: depts as number[] } }) : {}),
         ...(filter.project ? { projectId: filter.project } : {}),
       },
       orderBy: { name: 'asc' },
       include: {
-        dept: { select: { name: true } },
         vacationRequests: {
           where: { status: { in: ['approved', 'pending'] }, pendingDeletion: false, startDate: { lte: new Date(to) }, endDate: { gte: new Date(from) } },
           select: { startDate: true, endDate: true, status: true, type: true },
@@ -84,7 +95,7 @@ export class AnalyticsService {
       },
     });
     return rows.map((e) => ({
-      id: e.id, name: e.name, dept: e.dept?.name ?? null, plannedDays: e.plannedDays, carryOver: e.carryOver, empType: e.empType,
+      id: e.id, name: e.name, dept: labels.label(e.deptId), plannedDays: e.plannedDays, carryOver: e.carryOver, empType: e.empType,
       vacations: e.vacationRequests.map((v) => ({
         start: toIso(v.startDate), end: toIso(v.endDate), status: v.status as 'approved' | 'pending', type: v.type,
       })),
@@ -154,12 +165,13 @@ export class AnalyticsService {
   /** Подбор окон отпуска для сотрудника (себя, подчинённого или — администратору — любого). */
   async suggestions(v: Viewer, employeeId: number, length: number, from: string, to: string) {
     if (employeeId !== v.id && !v.isAdmin && !v.subordinates.includes(employeeId)) throw new ProblemException('auth/forbidden');
-    const emp = await this.prisma.employee.findUnique({ where: { id: employeeId }, include: { dept: { select: { name: true } } } });
+    const emp = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!emp || !emp.isActive) throw new ProblemException('not-found');
     if (emp.empType === 'ipsz') throw new ProblemException('validation/invalid-field', 'Для ИП/самозанятых отпуск не предусмотрен');
     const years = [...new Set([Number(from.slice(0, 4)), Number(to.slice(0, 4))])];
     const { holidays } = await this.calendar(...years);
-    const team = await this.people({ dept: emp.dept?.name ?? NO_DEPT }, from, `${to.slice(0, 4)}-12-31`);
+    // Коллеги — своё подразделение без вложенных: порог отсутствия считается по нему
+    const team = await this.people({ deptIds: [emp.deptId] }, from, `${to.slice(0, 4)}-12-31`);
     const person = team.find((p) => p.id === employeeId) ?? (await this.people({}, from, to)).find((p) => p.id === employeeId)!;
     const threshold = await this.threshold();
     const plan = planningStatus(person, Number(from.slice(0, 4)), holidays);

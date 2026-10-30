@@ -3,6 +3,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma, VacationRequest } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
+import { deptLabels } from '../org/org.service';
 import { ProblemException } from '../infra/problems';
 import { fmtRange } from '../mail/letters';
 import { AuditService } from '../audit/audit.service';
@@ -116,13 +117,14 @@ export class RequestsService {
       this.prisma.vacationRequest.findMany({
         where, orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.perPage, take: params.perPage,
-        include: { employee: { select: { name: true, dept: { select: { name: true } } } } },
+        include: { employee: { select: { name: true, deptId: true } } },
       }),
       this.prisma.vacationRequest.count({ where }),
     ]);
+    const labels = await deptLabels(this.prisma);
     return {
       // employeeDept: очередь руководителя запрашивает пересечения только по нужным отделам
-      items: items.map((r) => ({ ...publicView(r), employeeName: r.employee.name, employeeDept: r.employee.dept?.name ?? null })),
+      items: items.map((r) => ({ ...publicView(r), employeeName: r.employee.name, employeeDept: labels.label(r.employee.deptId) })),
       meta: { page: params.page, perPage: params.perPage, total },
     };
   }
