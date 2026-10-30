@@ -12,6 +12,7 @@ import { barsForYear } from '@/lib/schedule';
 import VacationForm from '@/components/VacationForm.vue';
 import MyNotices from '@/components/MyNotices.vue';
 import PlanningBanner from '@/components/PlanningBanner.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
@@ -139,6 +140,7 @@ onMounted(reload);
       <div>
         <div class="view-title">
           Мой отпуск
+          <HelpLink topic="my" />
         </div>
         <div class="view-subtitle">
           {{ me?.name }}<template v-if="me?.position">

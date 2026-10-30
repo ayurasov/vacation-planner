@@ -14,6 +14,7 @@ const WorkScheduleView = () => import('@/views/WorkScheduleView.vue');
 const ChangePasswordView = () => import('@/views/ChangePasswordView.vue');
 const HrView = () => import('@/views/HrView.vue');
 const NoticePrintView = () => import('@/views/NoticePrintView.vue');
+const GuideView = () => import('@/views/GuideView.vue');
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -32,6 +33,9 @@ export const router = createRouter({
     { path: '/settings', component: SettingsView, meta: { title: 'Профиль и настройки' } },
     { path: '/audit', component: AuditView, meta: { staff: true, title: 'Журнал аудита' } },
     { path: '/hr', component: HrView, meta: { staff: true, title: 'Кадровый учёт' } },
+    // Руководства внутри приложения (v1.1.0, E71); глава — в якоре: /guide#график-отпусков
+    { path: '/guide', component: GuideView, meta: { title: 'Руководство пользователя', guide: 'user' } },
+    { path: '/guide/admin', component: GuideView, meta: { staff: true, title: 'Руководство администратора', guide: 'admin' } },
     // Лист для печати под подпись — без меню; своё извещение — сотруднику, любое — кадровой службе
     { path: '/notices/:id(\\d+)/print', component: NoticePrintView, meta: { bare: true, title: 'Извещение о начале отпуска' } },
     { path: '/:pathMatch(.*)*', redirect: '/schedule' },

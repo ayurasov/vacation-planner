@@ -8,6 +8,7 @@ import { useTheme, type ThemeChoice } from '@/composables/useTheme';
 import { fmtDateTime, fmtNumber } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import DelegationEditor from '@/components/DelegationEditor.vue';
 
 const auth = useAuthStore();
@@ -158,6 +159,7 @@ onMounted(async () => {
       <div>
         <div class="view-title">
           Профиль и настройки
+          <HelpLink topic="settings" />
         </div>
         <div class="view-subtitle">
           Личные данные, безопасность и оформление{{ auth.isAdmin ? ' · правила организации' : '' }}

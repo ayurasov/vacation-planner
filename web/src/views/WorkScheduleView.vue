@@ -8,6 +8,7 @@ import { addDays, fmtDate, localIso, MONTHS, weekday } from '@/lib/dates';
 import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 
 type Mode = 'office' | 'remote' | 'off';
 const auth = useAuthStore();
@@ -185,6 +186,7 @@ onMounted(async () => {
       <div>
         <div class="view-title">
           График работы
+          <HelpLink topic="workSchedule" />
         </div>
         <div class="view-subtitle">
           Офис и удалёнка: недельный шаблон и разовые исключения{{ selected && selected.id !== auth.me?.employee.id ? ` · ${selected.name}` : '' }}

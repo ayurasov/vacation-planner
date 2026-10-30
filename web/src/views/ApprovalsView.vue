@@ -11,6 +11,7 @@ import { kindLabel } from '@/lib/requests';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import VacationForm from '@/components/VacationForm.vue';
 
 const auth = useAuthStore();
@@ -193,6 +194,7 @@ onMounted(() => {
       <div>
         <div class="view-title">
           Заявки на согласование
+          <HelpLink topic="approvals" />
         </div>
         <div class="view-subtitle">
           {{ auth.isAdmin ? 'Все сотрудники организации' : 'Ждут вашего решения: ваша команда, замещение и переданные вам заявки' }}

@@ -4,6 +4,7 @@ import { api, type AuditEvent, type Page } from '@/api/client';
 import AppIcon from '@/components/common/AppIcon.vue';
 import LoginJournal from '@/components/LoginJournal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 
 const PER_PAGE = 50;
@@ -134,6 +135,7 @@ onMounted(reload);
       <div>
         <div class="view-title">
           Журнал аудита
+          <HelpLink topic="audit" />
         </div>
         <div class="view-subtitle">
           {{ tab === 'changes' ? `${total} записей · неизменяемый журнал всех изменений данных` : 'Входы в систему: успешные, неудачные, блокировки' }}

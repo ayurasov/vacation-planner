@@ -132,6 +132,22 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
 
     <div class="sidebar-bottom">
       <router-link
+        to="/guide"
+        class="nav-item"
+        :class="{ active: isActive('/guide') }"
+        :title="collapsed ? 'Руководство пользователя' : undefined"
+        @click="emit('navigate')"
+      >
+        <AppIcon
+          name="book"
+          :size="17"
+        />
+        <span
+          v-if="!collapsed"
+          class="nav-label nav-label-wrap"
+        >Руководство пользователя</span>
+      </router-link>
+      <router-link
         to="/settings"
         class="nav-item"
         :class="{ active: isActive('/settings') }"
@@ -319,6 +335,12 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Длинная подпись не обрезается многоточием, а переходит на вторую строку, если не помещается */
+.nav-label-wrap {
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .nav-count {
