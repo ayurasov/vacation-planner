@@ -7,6 +7,7 @@ import { fmtDateTime, fmtNumber, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import VacationForm from '@/components/VacationForm.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
 import DelegationEditor from '@/components/DelegationEditor.vue';
@@ -257,6 +258,7 @@ onMounted(async () => {
       <div>
         <div class="view-title">
           Сотрудники
+          <HelpLink topic="employees" />
         </div>
         <div class="view-subtitle">
           {{ total }} {{ plural(total, ['активная учётная запись', 'активные учётные записи', 'активных учётных записей']) }}

@@ -6,6 +6,7 @@ import { shortName } from '@/lib/people';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import MonthlyLoadChart from '@/components/analytics/MonthlyLoadChart.vue';
 
 type Tab = 'today' | 'year';
@@ -73,6 +74,7 @@ onMounted(async () => {
       <div>
         <div class="view-title">
           Команда
+          <HelpLink :topic="tab === 'today' ? 'teamToday' : 'teamYear'" />
         </div>
         <div class="view-subtitle">
           Кто где работает сегодня и как распределены отпуска отдела

@@ -9,6 +9,7 @@ import { parseCalendarFile, toggleHoliday, type Transfer } from '@/lib/calendar'
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import { vDialog } from '@/directives/dialog';
 
 interface Project { id: number; name: string; managerId: number | null; managerName?: string | null; headcount: number }
@@ -235,6 +236,7 @@ onMounted(() => {
       <div>
         <div class="view-title">
           Справочники
+          <HelpLink :topic="tab === 'calendar' ? 'calendar' : 'departments'" />
         </div>
         <div class="view-subtitle">
           Структура организации и производственный календарь

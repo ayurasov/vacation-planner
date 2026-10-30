@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.vue",
     "test": "vitest run",
+    "guide:sync": "node scripts/sync-guide.mjs",
     "sbom": "cyclonedx-npm -o ../sbom/web.cdx.json --sv 1.5 --flatten-components --output-reproducible --package-lock-only",
     "e2e": "playwright test"
   },

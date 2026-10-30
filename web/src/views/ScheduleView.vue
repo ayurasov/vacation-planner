@@ -15,6 +15,7 @@ import { statusMeta } from '@/lib/requests';
 import AppIcon from '@/components/common/AppIcon.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import HelpLink from '@/components/common/HelpLink.vue';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import { vDialog } from '@/directives/dialog';
 
@@ -339,6 +340,7 @@ const selectedDays = computed(() => selected.value
       <div>
         <div class="view-title">
           График отпусков
+          <HelpLink topic="schedule" />
         </div>
         <div class="view-subtitle">
           {{ stats.people }} {{ plural(stats.people, ['сотрудник', 'сотрудника', 'сотрудников']) }}{{ dept ? ` · ${dept}` : ' · вся организация' }}
