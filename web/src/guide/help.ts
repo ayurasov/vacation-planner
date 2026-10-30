@@ -29,11 +29,12 @@ export const HELP_TOPICS = {
   settings: { guide: 'user', slug: 'профиль-и-настройки', section: 'Профиль и настройки' },
   // Разделы кадровой службы и администратора описаны в руководстве администратора
   employees: { guide: 'admin', slug: 'сотрудники', section: 'Сотрудники' },
-  departments: { guide: 'admin', slug: 'отделы-и-проекты', section: 'Отделы и проекты' },
+  departments: { guide: 'admin', slug: 'подразделения-и-проекты', section: 'Подразделения и проекты' },
   calendar: { guide: 'admin', slug: 'производственный-календарь', section: 'Производственный календарь' },
   hrPlanning: { guide: 'admin', slug: 'планирование-и-утверждение-графика', section: 'Планирование и утверждение графика' },
   hrNotices: { guide: 'admin', slug: 'извещения-о-начале-отпуска', section: 'Извещения о начале отпуска' },
   audit: { guide: 'admin', slug: 'журнал-аудита', section: 'Журнал аудита' },
+  exchange: { guide: 'admin', slug: 'импорт-и-экспорт', section: 'Импорт и экспорт' },
 } as const satisfies Record<string, HelpTarget>;
 
 export type HelpTopic = keyof typeof HELP_TOPICS;

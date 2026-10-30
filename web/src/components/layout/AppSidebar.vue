@@ -44,6 +44,7 @@ const sections = computed(() => {
       items: [
         { path: '/employees', label: 'Сотрудники', icon: 'user' },
         { path: '/directories', label: 'Справочники', icon: 'building' },
+        { path: '/exchange', label: 'Импорт и экспорт', icon: 'swap' },
         { path: '/hr', label: 'Кадровый учёт', icon: 'signature' },
         { path: '/audit', label: 'Журнал аудита', icon: 'shield' },
       ],

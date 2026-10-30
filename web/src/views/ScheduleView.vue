@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type OrgSettings, type Schedule, type ScheduleEmployee } from '@/api/client';
+import { indented, subtreeIds } from '@/lib/departments';
 import { useAuthStore } from '@/stores/auth';
 import { useCalendarStore } from '@/stores/calendar';
 import { useLiveStore } from '@/stores/live';
@@ -27,6 +28,9 @@ const today = localIso(new Date());
 const year = ref(Number(today.slice(0, 4)));
 const schedule = ref<Schedule | null>(null);
 const departments = ref<Department[]>([]);
+/** Численность в списке — с вложенными: фильтр показывает всё поддерево. */
+const headcountOf = (d: Department) => departments.value.filter((x) => subtreeIds(departments.value, d.id).has(x.id))
+  .reduce((n, x) => n + x.headcount, 0);
 const holidays = ref<Set<string>>(new Set());
 const workCal = ref<WorkCalendar>(workCalendar([]));
 const dept = ref('');
@@ -433,17 +437,18 @@ const selectedDays = computed(() => selected.value
       <select
         v-model="dept"
         class="input dept-select"
-        aria-label="Отдел"
+        aria-label="Подразделение"
+        title="Подразделение — вместе с вложенными"
       >
         <option value="">
-          Все отделы
+          Все подразделения
         </option>
         <option
           v-for="d in departments"
-          :key="d.name"
-          :value="d.name"
+          :key="d.id"
+          :value="d.label"
         >
-          {{ d.name }} · {{ d.headcount }}
+          {{ indented(d) }} · {{ headcountOf(d) }}
         </option>
       </select>
       <div class="input-icon search">

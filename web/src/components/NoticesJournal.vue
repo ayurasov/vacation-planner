@@ -3,6 +3,7 @@
 // по кому до начала отпуска осталось три дня и меньше, а подписи нет.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type Page, type VacationNotice } from '@/api/client';
+import { indented } from '@/lib/departments';
 import { useUiStore } from '@/stores/ui';
 import { addDays, fmtDateTime, fmtNumber, fmtRange, localIso, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
@@ -130,17 +131,17 @@ onBeforeUnmount(() => window.clearTimeout(timer));
       <select
         v-model="dept"
         class="input"
-        aria-label="Отдел"
+        aria-label="Подразделение"
       >
         <option value="">
-          Все отделы
+          Все подразделения
         </option>
         <option
           v-for="d in departments"
           :key="d.id"
-          :value="d.name"
+          :value="d.label"
         >
-          {{ d.name }}
+          {{ indented(d) }}
         </option>
       </select>
       <button

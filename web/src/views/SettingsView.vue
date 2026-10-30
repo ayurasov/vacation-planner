@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type OrgSettings, type UserSession } from '@/api/client';
+import { api, type OrgSettings, type UnitKind, type UserSession } from '@/api/client';
+import { DEFAULT_UNIT_KINDS } from '@/lib/departments';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import { useTheme, type ThemeChoice } from '@/composables/useTheme';
@@ -17,6 +18,14 @@ const router = useRouter();
 const theme = useTheme();
 
 const settings = ref<OrgSettings | null>(null);
+// Виды уровней структуры (v1.1.0): правка копии; код нового вида — из названия, латиницей
+const kinds = ref<Array<UnitKind & { fresh?: boolean }>>([]);
+const resetKinds = (s: OrgSettings | null) => { kinds.value = (s?.unitKinds?.length ? s.unitKinds : DEFAULT_UNIT_KINDS).map((k) => ({ ...k })); };
+function addKind(): void {
+  let n = kinds.value.length + 1;
+  while (kinds.value.some((k) => k.value === `level${n}`)) n++;
+  kinds.value.push({ value: `level${n}`, label: '', color: '#64748b', fresh: true });
+}
 const savingOrg = ref(false);
 const oldPassword = ref('');
 const newPassword = ref('');
@@ -102,6 +111,8 @@ async function saveOrg(): Promise<void> {
   savingOrg.value = true;
   try {
     settings.value = await api.patch<OrgSettings>('/settings', {
+      unitKinds: kinds.value.map(({ value, label, color }) => ({ value, label: label.trim(), color })),
+      orgMaxDepth: Number(settings.value.orgMaxDepth ?? 15),
       conflictThreshold: Number(settings.value.conflictThreshold),
       limitPolicy: settings.value.limitPolicy,
       defaultPlannedDays: Number(settings.value.defaultPlannedDays),
@@ -116,6 +127,7 @@ async function saveOrg(): Promise<void> {
       lockoutMinutes: Number(settings.value.lockoutMinutes),
       loginRetentionDays: Number(settings.value.loginRetentionDays),
     });
+    resetKinds(settings.value);
     ui.toast('Настройки организации сохранены');
   } catch (e) {
     ui.error(e);
@@ -149,6 +161,7 @@ onMounted(async () => {
   void loadSessions();
   try {
     settings.value = await api.get<OrgSettings>('/settings');
+    resetKinds(settings.value);
   } catch { /* блок организации скрыт */ }
 });
 </script>
@@ -641,6 +654,80 @@ onMounted(async () => {
             </div>
           </div>
         </fieldset>
+        <fieldset class="security">
+          <legend class="field-label">
+            Структура компании
+          </legend>
+          <div class="field legend-gap">
+            <label for="org-depth">Наибольшая глубина, уровней</label>
+            <input
+              id="org-depth"
+              v-model.number="settings.orgMaxDepth"
+              type="number"
+              min="2"
+              max="30"
+              class="input"
+              style="max-width: 120px"
+            >
+          </div>
+          <div class="field">
+            <span class="field-label">Виды уровней</span>
+            <div
+              v-for="(k, i) in kinds"
+              :key="i"
+              class="kind-row"
+            >
+              <input
+                v-model="k.color"
+                type="color"
+                class="kind-color"
+                :aria-label="`Цвет: ${k.label || k.value}`"
+              >
+              <input
+                v-model="k.label"
+                class="input"
+                maxlength="40"
+                required
+                :aria-label="`Название вида ${k.value}`"
+              >
+              <input
+                v-if="k.fresh"
+                v-model="k.value"
+                class="input mono kind-code"
+                pattern="[a-z][a-z0-9_\-]{0,31}"
+                required
+                aria-label="Код вида — латиницей"
+              >
+              <span
+                v-else
+                class="mono soft small kind-code"
+              >{{ k.value }}</span>
+              <button
+                class="btn btn-icon btn-sm btn-ghost btn-danger"
+                type="button"
+                :disabled="kinds.length <= 1"
+                :title="`Убрать «${k.label || k.value}»`"
+                @click="kinds.splice(i, 1)"
+              >
+                <AppIcon
+                  name="trash"
+                  :size="14"
+                />
+              </button>
+            </div>
+            <button
+              class="btn btn-sm btn-ghost add-kind"
+              type="button"
+              @click="addKind"
+            >
+              <AppIcon
+                name="plus"
+                :size="14"
+              /> Вид уровня
+            </button>
+            <span class="field-hint">Как в «По Делу»: код переносится в файлах структуры. Вид, который носят подразделения, убрать нельзя.</span>
+          </div>
+        </fieldset>
         <button
           class="btn btn-primary"
           type="submit"
@@ -725,6 +812,28 @@ onMounted(async () => {
 
 .legend-gap {
   margin-top: 8px;
+}
+
+.kind-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 120px 32px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.kind-color {
+  width: 36px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.add-kind {
+  align-self: flex-start;
 }
 
 .security-grid {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, type AccountSecurity, type Department, type Employee, type Page } from '@/api/client';
+import { indented } from '@/lib/departments';
 import { useUiStore } from '@/stores/ui';
 import { useAuthStore } from '@/stores/auth';
 import { fmtDateTime, fmtNumber, plural } from '@/lib/dates';
@@ -44,7 +45,7 @@ const managers = ref<Employee[]>([]);
 const emptyForm = () => ({
   name: '', email: '', position: '', deptId: null as number | null, managerId: null as number | null,
   role: 'employee', empType: 'staff', isAdmin: false, isHr: false, plannedDays: 28, carryOver: 0, login: '', password: '',
-  personnelNumber: '',
+  personnelNumber: '', reportsToNone: false, externalId: '',
 });
 const form = ref(emptyForm());
 const secret = ref<{ title: string; login: string; password: string } | null>(null);
@@ -76,12 +77,12 @@ watch(search, () => {
 watch(dept, () => { page.value = 1; void reload(); });
 watch(page, reload);
 
-/** Кандидаты в руководители — сотрудники выбранного отдела. */
+/** Кандидаты в руководители — сотрудники выбранного подразделения и вложенных. */
 async function loadManagers(deptId: number | null): Promise<void> {
   const d = departments.value.find((x) => x.id === deptId);
   if (!d) { managers.value = []; return; }
   try {
-    const data = await api.get<Page<Employee>>(`/employees?dept=${encodeURIComponent(d.name)}&per_page=200`);
+    const data = await api.get<Page<Employee>>(`/employees?dept=${encodeURIComponent(d.label)}&per_page=200`);
     const list = data.items.filter((e) => e.id !== editing.value?.id);
     // Руководитель из другого отдела (руководитель направления) остаётся в списке, а не пустым полем
     const current = form.value.managerId;
@@ -107,6 +108,7 @@ function openEdit(e: Employee): void {
     name: e.name, email: e.email ?? '', position: e.position ?? '', deptId: e.deptId, managerId: e.managerId,
     role: e.role, empType: e.empType, isAdmin: e.isAdmin, isHr: e.isHr, plannedDays: e.plannedDays, carryOver: e.carryOver,
     login: e.login, password: '', personnelNumber: e.personnelNumber ?? '',
+    reportsToNone: e.reportsToNone ?? false, externalId: e.externalId ?? '',
   };
   formError.value = '';
   formOpen.value = true;
@@ -172,6 +174,8 @@ async function save(): Promise<void> {
     plannedDays: Math.round(Number(f.plannedDays) * 100) / 100, carryOver: Math.round(Number(f.carryOver) * 100) / 100,
     // Пустое поле в карточке — очистить номер; при создании — не передавать
     personnelNumber: f.personnelNumber.trim() || (editing.value ? null : undefined),
+    reportsToNone: f.reportsToNone,
+    externalId: f.externalId.trim() || (editing.value ? null : undefined),
   };
   try {
     if (editing.value) {
@@ -269,17 +273,18 @@ onMounted(async () => {
           v-model="dept"
           class="input"
           style="width: auto; min-width: 200px"
-          aria-label="Отдел"
+          aria-label="Подразделение"
+          title="Подразделение — вместе с вложенными"
         >
           <option value="">
-            Все отделы
+            Все подразделения
           </option>
           <option
             v-for="d in departments"
-            :key="d.name"
-            :value="d.name"
+            :key="d.id"
+            :value="d.label"
           >
-            {{ d.name }}
+            {{ indented(d) }}
           </option>
         </select>
         <div
@@ -622,21 +627,21 @@ onMounted(async () => {
               >
             </div>
             <div class="field">
-              <label for="e-dept">Отдел</label>
+              <label for="e-dept">Подразделение</label>
               <select
                 id="e-dept"
                 v-model="form.deptId"
                 class="input"
               >
                 <option :value="null">
-                  Без отдела
+                  Без подразделения
                 </option>
                 <option
                   v-for="d in departments"
                   :key="d.id"
                   :value="d.id"
                 >
-                  {{ d.name }}
+                  {{ indented(d) }}
                 </option>
               </select>
             </div>
@@ -648,10 +653,10 @@ onMounted(async () => {
                 id="e-mgr"
                 v-model="form.managerId"
                 class="input"
-                :disabled="!form.deptId"
+                :disabled="!form.deptId || form.reportsToNone"
               >
                 <option :value="null">
-                  Не назначен
+                  По структуре
                 </option>
                 <option
                   v-for="m in managers"
@@ -661,7 +666,7 @@ onMounted(async () => {
                   {{ m.name }}
                 </option>
               </select>
-              <span class="field-hint">Руководитель согласует заявки сотрудника.</span>
+              <span class="field-hint">{{ form.reportsToNone ? 'Первое лицо никому не подчиняется — заявки решает администратор.' : 'Согласует заявки. «По структуре» — руководитель подразделения, без него — выше по дереву.' }}</span>
             </div>
             <div class="field">
               <label for="e-type">Тип занятости</label>
@@ -715,6 +720,15 @@ onMounted(async () => {
               > Руководитель
             </label>
             <label
+              class="checkbox"
+              title="Никому не подчиняется: заявки решает администратор"
+            >
+              <input
+                v-model="form.reportsToNone"
+                type="checkbox"
+              > Первое лицо
+            </label>
+            <label
               v-if="auth.isAdmin"
               class="checkbox"
             >
@@ -732,6 +746,24 @@ onMounted(async () => {
                 type="checkbox"
               > Администратор системы
             </label>
+          </div>
+          <div
+            class="field"
+            style="margin-top: 14px"
+          >
+            <label for="e-ext">Внешний ID <span class="soft">(необязательно)</span></label>
+            <input
+              id="e-ext"
+              v-model="form.externalId"
+              class="input mono"
+              maxlength="128"
+              autocomplete="off"
+              aria-describedby="e-ext-hint"
+            >
+            <span
+              id="e-ext-hint"
+              class="field-hint"
+            >Код в кадровой системе, AD или «По Делу» — для обмена файлами.</span>
           </div>
           <div
             v-if="!editing"
