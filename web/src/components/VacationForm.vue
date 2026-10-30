@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { api, type Balance, type Employee, type OrgSettings, type VacationRequest } from '@/api/client';
 import { useCalendarStore } from '@/stores/calendar';
 import { useAuthStore } from '@/stores/auth';
-import { addDays, calendarDays, fmtDate, fmtNumber, holidaysIn, localIso, plural, vacationDays } from '@/lib/dates';
+import { addDays, calendarDays, fmtDate, fmtDayRanges, fmtNumber, holidaysIn, localIso, plural, vacationDays } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import SuggestPanel from '@/components/SuggestPanel.vue';
 import { vDialog } from '@/directives/dialog';
@@ -272,7 +272,7 @@ async function submit(): Promise<void> {
               name="info"
               :size="13"
             />
-            {{ inPeriodHolidays.map((d) => fmtDate(d, false)).join(', ') }} — нерабочие праздничные дни продлевают отпуск (ТК РФ, ст. 120).
+            {{ fmtDayRanges(inPeriodHolidays) }} — нерабочие праздничные дни продлевают отпуск (ТК РФ, ст. 120).
           </div>
         </div>
 

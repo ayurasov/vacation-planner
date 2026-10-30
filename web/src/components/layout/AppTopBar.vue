@@ -168,8 +168,9 @@ const roleLabel = computed(() => (auth.isAdmin ? 'Администратор' : 
 
 .notif-dot {
   position: absolute;
-  top: 3px;
-  right: 2px;
+  /* правее середины колокольчика, а не поверх него */
+  top: 1px;
+  left: calc(50% + 2px);
   min-width: 16px;
   height: 16px;
   padding: 0 4px;

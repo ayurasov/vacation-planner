@@ -7,7 +7,7 @@ import { useLiveStore } from '@/stores/live';
 import { isDayOff, workCalendar, type WorkCalendar } from '@/lib/calendar';
 import { useUiStore } from '@/stores/ui';
 import {
-  addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, vacationDays, WEEKDAYS_SHORT, weekday,
+  WEEKDAYS_SHORT, addDays, dayIndex, daysInYear, fmtDate, fmtRange, localIso, monthsOf, plural, vacationDays, weekday,
 } from '@/lib/dates';
 import { absentPerDay, barsForYear, conflictDatesFor, isAbsent, segments, virtualWindow, type Bar } from '@/lib/schedule';
 import { shortName } from '@/lib/people';
@@ -341,7 +341,7 @@ const selectedDays = computed(() => selected.value
           График отпусков
         </div>
         <div class="view-subtitle">
-          {{ stats.people }} сотрудников{{ dept ? ` · ${dept}` : ' · вся организация' }}
+          {{ stats.people }} {{ plural(stats.people, ['сотрудник', 'сотрудника', 'сотрудников']) }}{{ dept ? ` · ${dept}` : ' · вся организация' }}
         </div>
       </div>
       <div class="toolbar">
@@ -536,7 +536,7 @@ const selectedDays = computed(() => selected.value
             {{ stats.people }}
           </div>
           <div class="stat-label">
-            сотрудников в выборке
+            {{ plural(stats.people, ['сотрудник', 'сотрудника', 'сотрудников']) }} в выборке
           </div>
         </div>
       </div>
@@ -564,7 +564,7 @@ const selectedDays = computed(() => selected.value
             {{ stats.pending }}
           </div>
           <div class="stat-label">
-            заявок на согласовании
+            {{ plural(stats.pending, ['заявка', 'заявки', 'заявок']) }} на согласовании
           </div>
         </div>
       </div>
@@ -581,7 +581,7 @@ const selectedDays = computed(() => selected.value
             {{ stats.conflictDays }}
           </div>
           <div class="stat-label">
-            конфликтных дней в отделах
+            {{ plural(stats.conflictDays, ['конфликтный день', 'конфликтных дня', 'конфликтных дней']) }} в отделах
           </div>
         </div>
       </div>

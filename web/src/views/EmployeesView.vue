@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { api, type AccountSecurity, type Department, type Employee, type Page } from '@/api/client';
 import { useUiStore } from '@/stores/ui';
 import { useAuthStore } from '@/stores/auth';
-import { fmtDateTime, fmtNumber } from '@/lib/dates';
+import { fmtDateTime, fmtNumber, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
@@ -259,7 +259,7 @@ onMounted(async () => {
           Сотрудники
         </div>
         <div class="view-subtitle">
-          {{ total }} активных учётных записей
+          {{ total }} {{ plural(total, ['активная учётная запись', 'активные учётные записи', 'активных учётных записей']) }}
         </div>
       </div>
       <div class="toolbar">
@@ -362,7 +362,7 @@ onMounted(async () => {
                 Роль
               </th>
               <th class="num hide-mobile">
-                Норма
+                Норма + перенос
               </th>
               <th class="hide-mobile">
                 Логин
@@ -414,10 +414,11 @@ onMounted(async () => {
                   >сотрудник</span>
                 </div>
               </td>
-              <td class="num hide-mobile">
+              <td class="num hide-mobile norm-cell">
                 {{ fmtNumber(e.plannedDays) }}<span
                   v-if="e.carryOver"
                   class="soft small"
+                  title="Перенесено с прошлых лет"
                 > +{{ fmtNumber(e.carryOver) }}</span>
               </td>
               <td class="hide-mobile">
@@ -1003,5 +1004,8 @@ onMounted(async () => {
 .secret strong {
   font-size: 15px;
   user-select: all;
+}
+.norm-cell {
+  white-space: nowrap;
 }
 </style>

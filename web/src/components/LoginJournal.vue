@@ -2,7 +2,7 @@
 // Журнал входов (v0.6.0, E62-01): успешные и неуспешные попытки, блокировки, повтор refresh-токена.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type LoginEvent, type LoginResult, type Page } from '@/api/client';
-import { fmtDateTime } from '@/lib/dates';
+import { fmtDateTime, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 
@@ -146,7 +146,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
       >
         <table class="data-table">
           <caption class="sr-only">
-            Журнал входов, {{ total }} записей
+            Журнал входов, {{ total }} {{ plural(total, ['запись', 'записи', 'записей']) }}
           </caption>
           <thead>
             <tr>
@@ -207,7 +207,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
         v-if="pages > 1"
         class="pager"
       >
-        <span class="muted small">Стр. {{ page }} из {{ pages }} · {{ total }} записей</span>
+        <span class="muted small">Стр. {{ page }} из {{ pages }} · {{ total }} {{ plural(total, ['запись', 'записи', 'записей']) }}</span>
         <div class="toolbar">
           <button
             class="btn btn-sm"

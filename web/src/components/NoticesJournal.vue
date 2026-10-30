@@ -4,7 +4,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, type Department, type Page, type VacationNotice } from '@/api/client';
 import { useUiStore } from '@/stores/ui';
-import { addDays, fmtDateTime, fmtNumber, fmtRange, localIso } from '@/lib/dates';
+import { addDays, fmtDateTime, fmtNumber, fmtRange, localIso, plural } from '@/lib/dates';
 import AppIcon from '@/components/common/AppIcon.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 
@@ -210,7 +210,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
       >
         <table class="data-table">
           <caption class="sr-only">
-            Журнал извещений, {{ total }} записей
+            Журнал извещений, {{ total }} {{ plural(total, ['запись', 'записи', 'записей']) }}
           </caption>
           <thead>
             <tr>
@@ -288,7 +288,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
         v-if="pages > 1"
         class="pager"
       >
-        <span class="muted small">Стр. {{ page }} из {{ pages }} · {{ total }} записей</span>
+        <span class="muted small">Стр. {{ page }} из {{ pages }} · {{ total }} {{ plural(total, ['запись', 'записи', 'записей']) }}</span>
         <div class="toolbar">
           <button
             class="btn btn-sm"
