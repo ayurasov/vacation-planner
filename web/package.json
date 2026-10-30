@@ -1,6 +1,6 @@
 {
   "name": "vacation-planner-web",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Планировщик отпусков — веб-клиент (Vue 3 + TypeScript + Vite)",
   "license": "UNLICENSED",

@@ -1,16 +1,16 @@
 # О документе
 
-Программа «Планировщик отпусков» включает свободные компоненты третьих лиц. Документ перечисляет компоненты, которые входят в поставку версии 1.0.0: библиотеки серверной части в образе `server` и библиотеки, собранные в веб-интерфейс (образ `web`), — с версиями, лицензиями и уведомлениями об авторском праве, а также программы в образах контейнеров, которые поставляются вместе с программой. Компоненты, нужные только для сборки, разработки и тестирования, в поставку не входят; они перечислены в отчёте «SBOM и анализ лицензий» (`docs/sbom/licenses-report.md`) и в перечне `docs/sbom/sbom-components.csv` со значением `dev` в колонке `scope`.
+Программа «Планировщик отпусков» включает свободные компоненты третьих лиц. Документ перечисляет компоненты, которые входят в поставку версии 1.1.0: библиотеки серверной части в образе `server` и библиотеки, собранные в веб-интерфейс (образ `web`), — с версиями, лицензиями и уведомлениями об авторском праве, а также программы в образах контейнеров, которые поставляются вместе с программой. Компоненты, нужные только для сборки, разработки и тестирования, в поставку не входят; они перечислены в отчёте «SBOM и анализ лицензий» (`docs/sbom/licenses-report.md`) и в перечне `docs/sbom/sbom-components.csv` со значением `dev` в колонке `scope`.
 
 Документ сформирован автоматически скриптом `scripts/third-party-notices.mjs` из SBOM и вручную не правится. Полные тексты лицензий приведены в реестре SPDX (ссылки в разделах ниже) и поставляются в составе образа `server` в каталогах самих пакетов (`node_modules/<пакет>/LICENSE`, `NOTICE`); для веб-интерфейса, где библиотеки собраны в один файл, этот документ входит в комплект поставки.
 
 | Параметр | Значение |
 | --- | --- |
-| Программа, версия | «Планировщик отпусков» 1.0.0 |
+| Программа, версия | «Планировщик отпусков» 1.1.0 |
 | Источник | `sbom/server.cdx.json`, `sbom/web.cdx.json` — CycloneDX 1.5, cyclonedx-npm по `package-lock.json` |
-| Дата формирования | 2026-10-29 |
+| Дата формирования | 2026-10-30 |
 | Компонентов в SBOM (уникальных name@version) | server — 727, web — 421 |
-| Сверка SBOM с `package-lock.json` | server — совпадает, web — совпадает; в метаданных SBOM указана версия 0.6.0: SBOM сформирован до смены номера версии, состав зависимостей тот же |
+| Сверка SBOM с `package-lock.json` | server — совпадает, web — совпадает |
 | В поставке | 344: сервер — 336, веб-интерфейс — 8 |
 | Строки об авторском праве | Из файлов LICENSE пакетов: найдены для 342 из 344 компонентов |
 
@@ -335,7 +335,7 @@
 | [unzipper](https://www.npmjs.com/package/unzipper) | 0.10.14 | сервер | Copyright (c) 2012 - 2013 Near Infinity Corporation |
 | [util-deprecate](https://www.npmjs.com/package/util-deprecate) | 1.0.2 | сервер | Copyright (c) 2014 Nathan Rajlich &lt;nathan@tootallnate.net&gt; |
 | [utils-merge](https://www.npmjs.com/package/utils-merge) | 1.0.1 | сервер | Copyright (c) 2013-2017 Jared Hanson |
-| [uuid](https://www.npmjs.com/package/uuid) | 8.3.2 | сервер | Copyright (c) 2010-2020 Robert Kieffer and other contributors |
+| [uuid](https://www.npmjs.com/package/uuid) | 11.1.1 | сервер | Copyright (c) 2010-2020 Robert Kieffer and other contributors |
 | [validator](https://www.npmjs.com/package/validator) | 13.15.35 | сервер | Copyright (c) 2018 Chris O'Hara &lt;cohara87@gmail.com&gt; |
 | [vary](https://www.npmjs.com/package/vary) | 1.1.2 | сервер | Copyright (c) 2014-2017 Douglas Christopher Wilson |
 | [vue](https://www.npmjs.com/package/vue) | 3.5.44 | веб-интерфейс | Copyright (c) 2018-present, Yuxi (Evan) You |
@@ -404,7 +404,7 @@
 | Компонент | Версия | Часть | Уведомление об авторском праве |
 | --- | --- | --- | --- |
 | [buffer-equal-constant-time](https://www.npmjs.com/package/buffer-equal-constant-time) | 1.0.1 | сервер | Copyright (c) 2013, GoInstant Inc., a salesforce.com company |
-| [deepmerge-ts](https://www.npmjs.com/package/deepmerge-ts) | 7.1.5 | сервер | Copyright (c) 2021, Rebecca Stevens |
+| [deepmerge-ts](https://www.npmjs.com/package/deepmerge-ts) | 8.0.2 | сервер | Copyright (c) 2021, Rebecca Stevens |
 | [duplexer2](https://www.npmjs.com/package/duplexer2) | 0.1.4 | сервер | Copyright (c) 2013, Deoxxa Development |
 | [ieee754](https://www.npmjs.com/package/ieee754) | 1.2.1 | сервер | Copyright 2008 Fair Oaks Labs, Inc. |
 | [qs](https://www.npmjs.com/package/qs) | 6.16.1 | сервер | Copyright (c) 2014, Nathan LaFreniere and other \[contributors\](https://github.com/ljharb/qs/graphs/contributors) |
@@ -509,6 +509,8 @@
 | `node:22-alpine` | server/Dockerfile: стадия сборки «build»; server/Dockerfile: рабочий образ `server`; web/Dockerfile: стадия сборки «build» | Node.js — MIT (в составе — V8, libuv, OpenSSL, ICU и др. на условиях их лицензий); npm — Artistic-2.0 (входит в образ, программой при работе не вызывается) | Alpine Linux: musl (MIT), BusyBox (GPL-2.0-only), apk-tools (GPL-2.0-only), OpenSSL (Apache-2.0), zlib (Zlib), ca-certificates (MPL-2.0 AND MIT) | Да |
 | `nginx:1.27-alpine` | web/Dockerfile: рабочий образ `web` | nginx — BSD-2-Clause; envsubst из GNU gettext (GPL-3.0-or-later) подставляет переменные в шаблон конфигурации при старте как отдельная программа | Alpine Linux: musl (MIT), BusyBox (GPL-2.0-only), apk-tools (GPL-2.0-only), OpenSSL (Apache-2.0), zlib (Zlib), ca-certificates (MPL-2.0 AND MIT) | Да |
 | `postgres:17-alpine` | docker-compose.yml: сервис `postgres`; docker-compose.yml: сервис `backup` (профиль `full`); docker-compose.replica.yml: сервис `postgres-replica`; docker-compose.replica.yml: сервис `basebackup` | PostgreSQL — PostgreSQL License; расширение pg_stat_statements (PostgreSQL License); сценарий входа образа — bash (GPL-3.0-or-later) | Alpine Linux: musl (MIT), BusyBox (GPL-2.0-only), apk-tools (GPL-2.0-only), OpenSSL (Apache-2.0), zlib (Zlib), ca-certificates (MPL-2.0 AND MIT) | Да |
+| `vacation-planner-server:${VP_VERSION:-local}` | docker-compose.yml: сервис `server` (профиль `full`) | описать | описать | Да |
+| `vacation-planner-web:${VP_VERSION:-local}` | docker-compose.yml: сервис `web` (профиль `full`) | описать | описать | Да |
 | `prom/prometheus:v3.5.0` | docker-compose.yml: сервис `prometheus` (профиль `monitoring`) | Prometheus — Apache-2.0 | BusyBox (GPL-2.0-only) | Необязательный (профиль мониторинга) |
 
 В рабочий образ `server` дополнительно устанавливаются пакеты Alpine: `openssl` (OpenSSL — Apache-2.0; нужен движку Prisma).

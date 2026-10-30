@@ -233,6 +233,12 @@ const CASES: Case[] = [
   // ── Импорт, поток событий, выгрузки
   { op: 'importEmployees', what: 'импорт без файла — 400 после проверки прав', expect: HR, run: (as) => as('post', '/imports/employees?dryRun=true') },
   { op: 'getImportTemplate', what: 'шаблон импорта', expect: HR, run: (as) => as('get', '/imports/employees/template') },
+  // Структура компании и обмен со «По Делу» (v1.1.0): загрузки без файла — 400 после проверки прав
+  { op: 'exportOrgStructure', what: 'выгрузка структуры', expect: HR, run: (as) => as('get', '/org/export') },
+  { op: 'importOrgStructure', what: 'загрузка структуры без файла', expect: HR, run: (as) => as('post', '/org/import/structure') },
+  { op: 'exportOrgEmployees', what: 'выгрузка сотрудников', expect: HR, run: (as) => as('get', '/org/employees/export?format=json') },
+  { op: 'importOrgEmployees', what: 'загрузка сотрудников без файла', expect: HR, run: (as) => as('post', '/org/employees/import') },
+  { op: 'importOrgCsv', what: 'быстрый импорт CSV без файла', expect: HR, run: (as) => as('post', '/org/import/csv') },
   { op: 'getEventsTicket', what: 'билет на поток событий', expect: ALL, run: (as) => as('post', '/events/ticket') },
   { op: 'streamEvents', what: 'неверный билет — 401 у всех', expect: { anon: 401, employee: 401, manager: 401, hr: 401, admin: 401 }, run: (as) => as('get', '/events?ticket=invalid') },
   { op: 'exportVacations', what: 'выгрузка графика', expect: { ...HR, manager: 'ok' }, run: (as) => as('get', `/reports/vacations?from=${day(0)}&to=${day(60)}`) },
