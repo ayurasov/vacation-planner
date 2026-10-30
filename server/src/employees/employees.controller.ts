@@ -6,6 +6,7 @@ import {
   IsBoolean, IsEmail, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsString, Matches, Max, Min, MinLength, MaxLength,
 } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
+import { directReports } from '../requests/approval-scope';
 import { ProblemException } from '../infra/problems';
 import { AllowedBeforePasswordChange, CurrentUser } from '../auth/guards';
 import { assertStaff, hasStaff, loadActor } from '../auth/access';
@@ -59,6 +60,14 @@ export class EmployeeCreateDto {
   @IsOptional() @Matches(PERSONNEL_NUMBER, { message: 'Табельный номер: до 20 символов — цифры, буквы, «-» и «/»' })
     personnelNumber?: string | null;
 
+  /** «Первое лицо»: никому не подчиняется — заявки решает администратор (v1.1.0, как в «По Делу»). */
+  @IsOptional() @IsBoolean()
+    reportsToNone?: boolean;
+
+  /** Идентификатор в другой системе — для обмена с «По Делу» и кадровыми системами (v1.1.0). */
+  @IsOptional() @IsString() @MaxLength(128)
+    externalId?: string | null;
+
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     plannedDays?: number;
 
@@ -100,6 +109,14 @@ export class EmployeeUpdateDto {
   /** Табельный номер — графа 4 формы Т-7 (v0.6.0). */
   @IsOptional() @Matches(PERSONNEL_NUMBER, { message: 'Табельный номер: до 20 символов — цифры, буквы, «-» и «/»' })
     personnelNumber?: string | null;
+
+  /** «Первое лицо»: никому не подчиняется — заявки решает администратор (v1.1.0, как в «По Делу»). */
+  @IsOptional() @IsBoolean()
+    reportsToNone?: boolean;
+
+  /** Идентификатор в другой системе — для обмена с «По Делу» и кадровыми системами (v1.1.0). */
+  @IsOptional() @IsString() @MaxLength(128)
+    externalId?: string | null;
 
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(365)
     plannedDays?: number;
@@ -170,11 +187,10 @@ export class WorkOverrideDto {
 /** Свой профиль или подчинённый; иначе — администратор (для чтения — и кадровая служба). */
 async function assertCanManage(user: AccessClaims, id: number, prisma: PrismaService, readOnly = false): Promise<void> {
   if (user.sub === id) return;
-  const me = await prisma.employee.findUnique({
-    where: { id: user.sub }, include: { subordinates: { select: { id: true } } },
-  });
+  const me = await prisma.employee.findUnique({ where: { id: user.sub }, select: { isAdmin: true, isHr: true } });
   if (me?.isAdmin || (readOnly && me?.isHr)) return;
-  if (me?.subordinates.some((s) => s.id === id)) return;
+  // Подчинённый — по правилу руководителя (v1.1.0): явный руководитель или руководитель по структуре
+  if (me && (await directReports(prisma, user.sub)).includes(id)) return;
   throw new ProblemException('auth/forbidden');
 }
 

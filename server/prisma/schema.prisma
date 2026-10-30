@@ -34,6 +34,9 @@ model Employee {
   mustChangePassword Boolean     @default(false) @map("must_change_password") // пароль выдан при создании или сбросе (v0.6.0)
   passwordChangedAt  DateTime?   @map("password_changed_at") @db.Timestamptz(6)
   personnelNumber    String?     @unique @map("personnel_number") // табельный номер — графа 4 формы Т-7 (v0.6.0)
+  externalId         String?     @map("external_id") // идентификатор в другой системе (v1.1.0, обмен с «По Делу»)
+  orgSource          String      @default("manual") @map("org_source") // manual | import | transfer | csv
+  reportsToNone      Boolean     @default(false) @map("reports_to_none") // «первое лицо»: никому не подчиняется
   createdAt          DateTime    @default(now()) @map("created_at")
   updatedAt          DateTime    @updatedAt @map("updated_at")
 
@@ -63,16 +66,28 @@ model Employee {
   @@index([deptId])
   @@index([managerId])
   @@index([isActive])
+  @@index([externalId])
   @@map("employees")
 }
 
+// Подразделение — узел дерева структуры компании (v1.1.0, ADR-018, как в «По Делу»). Название уникально
+// среди соседей без учёта регистра — выражением в миграции org_structure; руководитель — один (основной).
 model Department {
-  id        Int        @id @default(autoincrement())
-  name      String     @unique
-  managerId Int?       @map("manager_id")
-  manager   Employee?  @relation("DeptManager", fields: [managerId], references: [id], onDelete: SetNull)
-  members   Employee[] @relation("DeptMembers")
+  id         Int          @id @default(autoincrement())
+  name       String
+  parentId   Int?         @map("parent_id")
+  parent     Department?  @relation("DeptTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children   Department[] @relation("DeptTree")
+  kind       String       @default("department") // вид уровня: org_settings.unit_kinds
+  sortOrder  Int          @default(0) @map("sort_order")
+  externalId String?      @map("external_id")
+  orgSource  String       @default("manual") @map("org_source") // manual | import | transfer | csv
+  managerId  Int?         @map("manager_id")
+  manager    Employee?    @relation("DeptManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members    Employee[]   @relation("DeptMembers")
 
+  @@index([parentId])
+  @@index([externalId])
   @@map("departments")
 }
 
@@ -213,6 +228,9 @@ model OrgSettings {
   headName           String? @map("head_name")
   hrHeadPosition     String? @map("hr_head_position")
   hrHeadName         String? @map("hr_head_name")
+  // Структура компании (v1.1.0): виды уровней [{value,label,color}] — NULL: по умолчанию; наибольшая глубина
+  unitKinds          Json?   @map("unit_kinds")
+  orgMaxDepth        Int     @default(15) @map("org_max_depth")
 
   @@map("org_settings")
 }

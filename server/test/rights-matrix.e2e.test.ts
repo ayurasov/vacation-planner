@@ -70,7 +70,7 @@ async function person(f: Fixture): Promise<number> {
   return e.id;
 }
 
-const dept = (f: Fixture, name: string) => f.t.prisma.department.findUniqueOrThrow({ where: { name } });
+const dept = (f: Fixture, name: string) => f.t.prisma.department.findFirstOrThrow({ where: { name } });
 
 const CASES: Case[] = [
   // ── Вход и сеансы

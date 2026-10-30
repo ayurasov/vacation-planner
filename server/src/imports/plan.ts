@@ -55,7 +55,10 @@ export interface ImportPlan {
 
 export interface PlanContext {
   employees: ExistingEmployee[]; // все, включая уволенных: логин уволенного занят
+  /** Подписи подразделений (v1.1.0): одноимённые различаются подписью «Отдел — Родитель». */
   departments: string[];
+  /** Названия, которые носят несколько подразделений, — без подписи строку не сопоставить. */
+  ambiguousDepts?: string[];
   actorIsAdmin: boolean;
   /** Своя карточка кадровику доступна — как и в API сотрудников (assertCanTouch). */
   actorId: number;
@@ -97,6 +100,7 @@ export function buildImportPlan(input: ImportRow[], ctx: PlanContext): ImportPla
   const activeByName = new Map<string, ExistingEmployee[]>();
   for (const e of active) activeByName.set(nameKey(e.name), [...(activeByName.get(nameKey(e.name)) ?? []), e]);
   const knownDepts = new Set(ctx.departments.map(lower));
+  const ambiguous = new Set((ctx.ambiguousDepts ?? []).map(lower));
   const newDepts = new Map<string, string>();
   const takenLogins = new Set(ctx.employees.map((e) => lower(e.login)));
   const seenLogins = new Set<string>();
@@ -139,7 +143,9 @@ export function buildImportPlan(input: ImportRow[], ctx: PlanContext): ImportPla
     if (r.dept !== undefined) {
       const known = ctx.departments.find((d) => lower(d) === lower(r.dept!.trim()));
       values.dept = known ?? r.dept.trim();
-      if (!known && !knownDepts.has(lower(values.dept))) newDepts.set(lower(values.dept), values.dept);
+      if (!known && ambiguous.has(lower(values.dept))) {
+        errors.push(`Подразделений «${values.dept}» несколько — укажите подпись из справочника, например «${values.dept} — Вышестоящее»`);
+      } else if (!known && !knownDepts.has(lower(values.dept))) newDepts.set(lower(values.dept), values.dept);
     }
     values.plannedDays = num(r.plannedDays, 'Норма дней', errors);
     values.carryOver = num(r.carryOver, 'Перенос', errors);

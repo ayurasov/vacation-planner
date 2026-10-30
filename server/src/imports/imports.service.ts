@@ -7,6 +7,8 @@ import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/passwords';
 import type { StaffActor } from '../auth/access';
 import { generatePassword, oneTimePasswordLength, toPublic, translitLogin } from '../employees/employees.service';
+import { loadTree } from '../org/org.service';
+import { nameKey } from '../org/org-tree';
 import { buildImportPlan, MAX_ROWS, type ImportPlan } from './plan';
 import type { ImportRow } from './parse';
 
@@ -26,17 +28,17 @@ export class ImportsService {
   async plan(actor: StaffActor, rows: ImportRow[]): Promise<ImportPlan> {
     if (!rows.length) throw new ProblemException('validation/invalid-field', 'В файле нет строк с сотрудниками');
     if (rows.length > MAX_ROWS) throw new ProblemException('validation/invalid-field', `Не больше ${MAX_ROWS} строк за один импорт`);
-    const [employees, departments] = await Promise.all([
-      this.prisma.employee.findMany({ include: { dept: { select: { name: true } } } }),
-      this.prisma.department.findMany({ select: { name: true } }),
-    ]);
+    const [employees, tree] = await Promise.all([this.prisma.employee.findMany(), loadTree(this.prisma)]);
+    const byName = new Map<string, number>();
+    for (const d of tree.byId.values()) byName.set(nameKey(d.name), (byName.get(nameKey(d.name)) ?? 0) + 1);
     return buildImportPlan(rows, {
       employees: employees.map((e) => ({
-        id: e.id, login: e.login, name: e.name, position: e.position, deptName: e.dept?.name ?? null,
+        id: e.id, login: e.login, name: e.name, position: e.position, deptName: e.deptId !== null ? tree.label(e.deptId) : null,
         managerId: e.managerId, plannedDays: e.plannedDays, carryOver: e.carryOver, empType: e.empType,
         email: e.email, personnelNumber: e.personnelNumber, isAdmin: e.isAdmin, isHr: e.isHr, isActive: e.isActive,
       })),
-      departments: departments.map((d) => d.name),
+      departments: [...tree.byId.keys()].map((id) => tree.label(id)),
+      ambiguousDepts: [...tree.byId.values()].filter((d) => byName.get(nameKey(d.name))! > 1).map((d) => d.name),
       actorIsAdmin: actor.isAdmin,
       actorId: actor.id,
       loginFor: translitLogin,
@@ -65,10 +67,12 @@ export class ImportsService {
     await this.prisma.$transaction(async (tx) => {
       // Блокировка от параллельного импорта: план строился до транзакции, повторяем
       // проверки уникальности на уровне БД (уникальные логин и e-mail).
+      // Подразделения — по подписи (v1.1.0); новые создаются на верхнем уровне структуры
+      const tree = await loadTree(tx);
       const deptIds = new Map<string, number>();
-      for (const d of await tx.department.findMany()) deptIds.set(d.name.toLowerCase(), d.id);
+      for (const id of tree.byId.keys()) deptIds.set(tree.label(id).toLowerCase(), id);
       for (const name of plan.newDepartments) {
-        const d = await tx.department.create({ data: { name } });
+        const d = await tx.department.create({ data: { name, orgSource: 'import' } });
         deptIds.set(name.toLowerCase(), d.id);
         await this.audit.record(tx, { actorId: actor.id, action: 'department.created', entity: 'department', entityId: d.id, after: { name, source } });
       }

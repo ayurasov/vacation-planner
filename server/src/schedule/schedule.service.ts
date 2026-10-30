@@ -6,10 +6,11 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
 import { calendarDays } from '../requests/balance';
+import { deptLabels } from '../org/org.service';
 
 export interface ScheduleScope { from: string; to: string; dept?: string; project?: number }
 
-interface EmployeeRow { id: number; name: string; position: string | null; dept: string | null }
+interface EmployeeRow { id: number; name: string; position: string | null; dept_id: number | null }
 interface VacationRow { id: number; employee_id: number; s: string; e: string; type: string; status: string }
 interface PatternRow { employee_id: number; weekday: number; mode: string }
 interface OverrideRow { employee_id: number; d: string; mode: string }
@@ -62,27 +63,29 @@ export class ScheduleService {
   async build(q: ScheduleScope) {
     const from = new Date(q.from);
     const to = new Date(q.to);
+    // Подразделение — с вложенными; подпись различает одноимённые (v1.1.0, ADR-018)
+    const labels = await deptLabels(this.prisma);
     const scope = Prisma.sql`e.is_active
-      ${q.dept ? Prisma.sql`AND d.name = ${q.dept}` : Prisma.empty}
+      ${q.dept ? Prisma.sql`AND e.dept_id = ANY(${labels.ids(q.dept)}::int[])` : Prisma.empty}
       ${q.project ? Prisma.sql`AND e."projectId" = ${q.project}` : Prisma.empty}`;
     const [employees, vacations, patterns, overrides, settings] = await Promise.all([
       this.prisma.$queryRaw<EmployeeRow[]>`
-        SELECT e.id, e.name, e.position, d.name AS dept
-          FROM employees e LEFT JOIN departments d ON d.id = e.dept_id
+        SELECT e.id, e.name, e.position, e.dept_id
+          FROM employees e
          WHERE ${scope} ORDER BY e.name, e.id`,
       this.prisma.$queryRaw<VacationRow[]>`
         SELECT v.id, v.employee_id, to_char(v.start_date, 'YYYY-MM-DD') AS s, to_char(v.end_date, 'YYYY-MM-DD') AS e,
                v.type::text AS type, v.status::text AS status
-          FROM vacation_requests v JOIN employees e ON e.id = v.employee_id LEFT JOIN departments d ON d.id = e.dept_id
+          FROM vacation_requests v JOIN employees e ON e.id = v.employee_id
          WHERE ${scope} AND v.start_date <= ${to} AND v.end_date >= ${from} AND v.status IN ('pending', 'approved')
          ORDER BY v.start_date, v.id`,
       this.prisma.$queryRaw<PatternRow[]>`
         SELECT p.employee_id, p.weekday, p.mode::text AS mode
-          FROM work_patterns p JOIN employees e ON e.id = p.employee_id LEFT JOIN departments d ON d.id = e.dept_id
+          FROM work_patterns p JOIN employees e ON e.id = p.employee_id
          WHERE ${scope}`,
       this.prisma.$queryRaw<OverrideRow[]>`
         SELECT o.employee_id, to_char(o.date, 'YYYY-MM-DD') AS d, o.mode::text AS mode
-          FROM work_overrides o JOIN employees e ON e.id = o.employee_id LEFT JOIN departments d ON d.id = e.dept_id
+          FROM work_overrides o JOIN employees e ON e.id = o.employee_id
          WHERE ${scope} AND o.date >= ${from} AND o.date <= ${to}
          ORDER BY o.date`,
       this.prisma.orgSettings.findUnique({ where: { id: 1 } }),
@@ -100,11 +103,12 @@ export class ScheduleService {
     const pat = byEmployee(patterns);
     const ovr = byEmployee(overrides);
     const threshold = (settings?.conflictThreshold ?? 50) / 100;
+    const people = employees.map((e) => ({ ...e, dept: labels.label(e.dept_id) }));
 
     return {
       from: q.from,
       to: q.to,
-      employees: employees.map((e) => ({
+      employees: people.map((e) => ({
         id: e.id,
         name: e.name,
         position: e.position,
@@ -113,7 +117,7 @@ export class ScheduleService {
         workPattern: Object.fromEntries((pat.get(e.id) ?? []).map((p) => [p.weekday, p.mode])),
         workOverrides: (ovr.get(e.id) ?? []).map((o) => ({ date: o.d, mode: o.mode })),
       })),
-      conflicts: conflictDays(q.from, q.to, threshold, employees,
+      conflicts: conflictDays(q.from, q.to, threshold, people,
         vacations.filter((v) => v.status === 'approved').map((v) => ({ employeeId: v.employee_id, start: v.s, end: v.e }))),
     };
   }

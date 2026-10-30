@@ -1,8 +1,9 @@
 // Настройки организации (изменение — только администратор).
 import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { PrismaService } from '../infra/prisma.service';
+import { DEFAULT_UNIT_KINDS, loadTree, validUnitKinds, type UnitKind } from '../org/org.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../auth/guards';
@@ -61,6 +62,14 @@ export class SettingsUpdateDto {
 
   @IsOptional() @IsString() @MaxLength(128)
     hrHeadName?: string;
+
+  /** Виды уровней структуры (v1.1.0): [{ value, label, color }] — как в «По Делу». */
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30)
+    unitKinds?: UnitKind[];
+
+  /** Наибольшая глубина структуры: 2–30 уровней. */
+  @IsOptional() @IsInt() @Min(2) @Max(30)
+    orgMaxDepth?: number;
 }
 
 const REQUISITES = ['orgName', 'orgOkpo', 'headPosition', 'headName', 'hrHeadPosition', 'hrHeadName'] as const;
@@ -71,6 +80,7 @@ type SettingsView = {
   escalationDays: number; noticeDays: number;
   orgName: string | null; orgOkpo: string | null; headPosition: string | null; headName: string | null;
   hrHeadPosition: string | null; hrHeadName: string | null;
+  unitKinds: UnitKind[]; orgMaxDepth: number;
 };
 
 @ApiTags('settings')
@@ -94,6 +104,7 @@ export class SettingsController {
       escalationDays: s.escalationDays, noticeDays: s.noticeDays,
       orgName: s.orgName, orgOkpo: s.orgOkpo, headPosition: s.headPosition, headName: s.headName,
       hrHeadPosition: s.hrHeadPosition, hrHeadName: s.hrHeadName,
+      unitKinds: validUnitKinds(s.unitKinds) ?? [...DEFAULT_UNIT_KINDS], orgMaxDepth: s.orgMaxDepth,
     };
   }
 
@@ -109,6 +120,7 @@ export class SettingsController {
       escalationDays: s.escalationDays, noticeDays: s.noticeDays,
       orgName: s.orgName, orgOkpo: s.orgOkpo, headPosition: s.headPosition, headName: s.headName,
       hrHeadPosition: s.hrHeadPosition, hrHeadName: s.hrHeadName,
+      unitKinds: s.unitKinds, orgMaxDepth: s.orgMaxDepth,
       mailEnabled: this.mail.config.enabled,
     };
   }
@@ -142,6 +154,12 @@ export class SettingsController {
     }
     const before = await this.ensure();
     const data: Record<string, unknown> = { ...dto };
+    if (dto.unitKinds !== undefined) data.unitKinds = await this.checkKinds(dto.unitKinds);
+    if (dto.orgMaxDepth !== undefined) {
+      const tree = await loadTree(this.prisma);
+      const deepest = Math.max(0, ...tree.children(null).map((n) => tree.height(n.id)));
+      if (deepest > dto.orgMaxDepth) throw new ProblemException('validation/invalid-field', `В структуре уже ${deepest} уровней — сначала сократите её`);
+    }
     for (const k of REQUISITES) if (typeof data[k] === 'string') data[k] = (data[k] as string).trim() || null;
     // Изменение и запись аудита — одной транзакцией (ADR-006, AGENTS.md): без изменения нет записи и наоборот
     await this.prisma.$transaction(async (tx) => {
@@ -152,5 +170,18 @@ export class SettingsController {
       });
     });
     return this.get();
+  }
+
+  /** Виды уровней: правила «По Делу»; вид, который носят подразделения, удалить нельзя. */
+  private async checkKinds(raw: unknown): Promise<UnitKind[]> {
+    const kinds = validUnitKinds(raw);
+    if (!kinds) throw new ProblemException('validation/invalid-field', 'Виды уровней: код латиницей, название до 40 символов, цвет #RRGGBB, коды не повторяются');
+    const used = await this.prisma.department.groupBy({ by: ['kind'], _count: true });
+    const missing = used.filter((u) => !kinds.some((k) => k.value === u.kind));
+    if (missing.length) {
+      throw new ProblemException('validation/invalid-field',
+        `Вид «${missing[0].kind}» носят подразделения (${missing[0]._count}) — сначала смените их вид`);
+    }
+    return kinds;
   }
 }

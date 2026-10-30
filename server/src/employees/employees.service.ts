@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
+import { deptLabels } from '../org/org.service';
 import { hashPassword } from '../auth/passwords';
 import type { StaffActor } from '../auth/access';
 import { invalidateSession } from '../auth/guards';
@@ -37,12 +38,13 @@ export function toPublic(e: {
   id: number; login: string; name: string; email: string | null; position: string | null; deptId: number | null;
   role: string; isAdmin: boolean; isHr: boolean; empType: string; managerId: number | null; projectId: number | null;
   plannedDays: number; carryOver: number; isActive: boolean; personnelNumber: string | null;
+  reportsToNone: boolean; externalId: string | null;
 }) {
   return {
     id: e.id, login: e.login, name: e.name, email: e.email, position: e.position, deptId: e.deptId,
     role: e.role, isAdmin: e.isAdmin, isHr: e.isHr, empType: e.empType, managerId: e.managerId,
     projectId: e.projectId, plannedDays: e.plannedDays, carryOver: e.carryOver,
-    isActive: e.isActive, personnelNumber: e.personnelNumber,
+    isActive: e.isActive, personnelNumber: e.personnelNumber, reportsToNone: e.reportsToNone, externalId: e.externalId,
   };
 }
 
@@ -89,9 +91,11 @@ export class EmployeesService {
 
   /** byNumber — поиск и по табельному номеру (кадровая служба и администратор). */
   async list(params: { page: number; perPage: number; dept?: string; project?: number; search?: string; manager?: number; byNumber?: boolean }) {
+    const labels = await deptLabels(this.prisma);
     const where = {
       isActive: true,
-      ...(params.dept ? { dept: { name: params.dept } } : {}),
+      // Подразделение — с вложенными (v1.1.0, структура компании)
+      ...(params.dept ? { deptId: { in: labels.ids(params.dept) } } : {}),
       // Прямые подчинённые: руководителю не нужно перебирать всю организацию постранично
       ...(params.manager ? { managerId: params.manager } : {}),
       ...(params.project ? { projectId: params.project } : {}),
@@ -108,26 +112,26 @@ export class EmployeesService {
         where,
         orderBy: { name: 'asc' },
         skip: (params.page - 1) * params.perPage, take: params.perPage,
-        include: { dept: { select: { name: true } } },
       }),
       this.prisma.employee.count({ where }),
     ]);
     return {
-      items: items.map((e) => ({ ...toPublic(e), deptName: e.dept?.name ?? null })),
+      items: items.map((e) => ({ ...toPublic(e), deptName: labels.label(e.deptId) })),
       meta: { page: params.page, perPage: params.perPage, total },
     };
   }
 
   async get(id: number) {
-    const e = await this.prisma.employee.findUnique({ where: { id }, include: { dept: { select: { name: true } } } });
+    const e = await this.prisma.employee.findUnique({ where: { id } });
     if (!e || !e.isActive) throw new ProblemException('not-found');
-    return { ...toPublic(e), deptName: e.dept?.name ?? null };
+    return { ...toPublic(e), deptName: (await deptLabels(this.prisma)).label(e.deptId) };
   }
 
   async create(actor: StaffActor, input: {
     name: string; email?: string; position?: string; deptId?: number; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number; projectId?: number; login?: string;
     password?: string; plannedDays?: number; carryOver?: number; personnelNumber?: string | null;
+    reportsToNone?: boolean; externalId?: string | null;
   }): Promise<{ employee: ReturnType<typeof toPublic>; generatedPassword?: string }> {
     assertGrants(actor, input, { isAdmin: false, isHr: false });
     const actorId = actor.id;
@@ -157,6 +161,8 @@ export class EmployeesService {
           plannedDays: input.plannedDays ?? 28,
           carryOver: input.carryOver ?? 0,
           personnelNumber: input.personnelNumber?.trim() || null,
+          reportsToNone: input.reportsToNone ?? false,
+          externalId: input.externalId?.trim() || null,
           // Пароль выдаёт кадровая служба — сотрудник меняет его при первом входе (v0.6.0)
           mustChangePassword: true,
         },
@@ -174,6 +180,7 @@ export class EmployeesService {
     name?: string; email?: string | null; position?: string; deptId?: number | null; role?: string; isAdmin?: boolean; isHr?: boolean;
     empType?: string; managerId?: number | null; projectId?: number | null;
     plannedDays?: number; carryOver?: number; personnelNumber?: string | null;
+    reportsToNone?: boolean; externalId?: string | null;
   }) {
     const actorId = actor.id;
     const before = await this.prisma.employee.findUnique({ where: { id } });
@@ -198,6 +205,8 @@ export class EmployeesService {
           plannedDays: input.plannedDays, carryOver: input.carryOver,
           // null или пустая строка — очистить
           personnelNumber: input.personnelNumber === undefined ? undefined : input.personnelNumber?.trim() || null,
+          reportsToNone: input.reportsToNone,
+          externalId: input.externalId === undefined ? undefined : input.externalId?.trim() || null,
         },
       });
       await this.audit.record(tx, {

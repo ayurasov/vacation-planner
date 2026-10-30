@@ -131,13 +131,14 @@ describe('руководитель отдела без своего руково
     expect((await t.http().post(`/api/v1/vacation-requests/${own}/approve`).set(auth(adm)).send({})).status).toBe(200);
   });
 
-  it('очередь руководителя отдела — и сотрудники отдела без своего руководителя', async () => {
-    // Администратор состоит в тестовом отделе и руководителя не имеет: его заявку решает руководитель отдела
+  it('очередь руководителя отдела — и сотрудники отдела без своего руководителя: они его подчинённые', async () => {
+    // Администратор состоит в тестовом отделе и руководителя не имеет: его заявку решает руководитель отдела.
+    // С v1.1.0 (ADR-018) такие сотрудники — подчинённые руководителя по правилу «По Делу», а не только очередь
     const id = await request(adm, `${Y}-07-06`, `${Y}-07-08`);
     const queue = await t.http().get('/api/v1/vacation-requests?scope=approvals&status=pending').set(auth(mgr));
     expect((queue.body.items as Array<{ id: number }>).map((r) => r.id)).toContain(id);
     expect((await t.http().get('/api/v1/vacation-requests?scope=subordinates&status=pending').set(auth(mgr))).body.items
-      .some((r: { id: number }) => r.id === id)).toBe(false);
+      .some((r: { id: number }) => r.id === id)).toBe(true);
   });
 });
 

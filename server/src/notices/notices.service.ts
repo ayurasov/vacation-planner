@@ -6,6 +6,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
+import { deptLabels, type DeptLabels } from '../org/org.service';
 import { ProblemException } from '../infra/problems';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -23,14 +24,14 @@ const MONTHS_GEN = ['января', 'февраля', 'марта', 'апрел�
 const fmtDay = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS_GEN[Number(iso.slice(5, 7)) - 1]}`;
 const addDays = (iso: string, n: number) => toIso(new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86_400_000));
 
-type NoticeRow = Prisma.VacationNoticeGetPayload<{ include: { employee: { select: { name: true; position: true; dept: { select: { name: true } } } } } }>;
+type NoticeRow = Prisma.VacationNoticeGetPayload<{ include: { employee: { select: { name: true; position: true; deptId: true } } } }>;
 
-export function noticeView(n: NoticeRow, today: string) {
+export function noticeView(n: NoticeRow, today: string, labels: Pick<DeptLabels, 'label'>) {
   const start = toIso(n.startDate);
   const until = calendarDays(today, start) - 1; // дней до начала
   return {
     id: n.id, requestId: n.requestId, employeeId: n.employeeId,
-    employeeName: n.employee.name, position: n.employee.position, dept: n.employee.dept?.name ?? null,
+    employeeName: n.employee.name, position: n.employee.position, dept: labels.label(n.employee.deptId),
     start, end: toIso(n.endDate), days: n.days, sentAt: n.sentAt.toISOString(), late: n.late,
     acknowledgedAt: n.acknowledgedAt?.toISOString() ?? null,
     withdrawnAt: n.withdrawnAt?.toISOString() ?? null,
@@ -39,7 +40,7 @@ export function noticeView(n: NoticeRow, today: string) {
   };
 }
 
-const INCLUDE = { employee: { select: { name: true, position: true, dept: { select: { name: true } } } } } as const;
+const INCLUDE = { employee: { select: { name: true, position: true, deptId: true } } } as const;
 
 @Injectable()
 export class NoticesService implements OnModuleInit {
@@ -133,7 +134,8 @@ export class NoticesService implements OnModuleInit {
       where: { employeeId: userId, withdrawnAt: null, endDate: { gte: new Date(`${addDays(today, -90)}T00:00:00Z`) } },
       include: INCLUDE, orderBy: { startDate: 'asc' },
     });
-    return { items: rows.map((n) => noticeView(n, today)) };
+    const labels = await deptLabels(this.prisma);
+    return { items: rows.map((n) => noticeView(n, today, labels)) };
   }
 
   async acknowledge(userId: number, id: number): Promise<void> {
@@ -153,12 +155,13 @@ export class NoticesService implements OnModuleInit {
   async get(viewer: { id: number; staff: boolean }, id: number) {
     const n = await this.prisma.vacationNotice.findUnique({ where: { id }, include: INCLUDE });
     if (!n || (!viewer.staff && n.employeeId !== viewer.id)) throw new ProblemException('not-found');
-    return noticeView(n, await orgToday(this.prisma));
+    return noticeView(n, await orgToday(this.prisma), await deptLabels(this.prisma));
   }
 
   /** Журнал кадровой службы: извещения по отпускам, начинающимся в периоде. */
   async journal(params: { from: string; to: string; status?: 'pending' | 'acknowledged' | 'overdue'; dept?: string; page: number; perPage: number }) {
     const today = await orgToday(this.prisma);
+    const labels = await deptLabels(this.prisma);
     const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
     const status: Record<string, Prisma.VacationNoticeWhereInput> = {
       acknowledged: { acknowledgedAt: { not: null } },
@@ -168,7 +171,7 @@ export class NoticesService implements OnModuleInit {
     const where: Prisma.VacationNoticeWhereInput = {
       AND: [
         { startDate: { gte: day(params.from), lte: day(params.to) } },
-        params.dept ? { employee: { dept: { name: params.dept } } } : {},
+        params.dept ? { employee: { deptId: { in: labels.ids(params.dept) } } } : {},
         params.status ? status[params.status] : {},
       ],
     };
@@ -180,7 +183,7 @@ export class NoticesService implements OnModuleInit {
       this.prisma.vacationNotice.count({ where }),
       this.prisma.vacationNotice.count({ where: { AND: [where, status.pending] } }),
     ]);
-    return { items: rows.map((n) => noticeView(n, today)), meta: { page: params.page, perPage: params.perPage, total }, unacknowledged: pending };
+    return { items: rows.map((n) => noticeView(n, today, labels)), meta: { page: params.page, perPage: params.perPage, total }, unacknowledged: pending };
   }
 
   /** Все извещения периода — для выгрузки. */
@@ -190,6 +193,7 @@ export class NoticesService implements OnModuleInit {
       where: { startDate: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } },
       include: INCLUDE, orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
     });
-    return rows.map((n) => noticeView(n, today));
+    const labels = await deptLabels(this.prisma);
+    return rows.map((n) => noticeView(n, today, labels));
   }
 }
