@@ -37,6 +37,7 @@ const SUBJECTS: Record<string, string> = {
   request_stalled: 'Заявка без решения',
   delegation_assigned: 'Вам передано согласование заявок',
   account_locked: 'Учётная запись временно заблокирована',
+  password_changed: 'Пароль изменён',
   vacation_notice: 'Извещение о начале отпуска',
   planning_open: 'Планирование отпусков',
   planning_reminder: 'Напоминание: запланируйте отпуск',
@@ -48,6 +49,7 @@ const LINKS: Record<string, { path: string; action: string }> = {
   request_escalated: { path: '/approvals', action: 'Открыть заявки на согласование' },
   delegation_assigned: { path: '/approvals', action: 'Открыть заявки на согласование' },
   account_locked: { path: '/settings', action: 'Проверить сеансы и сменить пароль' },
+  password_changed: { path: '/settings', action: 'Проверить сеансы' },
   request_stalled: { path: '/employees', action: 'Открыть сотрудников' },
 };
 

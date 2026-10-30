@@ -166,7 +166,7 @@ describe('баланс и аудит', () => {
     await t.prisma.productionCalendar.delete({ where: { year: NEXT_YEAR } });
   });
 
-  it('аудит доступен только администратору и содержит действия', async () => {
+  it('аудит недоступен сотруднику и содержит действия (кадровой службе — staff.e2e)', async () => {
     const forbidden = await t.http().get('/api/v1/audit-events').set('Authorization', `Bearer ${emp}`);
     expect(forbidden.status).toBe(403);
 

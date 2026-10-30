@@ -1,0 +1,20 @@
+# Медленные запросы API (> 500 мс) по 10 секунд: всего и три самых частых маршрута (журнал сервера, UTC)
+15:14:10 5 /api/v1/auth/login 4, /api/v1/reports/vacations 1
+15:14:20 1 /api/v1/reports/vacations 1
+15:16:30 3 /api/v1/vacation-requests 2, /api/v1/planning/:year/open 1
+15:16:40 8 /api/v1/vacation-requests 5, /api/v1/planning/mine 3
+15:16:50 12 /api/v1/planning/mine 5, /api/v1/vacation-requests 4, /api/v1/schedule 2
+15:17:00 9 /api/v1/planning/mine 4, /api/v1/vacation-requests 2, /api/v1/employees/:id/balance 1
+15:17:20 90 /api/v1/vacation-requests 41, /api/v1/planning/mine 11, /api/v1/schedule 7
+15:17:30 115 /api/v1/vacation-requests 33, /api/v1/planning/mine 21, /api/v1/schedule 19
+15:17:40 2 /api/v1/planning/mine 1, /api/v1/schedule 1
+15:17:50 9 /api/v1/planning/mine 2, /api/v1/analytics/team 2, /api/v1/schedule 2
+15:18:00 8 /api/v1/planning/mine 4, /api/v1/vacation-requests 3, /api/v1/employees/:id/balance 1
+15:18:20 70 /api/v1/vacation-requests 20, /api/v1/schedule 17, /api/v1/planning/mine 15
+15:18:40 1 /api/v1/reports/vacations 1
+15:24:30 1 /api/v1/reports/vacations 1
+15:27:00 1 /api/v1/reports/t7 1
+15:28:30 1 /api/v1/reports/vacations 1
+15:34:20 7 /api/v1/vacation-requests 2, /api/v1/schedule 1, /api/v1/employees/:id/balance 1
+15:35:30 1 /api/v1/reports/vacations 1
+15:38:20 1 /api/v1/reports/t7 1

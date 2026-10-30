@@ -1,0 +1,52 @@
+psql:/home/user/vacation-planner/deploy/postgres/top-queries.sql:6: NOTICE:  extension "pg_stat_statements" already exists, skipping
+CREATE EXTENSION
+Топ-15 по суммарному времени
+ total_ms | calls  | mean_ms | pct  |   rows   | disk_blocks |                                                                              query                                                                               
+----------+--------+---------+------+----------+-------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    81169 |   2610 |   31.10 | 34.7 | 13063050 |           0 | SELECT v.id, v.employee_id, to_char(v.start_date, $3) AS s, to_char(v.end_date, $4) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+    30232 |  38089 |    0.79 | 12.9 |  3124420 |           0 | SELECT v.id, v.employee_id, to_char(v.start_date, $4) AS s, to_char(v.end_date, $5) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+    14004 |   2610 |    5.37 |  6.0 |  5220000 |           0 | SELECT e.id, e.name, e.position, d.name AS dept FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.is_active ORDER BY e.name, e.id
+    12590 |  16957 |    0.74 |  5.4 |  1177383 |           0 | SELECT "public"."vacation_requests"."id", "public"."vacation_requests"."start_date", "public"."vacation_requests"."end_date", "public"."vacation_requests"."stat
+    11119 |  13916 |    0.80 |  4.8 |    13916 |           0 | UPDATE "data_version" SET "version" = "version" + $1 WHERE "shard" = pg_backend_pid() % $2
+     8502 |   6550 |    1.30 |  3.6 |     2755 |           0 | SELECT "public"."vacation_requests"."id", "public"."vacation_requests"."employee_id", "public"."vacation_requests"."start_date", "public"."vacation_requests"."e
+     8468 |   6550 |    1.29 |  3.6 |     6550 |           0 | SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."vacation_requests"."id" FROM "public"."vacation_requests" LEFT JOIN "public"."employees" AS "j0" ON ("j0
+     6127 |  38089 |    0.16 |  2.6 |  1248460 |           0 | SELECT e.id, e.name, e.position, d.name AS dept FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.is_active AND d.name = $1 ORDER BY e.name, 
+     5495 |  38089 |    0.14 |  2.4 |   780528 |           0 | SELECT p.employee_id, p.weekday, p.mode::text AS mode FROM work_patterns p JOIN employees e ON e.id = p.employee_id LEFT JOIN departments d ON d.id = e.dept_id 
+     4864 |   8231 |    0.59 |  2.1 |     8231 |           0 | SELECT id FROM employees WHERE id = $1 FOR NO KEY UPDATE
+     4804 | 150566 |    0.03 |  2.1 |   150566 |           0 | SELECT e.pw_version AS pwv, e.is_active AS active, e.must_change_password AS must_change, ($1::uuid IS NULL OR EXISTS ( SELECT $4 FROM refresh_tokens r WHERE r.
+     4753 |  21568 |    0.22 |  2.0 |   707133 |           0 | SELECT "public"."employees"."id", "public"."employees"."login", "public"."employees"."password_hash", "public"."employees"."pw_version", "public"."employees"."n
+     3943 |   2610 |    1.51 |  1.7 |  3259890 |           0 | SELECT p.employee_id, p.weekday, p.mode::text AS mode FROM work_patterns p JOIN employees e ON e.id = p.employee_id LEFT JOIN departments d ON d.id = e.dept_id 
+     3487 |   4611 |    0.76 |  1.5 |   317615 |           0 | SELECT "public"."vacation_requests"."id", "public"."vacation_requests"."start_date", "public"."vacation_requests"."end_date", "public"."vacation_requests"."stat
+     2608 | 131508 |    0.02 |  1.1 |   131508 |           0 | SELECT "public"."employees"."id", "public"."employees"."login", "public"."employees"."password_hash", "public"."employees"."pw_version", "public"."employees"."n
+(15 rows)
+
+Топ-10 по среднему времени (не меньше 20 вызовов)
+ mean_ms | max_ms | calls |                                                                              query                                                                               
+---------+--------+-------+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   31.10 |  903.5 |  2610 | SELECT v.id, v.employee_id, to_char(v.start_date, $3) AS s, to_char(v.end_date, $4) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+   11.58 |   26.3 |    22 | SELECT id, employee_id, to_char(start_date, $3) AS s, to_char(end_date, $4) AS e, status::text AS status FROM vacation_requests WHERE type = $5 AND status IN ($
+   10.77 |   87.9 |    52 | UPDATE vacation_notices n SET withdrawn_at = now() FROM vacation_requests r JOIN employees em ON em.id = r.employee_id WHERE r.id = n.request_id AND n.withdrawn
+    5.37 |  215.8 |  2610 | SELECT e.id, e.name, e.position, d.name AS dept FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.is_active ORDER BY e.name, e.id
+    3.32 |   18.0 |    24 | SELECT "public"."refresh_tokens"."id", "public"."refresh_tokens"."session_id" FROM "public"."refresh_tokens" WHERE ("public"."refresh_tokens"."session_id" IN ($
+    3.22 |   13.5 |    22 | SELECT "public"."employees"."id", "public"."employees"."name", "public"."employees"."position", "public"."employees"."planned_days", "public"."employees"."perso
+    2.28 |   26.4 |    52 | UPDATE vacation_notices n SET withdrawn_at = $2 FROM vacation_requests r JOIN employees em ON em.id = r.employee_id WHERE r.id = n.request_id AND n.withdrawn_at
+    2.24 |   17.4 |    24 | SELECT "public"."refresh_tokens"."id", "public"."refresh_tokens"."session_id" FROM "public"."refresh_tokens" WHERE ("public"."refresh_tokens"."session_id" IN ($
+    1.71 |    3.6 |    23 | SELECT "public"."refresh_tokens"."id", "public"."refresh_tokens"."session_id" FROM "public"."refresh_tokens" WHERE ("public"."refresh_tokens"."session_id" IN ($
+    1.62 |    7.9 |    23 | SELECT "public"."refresh_tokens"."id", "public"."refresh_tokens"."session_id" FROM "public"."refresh_tokens" WHERE ("public"."refresh_tokens"."session_id" IN ($
+(10 rows)
+
+Таблицы с последовательным чтением больших объёмов
+      relname      | seq_scan | seq_tup_read | idx_scan | n_live_tup 
+-------------------+----------+--------------+----------+------------
+ employees         |    23737 |     45009720 |   667318 |          0
+ vacation_requests |      473 |     17576228 |  2572943 |      42248
+ work_patterns     |    13353 |     16677897 |  1249936 |          0
+ departments       |   265802 |     16213922 |    60786 |          0
+ vacation_notices  |      103 |      2446137 |    27809 |          5
+ data_version      |    63229 |      1011664 |        0 |         16
+ notifications     |       36 |       999564 |    15057 |       6998
+ email_outbox      |      634 |       831154 |       71 |          0
+ login_attempts    |      596 |       375754 |     8588 |       2226
+ calendars         |    56710 |       369930 |        0 |          0
+(10 rows)
+

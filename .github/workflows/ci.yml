@@ -4,9 +4,9 @@ name: CI (GitHub)
 
 on:
   push:
-    branches: [main, 'v0.*']
+    branches: [main, 'v*']
   pull_request:
-    branches: [main, 'v0.*']
+    branches: [main, 'v*']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   server:
-    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
     name: 'Сервер: сборка + e2e (Node ${{ matrix.node }})'
     runs-on: ubuntu-latest
     strategy:
@@ -65,8 +65,58 @@ jobs:
         run: npm run lint
         working-directory: server
 
+  load-smoke:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
+    name: 'Нагрузочный дымовой прогон с порогами'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: vacation
+          POSTGRES_PASSWORD: vacation
+          POSTGRES_DB: vacation_load
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U vacation -d vacation_load"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://vacation:vacation@localhost:5432/vacation_load
+      JWT_SECRET: load-secret-load-secret-load-secret-32ch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
+      - name: 'Сервер: зависимости, миграции, данные стенда нагрузки, сборка'
+        run: |
+          npm ci
+          npx prisma migrate deploy
+          npm run db:seed:load -- --employees 300 --history 1
+          npm run build
+        working-directory: server
+      - name: 'Профиль smoke: p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок (docs/performance/workday-model.md)'
+        run: |
+          PORT=8097 WEB_CONCURRENCY=2 LOG_FORMAT=json node dist/main.js > /tmp/api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8097/healthz > /dev/null && break; sleep 1; done
+          node ../tools/load/run.mjs --url http://127.0.0.1:8097 --profile smoke --population 300 --slo --out /tmp/load.json \
+            || { tail -40 /tmp/api.log; exit 1; }
+        working-directory: server
+
+  docs:
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
+    name: 'Документы: таблицы сверены с кодом'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: 'Каталог операций, словарь данных, коды ошибок, показатели кода (gen_tables.py --check)'
+        run: |
+          pip install -q pyyaml
+          python3 tools/docs/gen_tables.py --check
+
   web:
-    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
     name: 'Клиент: линтер, тесты, сборка'
     runs-on: ubuntu-latest
     steps:
@@ -138,7 +188,7 @@ jobs:
           retention-days: 14
 
   sbom:
-    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
     name: 'SBOM и лицензии (реестр ОП)'
     runs-on: ubuntu-latest
     steps:
@@ -165,24 +215,27 @@ jobs:
           retention-days: 30
 
   docker:
-    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
     name: Docker-образы
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Сборка server и web
         run: docker compose --profile full build
+        env:
+          JWT_SECRET: build-secret-build-secret-build-32ch # compose требует секрет и при сборке
 
   smoke:
-    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/ci.yml
+    if: github.server_url == 'https://github.com'   # на Gitea-сервере работает .gitea/workflows/server-ci.yml
     name: Дымовой прогон полного стенда
     runs-on: ubuntu-latest
+    env:
+      # compose подставляет переменные во весь файл и для exec/logs — секрет нужен каждому шагу
+      JWT_SECRET: smoke-secret-smoke-secret-smoke-32ch
     steps:
       - uses: actions/checkout@v4
       - name: Сборка и запуск (postgres + server + web/nginx)
         run: docker compose --profile full up -d --build
-        env:
-          JWT_SECRET: smoke-secret-smoke-secret-smoke-32ch
       - name: Пробы стенда
         run: |
           # Ждём готовности API (server применяет миграции при старте — nginx отвечает раньше)

@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { dbErrors } from './metrics';
+import { logEvent } from './log';
 
 export const PROBLEM_BASE = 'https://vacation.planner/problems';
 
@@ -54,6 +55,20 @@ const RETRY_AFTER: Record<string, number> = { 'rate-limited': 60, 'service-unava
 // P2024 — нет свободного соединения в пуле за pool_timeout, P2028 — транзакция не началась
 // или не завершилась вовремя, P1001/P1002/P1017 — БД недоступна или разорвала соединение.
 const DB_UNAVAILABLE = new Set(['P2024', 'P2028', 'P1001', 'P1002', 'P1017']);
+// Сырые запросы ($queryRaw) при перезапуске PostgreSQL падают не P1017, а P2010 с кодом PostgreSQL в meta.code:
+// 57P01 — соединение закрыто администратором (перезапуск), 57P02 — аварийный останов, 57P03 — сервер запускается,
+// 08xxx — обрыв соединения, 53300 — нет свободных соединений. До v1.0.0 это был 500 (прогон отказов под нагрузкой)
+const PG_UNAVAILABLE = /^(57P0[123]|08[0-9A-Z]{3}|53300)$/;
+
+/** Код недоступности БД для метрики и журнала или null — ошибка не про доступность. */
+function unavailableCode(e: { code?: unknown; errorCode?: unknown; meta?: { code?: unknown }; message?: unknown } | null): string | null {
+  const prismaCode = e?.code ?? e?.errorCode; // errorCode — у ошибок инициализации (P1001)
+  if (typeof prismaCode !== 'string') return null;
+  if (DB_UNAVAILABLE.has(prismaCode)) return prismaCode;
+  if (prismaCode !== 'P2010') return null;
+  const pg = typeof e?.meta?.code === 'string' ? e.meta.code : /Code: `(\w{5})`/.exec(String(e?.message ?? ''))?.[1];
+  return pg && PG_UNAVAILABLE.test(pg) ? pg : null;
+}
 
 @Injectable()
 export class ProblemException extends HttpException {
@@ -87,6 +102,13 @@ export class ProblemFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<{ originalUrl?: string }>();
+    // Каждый ответ об ошибке несёт идентификатор запроса (v1.0.0): пользователь сообщает его в
+    // поддержку, а по нему находится строка журнала сервера (infra/log.ts)
+    const requestId = typeof res.getHeader === 'function' ? res.getHeader('X-Request-Id') : undefined;
+    if (requestId) {
+      const send = res.json.bind(res);
+      res.json = (body: unknown) => send(body && typeof body === 'object' ? { ...body, requestId: String(requestId) } : body);
+    }
 
     if (exception instanceof ProblemException) {
       const retry = RETRY_AFTER[exception.code];
@@ -97,10 +119,10 @@ export class ProblemFilter implements ExceptionFilter {
     }
     // Перегрузка БД — 503 с Retry-After: клиент или балансировщик повторит запрос, а в метриках
     // это видно отдельно от ошибок кода (vp_db_errors_total)
-    const e = exception as { code?: unknown; errorCode?: unknown } | null;
-    const prismaCode = e?.code ?? e?.errorCode; // errorCode — у ошибок инициализации (P1001)
-    if (typeof prismaCode === 'string' && DB_UNAVAILABLE.has(prismaCode)) {
-      dbErrors.inc({ code: prismaCode });
+    const unavailable = unavailableCode(exception as Parameters<typeof unavailableCode>[0]);
+    if (unavailable) {
+      dbErrors.inc({ code: unavailable });
+      logEvent('warn', 'database unavailable', { code: unavailable });
       const p = new ProblemException('service-unavailable');
       res.setHeader('Retry-After', String(RETRY_AFTER['service-unavailable']));
       res.status(p.getStatus()).contentType('application/problem+json').json(p.toProblem(req.originalUrl));
@@ -150,7 +172,8 @@ export class ProblemFilter implements ExceptionFilter {
       return;
     }
      
-    console.error('Необработанная ошибка', exception);
+    const err = exception instanceof Error ? exception : new Error(String(exception));
+    logEvent('error', 'unhandled error', { error: err.message, stack: err.stack });
     res.status(500).contentType('application/problem+json').json({
       type: `${PROBLEM_BASE}/internal`,
       title: 'Внутренняя ошибка сервера',

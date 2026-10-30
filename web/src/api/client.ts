@@ -17,6 +17,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    /** Идентификатор запроса из ответа (v1.0.0): по нему поддержка находит строку журнала сервера. */
+    public readonly requestId?: string,
   ) {
     super(message);
   }
@@ -40,18 +42,27 @@ function lost(): void {
 
 // Один refresh на всех: параллельные запросы с истёкшим токеном ждут общий результат.
 // Иначе ротация отзывает refresh-токен первого запроса и остальные получают 401.
-let refreshing: Promise<boolean> | null = null;
+let refreshing: Promise<Refresh> | null = null;
 
-function refreshAccess(): Promise<boolean> {
-  refreshing ??= (async () => {
+/**
+ * Итог обновления токена: `ok`; `denied` — refresh недействителен (выход, смена пароля, увольнение,
+ * завершённый сеанс), сеанс потерян; ApiError — сервер перегружен, перезапускается или недоступен.
+ * Во втором случае сеанс жив: до v1.0.0 любой неуспех считался потерей сеанса, и при перезапуске
+ * PostgreSQL или перегрузке (503) сотрудников выбрасывало на экран входа.
+ */
+type Refresh = 'ok' | 'denied' | ApiError;
+
+function refreshAccess(): Promise<Refresh> {
+  refreshing ??= (async (): Promise<Refresh> => {
     try {
       const res = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' });
-      if (!res.ok) return false;
+      if (res.status === 401 || res.status === 403) return 'denied';
+      if (!res.ok) return await toError(res);
       const data = await res.json();
       setAccess(data.accessToken, data.expiresAt);
-      return true;
+      return 'ok';
     } catch {
-      return false;
+      return new ApiError(503, 'service-unavailable', 'Сервер недоступен. Проверьте подключение и повторите через несколько секунд.');
     } finally {
       setTimeout(() => { refreshing = null; }, 0);
     }
@@ -62,7 +73,8 @@ function refreshAccess(): Promise<boolean> {
 async function toError(res: Response): Promise<ApiError> {
   const body = await res.json().catch(() => null);
   const code = String(body?.type ?? '').split('/problems/')[1] ?? 'internal';
-  return new ApiError(res.status, code, body?.detail ?? body?.title ?? `Ошибка ${res.status}`);
+  const requestId = body?.requestId ?? res.headers.get('X-Request-Id') ?? undefined;
+  return new ApiError(res.status, code, body?.detail ?? body?.title ?? `Ошибка ${res.status}`, requestId);
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
@@ -76,7 +88,9 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   const res = await fetch(`/api/v1${path}`, { ...init, headers, credentials: 'include' });
 
   if (res.status === 401 && retry && !path.startsWith('/auth/login')) {
-    if (await refreshAccess()) return request<T>(path, init, false);
+    const refreshed = await refreshAccess();
+    if (refreshed === 'ok') return request<T>(path, init, false);
+    if (refreshed !== 'denied') throw refreshed;
     lost();
   }
 
@@ -90,7 +104,9 @@ async function download(path: string, retry = true): Promise<Blob> {
   const headers: Record<string, string> = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
   const res = await fetch(`/api/v1${path}`, { headers, credentials: 'include' });
   if (res.status === 401 && retry) {
-    if (await refreshAccess()) return download(path, false);
+    const refreshed = await refreshAccess();
+    if (refreshed === 'ok') return download(path, false);
+    if (refreshed !== 'denied') throw refreshed;
     lost();
   }
   if (!res.ok) throw await toError(res);
@@ -147,7 +163,7 @@ export function subscribeLive(handlers: LiveHandlers): () => void {
 
 export const api = {
   /** Восстановить сеанс по refresh-cookie при запуске: без заведомого 401 на /auth/me до обновления. */
-  restore: (): Promise<boolean> => refreshAccess(),
+  restore: async (): Promise<boolean> => (await refreshAccess()) === 'ok',
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),

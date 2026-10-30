@@ -10,7 +10,7 @@ import { assertStaff } from '../auth/access';
 import { CurrentUser } from '../auth/guards';
 import type { AccessClaims } from '../auth/token.service';
 import { PlanningService, type PlanStatus } from './planning.service';
-import { buildT7 } from './t7';
+import { renderT7 } from './t7-runner';
 
 export class OpenCampaignDto {
   @IsISO8601({ strict: true })
@@ -118,7 +118,7 @@ export class PlanningController {
   async t7(@CurrentUser() user: AccessClaims, @Query() q: T7Query, @Res() res: Response): Promise<void> {
     await assertStaff(this.prisma, user, 'hr');
     const data = await this.planning.t7(q.year);
-    const file = await buildT7(data);
+    const file = await renderT7(data); // вне основного потока: выгрузка не задерживает другие запросы
     await this.audit.record(this.prisma, {
       actorId: user.sub, action: 'report.exported', entity: 'report', entityId: 't7',
       after: { year: q.year, rows: data.rows.length, draft: data.draft },

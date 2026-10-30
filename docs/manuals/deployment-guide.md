@@ -8,15 +8,15 @@
 
 # Требования
 
-| Ресурс | До 1000 пользователей | До 5000 пользователей |
+| Ресурс | До 2000 сотрудников | До 5000 сотрудников |
 |---|---|---|
-| Процессор | 2 vCPU | 4 vCPU под приложение; PostgreSQL — на отдельном узле или с репликой |
-| Память | 4 ГБ | 8 ГБ на узел приложения |
-| Диск | 20 ГБ SSD (данные и копии за 14 дней) | 50 ГБ SSD; архив WAL и физические копии — на отдельном диске или хранилище |
+| Процессор | 2 vCPU (проверенный минимум — 1 vCPU) | 4 vCPU под приложение; PostgreSQL — на отдельном узле или с репликой |
+| Память | 4 ГБ (минимум — 2 ГБ) | 8 ГБ на узел приложения |
+| Диск | 40 ГБ SSD (данные, копии за 14 дней, журналы) | 50 ГБ SSD; архив WAL и физические копии — на отдельном диске или хранилище |
 | ОС | Linux x86-64 с Docker Engine 24+ и Docker Compose v2 | то же |
 | Сеть | Обратный прокси организации с TLS на 443 → стенд на 80 | то же; при втором экземпляре `server` — балансировщик |
 
-Расчёт для 5000 пользователей подтверждён нагрузочным прогоном: 500 одновременных пользователей, p95 чтения и записи в пределах требований, без ошибок (`docs/progress/load-v0.5.0.md`).
+Расчёт для 1000–2000 сотрудников подтверждён нагрузочными испытаниями версии 1.0.0 по модели рабочего дня: на одном виртуальном процессоре (API и PostgreSQL на одном ядре) час пик последнего дня кампании планирования и вход всей организации за 15 минут укладываются в требования — p95 чтения 48 и 74 мс, записи 68 и 145 мс, без ошибок. Рекомендуемые 2 vCPU и 4 ГБ — запас на утренний вход, выгрузки, резервное копирование и обновление (`docs/performance/report-v1.0.0.md`). Запас по нагрузке (профиль `stress`): на одном vCPU в требованиях остаётся вдвое более активный час пик, на рекомендуемых 2 vCPU — в восемь раз более активный (p95 чтения 166 мс, записи 427 мс, без ошибок). Расчёт для 5000 — нагрузочный прогон v0.5.0: 500 одновременных пользователей без ошибок (`docs/progress/load-v0.5.0.md`).
 
 Клиенты — две последние версии Chrome, Edge, Firefox или Safari; на телефонах — мобильные браузеры.
 
@@ -27,7 +27,7 @@
 ```bash
 git clone <адрес репозитория> vacation-planner
 cd vacation-planner
-git checkout v0.6.0
+git checkout v1.0.0
 ```
 
 2. Создайте файл `.env` рядом с `docker-compose.yml`:
@@ -70,12 +70,19 @@ docker compose exec server npm run db:seed:prod
 |---|---|---|---|
 | `JWT_SECRET` | `server` | Секрет подписи access-токенов; не короче 32 символов, иначе сервер не стартует | — |
 | `DATABASE_URL` | `server` | Строка подключения PostgreSQL; параметр `connection_limit` задаёт размер пула на процесс | из compose |
+| `POSTGRES_PASSWORD` | `postgres`, `server`, `backup`, реплика | Пароль учётной записи `vacation` PostgreSQL (буквы и цифры — он входит в адрес подключения). Задаётся до первого запуска; на работающей БД — сначала `ALTER USER vacation PASSWORD '…'`, затем `.env` и перезапуск `server` и `backup` | `vacation` |
+| `VP_VERSION` | `server`, `web` | Версия образов `vacation-planner-server` и `vacation-planner-web` — при установке из дистрибутива (`docker load`) | `local` |
 | `DB_HOST` | `server`, `backup`, `basebackup` | Узел БД в compose; при переключении на реплику — `postgres-replica` | `postgres` |
 | `WEB_CONCURRENCY` | `server` | Число процессов API: число или `auto` — по числу ядер | `auto` в compose |
 | `DB_POOL_SIZE` | `server` | Соединений с БД на процесс, если `connection_limit` не задан в `DATABASE_URL` | min(10, 40 / процессов), не меньше 3 |
 | `METRICS_TOKEN` | `server` | Если задан, `/metrics` требует `Authorization: Bearer <токен>` | — |
 | `EVENTS_POLL_MS` | `server` | Как часто процесс проверяет новые события для потока SSE, мс | 2000 |
-| `JOBS_POLL_SECONDS` | `server` | Как часто каждый процесс проходит плановые задачи: извещения о начале отпуска, эскалацию заявок, напоминания о планировании, очистку журнала входов; `0` — выключено (только для тестов) | 60 |
+| `JOBS_POLL_SECONDS` | `server` | Как часто каждый процесс проходит плановые задачи: извещения о начале отпуска, эскалацию заявок, напоминания о планировании, очистку журнала входов, сроки хранения служебных данных (раздел «Обслуживание»); `0` — выключено (только для тестов) | 60 |
+| `LOG_FORMAT` | `server` | `json` — журнал строками JSON для сборщика журналов организации (Loki, ELK, Vector); иначе — текст | `json` в compose, текст вне его |
+| `REQUEST_LOG` | `server` | Журнал запросов API: `slow` — медленные и ответы 5xx, `all` — каждый запрос (для разбора инцидента), `off` | `slow` |
+| `SLOW_REQUEST_MS` | `server` | Порог медленного запроса API, мс | 1000 |
+| `SLOW_QUERY_MS` | `server` | Порог медленного запроса к БД, мс: запрос пишется в журнал с кодом запроса API, без параметров; `0` — выключено | 0 |
+| `PG_SLOW_MS` | `postgres` | Порог журнала медленных запросов PostgreSQL (`log_min_duration_statement`), мс; `-1` — выключено | 1000 |
 | `REPLICATION_PASSWORD` | реплика | Пароль роли `replicator`; обязателен для `docker-compose.replica.yml` | — |
 | `BASEBACKUP_INTERVAL`, `BASEBACKUP_KEEP` | `basebackup` | Интервал физических копий, секунд; сколько копий хранить | 86400, 7 |
 | `TRUST_PROXY` | `server` | Каким прокси доверять при определении адреса клиента (влияет на ограничение частоты входа) | `loopback, linklocal, uniquelocal` |
@@ -158,8 +165,8 @@ curl -s -X POST "https://otpusk.company.ru/api/v1/imports/employees?dryRun=false
 ```bash
 docker compose --profile full ps                                   # все сервисы running/healthy
 curl -s http://localhost/api/v1/employees -o /dev/null -w '%{http_code}\n'   # 401 — API за nginx отвечает
-docker compose exec server wget -qO- http://localhost:8080/readyz  # {"ok":true} — БД доступна
-docker compose exec server wget -qO- http://localhost:8080/metrics | grep -E '^vp_(db_up|process_count)'   # vp_db_up 1, число процессов
+docker compose exec server wget -qO- http://localhost:8080/readyz  # {"ok":true,"db":"up"} — БД доступна
+docker compose exec server sh -c 'wget -qO- --header "Authorization: Bearer $METRICS_TOKEN" http://localhost:8080/metrics' | grep -E '^vp_(db_up|process_count)'   # vp_db_up 1, число процессов
 docker compose logs backup --tail 5                                # backup: /backups/vacation-….dump
 ```
 
@@ -172,9 +179,11 @@ docker compose logs backup --tail 5                                # backup: /ba
 3. Получите новую версию и пересоберите стенд:
 
 ```bash
-git fetch --tags && git checkout v0.x.y
+git fetch --tags && git checkout vX.Y.Z
 docker compose --profile full up -d --build
 ```
+
+Без доступа в интернет — из дистрибутива (`scripts/build-dist.sh`): `docker load < vacation-planner-X.Y.Z-images.tar.gz`, в `.env` — `VP_VERSION=X.Y.Z`, затем `docker compose --profile full up -d` без `--build`. На стенде с репликой во всех командах указывайте оба файла: `docker compose -f docker-compose.yml -f docker-compose.replica.yml …`. Пошагово, с проверкой и откатом, — регламент `docs/runbooks/update.md`.
 
 4. Миграции применятся при старте `server`. Выполните проверку.
 
@@ -213,7 +222,7 @@ docker compose --profile full start server web
 ```bash
 docker compose exec postgres createdb -U vacation restore_check
 docker compose exec backup sh -c 'pg_restore -d restore_check $(ls -t /backups/*.dump | head -1)'
-docker compose exec postgres psql -U vacation -d restore_check -c 'select count(*) from employees; select count(*) from vacation_requests;'
+docker compose exec postgres psql -U vacation -d restore_check -c 'select count(*) from employees' -c 'select count(*) from vacation_requests'
 docker compose exec postgres dropdb -U vacation restore_check
 ```
 
@@ -252,13 +261,15 @@ VALUES ('admin', '<хеш из предыдущей команды>', 'Адми�
 
 ```bash
 cd server
-DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load npx prisma migrate deploy
-DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load npm run db:seed:load   # 5000 сотрудников
+export DATABASE_URL=postgresql://vacation:vacation@localhost:5432/vacation_load
+npx prisma migrate deploy
+npm run db:seed:load -- --employees 2000 --history 5    # численность вашей организации
 # сервер на этой БД, затем:
-node ../tools/load/run.mjs --url http://<сервер>:8080 --users 500 --ramp 60 --duration 900
+node ../tools/load/run.mjs --url http://<сервер>:8080 --profile average --population 2000
+node ../tools/load/run.mjs --url http://<сервер>:8080 --profile spike --population 2000
 ```
 
-Скрипт наполнения откажется работать с БД, в имени которой нет `load`. Генератор печатает таблицу p50/p95/p99 по операциям; цели — p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок.
+Скрипт наполнения откажется работать с БД, в имени которой нет `load`. Профиль `average` — час пик последнего дня кампании планирования, `spike` — вход всей организации за 15 минут; модель и остальные профили — `docs/performance/workday-model.md`, порядок прогона и сбора доказательств — `docs/performance/runbook.md`. Генератор печатает таблицу p50/p95/p99 по операциям; цели — p95 чтения ≤ 300 мс, записи ≤ 500 мс, без ошибок.
 
 # Мониторинг
 
@@ -284,12 +295,16 @@ docker compose --profile full --profile monitoring up -d     # Prometheus на 1
 | Оповещение | Важность | Действие |
 |---|---|---|
 | `VacationApiDown`, `VacationDatabaseDown` | критично | Проверьте контейнеры `server`, `postgres`, место на диске |
-| `VacationServerErrors` | предупреждение | Журнал `server`: «Необработанная ошибка» |
+| `VacationServerErrors` | предупреждение | Журнал `server`: строки `"msg":"unhandled error"` со стеком и кодом запроса |
 | `VacationReadLatencyHigh`, `VacationWriteLatencyHigh` | предупреждение | Панель «Задержка p95 по маршрутам»; задержка цикла событий и соединения БД |
 | `VacationDatabaseOverloaded`, `VacationConnectionsNearLimit` | предупреждение | Увеличьте `max_connections` или уменьшите `DB_POOL_SIZE`, проверьте долгие запросы в `pg_stat_activity` |
+| `VacationIdleInTransaction` | предупреждение | Зависшая транзакция: `pg_stat_activity` покажет запрос и время начала; `docs/runbooks/alerts.md` |
+| `VacationEventLoopLag` | предупреждение | Процессам API не хватает ядер или идёт долгая синхронная операция: профиль процессора — `docs/runbooks/diagnostics.md` |
 | `VacationReplicaDisconnected`, `VacationReplicaLagging` | предупреждение | Раздел «Реплика и архив WAL» |
 | `VacationWalArchiveFailing` | критично | Место на томе `wal-archive`, журнал `postgres` («archive command failed») |
 | `VacationMailStuck`, `VacationMailFailed`, `VacationDigestNotRun` | предупреждение | Раздел «Почта» |
+
+Пошаговые действия по каждому оповещению — `docs/runbooks/alerts.md`; обновление, резервное копирование, переключение на реплику и разбор инцидента — регламенты `docs/runbooks/`. Разбор замедлений и ошибок по шагам «симптом → метрика → причина → действие», поиск по коду запроса из сообщения пользователя, самые затратные запросы БД, профиль процессора и снимок памяти — `docs/runbooks/diagnostics.md`.
 
 # Реплика и архив WAL
 
@@ -366,7 +381,7 @@ docker exec vp-restore psql -U vacation -c "select pg_wal_replay_resume()"   # �
 
 | Признак | Причина и действие |
 |---|---|
-| `server` перезапускается, в журнале «JWT_SECRET» | Секрет не задан или короче 32 символов — задайте в `.env` |
+| `docker compose` отвечает «required variable JWT_SECRET is missing a value», `server` перезапускается с «JWT_SECRET» в журнале | Секрет не задан или короче 32 символов — задайте в `.env` (с версии 1.0.0 известного значения по умолчанию нет) |
 | `/readyz` не отвечает | PostgreSQL недоступен — `docker compose ps postgres`, свободное место на диске |
 | У всех пользователей «Слишком много попыток входа» | Прокси с публичным адресом не входит в `TRUST_PROXY` — все запросы выглядят одним клиентом |
 | После обновления пустой экран | Кеш браузера держит старый `index.html` за прокси — `index.html` отдаётся с `no-cache`, проверьте, что прокси не кеширует его |

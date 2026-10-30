@@ -5,7 +5,7 @@ import { PrismaModule } from './infra/prisma.module';
 import { ProblemFilter } from './infra/problems';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
-import { JwtAuthGuard, RolesGuard } from './auth/guards';
+import { JwtAuthGuard } from './auth/guards';
 import { EmployeesModule } from './employees/employees.module';
 import { RequestsModule } from './requests/requests.module';
 import { DirectoriesModule } from './directories/directories.module';
@@ -54,7 +54,6 @@ import { PlanningModule } from './planning/planning.module';
     { provide: APP_FILTER, useClass: ProblemFilter },
     // Аутентификация по умолчанию на всех эндпоинтах; публичные помечаются @Public()
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

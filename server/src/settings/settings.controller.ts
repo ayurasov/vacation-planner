@@ -143,10 +143,13 @@ export class SettingsController {
     const before = await this.ensure();
     const data: Record<string, unknown> = { ...dto };
     for (const k of REQUISITES) if (typeof data[k] === 'string') data[k] = (data[k] as string).trim() || null;
-    await this.prisma.orgSettings.update({ where: { id: 1 }, data });
-    await this.audit.record(this.prisma, {
-      actorId: user.sub, action: 'settings.updated', entity: 'org_settings', entityId: '1',
-      before, after: dto,
+    // Изменение и запись аудита — одной транзакцией (ADR-006, AGENTS.md): без изменения нет записи и наоборот
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orgSettings.update({ where: { id: 1 }, data });
+      await this.audit.record(tx, {
+        actorId: user.sub, action: 'settings.updated', entity: 'org_settings', entityId: '1',
+        before, after: dto,
+      });
     });
     return this.get();
   }

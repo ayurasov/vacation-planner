@@ -1,0 +1,51 @@
+psql:/home/user/vacation-planner/deploy/postgres/top-queries.sql:6: NOTICE:  extension "pg_stat_statements" already exists, skipping
+CREATE EXTENSION
+Топ-15 по суммарному времени
+ total_ms | calls | mean_ms | pct  |  rows   | disk_blocks |                                                                              query                                                                               
+----------+-------+---------+------+---------+-------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    12008 |   323 |   37.18 | 32.5 | 1616615 |           0 | SELECT v.id, v.employee_id, to_char(v.start_date, $3) AS s, to_char(v.end_date, $4) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+     5626 |  6487 |    0.87 | 15.2 |  531131 |           0 | SELECT v.id, v.employee_id, to_char(v.start_date, $4) AS s, to_char(v.end_date, $5) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+     3073 |   323 |    9.51 |  8.3 |  646000 |           0 | SELECT e.id, e.name, e.position, d.name AS dept FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.is_active ORDER BY e.name, e.id
+     1572 |  2204 |    0.71 |  4.3 |  154480 |           0 | SELECT "public"."vacation_requests"."id", "public"."vacation_requests"."start_date", "public"."vacation_requests"."end_date", "public"."vacation_requests"."stat
+     1084 |  6487 |    0.17 |  2.9 |  132745 |           0 | SELECT p.employee_id, p.weekday, p.mode::text AS mode FROM work_patterns p JOIN employees e ON e.id = p.employee_id LEFT JOIN departments d ON d.id = e.dept_id 
+     1057 |   323 |    3.27 |  2.9 |  403427 |           0 | SELECT p.employee_id, p.weekday, p.mode::text AS mode FROM work_patterns p JOIN employees e ON e.id = p.employee_id LEFT JOIN departments d ON d.id = e.dept_id 
+      971 |  6487 |    0.15 |  2.6 |  212549 |           0 | SELECT e.id, e.name, e.position, d.name AS dept FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.is_active AND d.name = $1 ORDER BY e.name, 
+      961 |  2978 |    0.32 |  2.6 |   97500 |           0 | SELECT "public"."employees"."id", "public"."employees"."login", "public"."employees"."password_hash", "public"."employees"."pw_version", "public"."employees"."n
+      809 | 17014 |    0.05 |  2.2 |   17014 |           0 | SELECT e.pw_version AS pwv, e.is_active AS active, e.must_change_password AS must_change, ($1::uuid IS NULL OR EXISTS ( SELECT $4 FROM refresh_tokens r WHERE r.
+      617 |    17 |   36.29 |  1.7 |   83953 |           0 | DELETE FROM email_outbox WHERE id IN ( SELECT id FROM email_outbox WHERE status IN ($3, $4) AND coalesce(sent_at, created_at) < now() - $1::int * interval $5 LI
+      563 |   715 |    0.79 |  1.5 |     715 |           0 | SELECT "public"."employees"."id", "public"."employees"."login", "public"."employees"."password_hash", "public"."employees"."pw_version", "public"."employees"."n
+      515 |   774 |    0.67 |  1.4 |   53050 |           0 | SELECT "public"."vacation_requests"."id", "public"."vacation_requests"."start_date", "public"."vacation_requests"."end_date", "public"."vacation_requests"."stat
+      437 | 18033 |    0.02 |  1.2 |   18033 |           0 | SELECT "public"."employees"."id", "public"."employees"."login", "public"."employees"."password_hash", "public"."employees"."pw_version", "public"."employees"."n
+      378 |     1 |  377.63 |  1.0 |       0 |           0 | DELETE FROM refresh_tokens WHERE id IN ( SELECT r.id FROM refresh_tokens r WHERE r.expires_at < now() - interval $2 OR (r.revoked_at < now() - interval $3 AND N
+      371 |    17 |   21.80 |  1.0 |   83953 |           0 | DELETE FROM notifications WHERE id IN ( SELECT id FROM notifications WHERE is_read AND created_at < now() - $1::int * interval $3 LIMIT $2)
+(15 rows)
+
+Топ-10 по среднему времени (не меньше 20 вызовов)
+ mean_ms | max_ms | calls |                                                                              query                                                                               
+---------+--------+-------+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   37.18 |  175.3 |   323 | SELECT v.id, v.employee_id, to_char(v.start_date, $3) AS s, to_char(v.end_date, $4) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+    9.51 |   91.4 |   323 | SELECT e.id, e.name, e.position, d.name AS dept FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.is_active ORDER BY e.name, e.id
+    3.27 |   50.4 |   323 | SELECT p.employee_id, p.weekday, p.mode::text AS mode FROM work_patterns p JOIN employees e ON e.id = p.employee_id LEFT JOIN departments d ON d.id = e.dept_id 
+    2.81 |   38.0 |    86 | SELECT "public"."refresh_tokens"."id", "public"."refresh_tokens"."session_id" FROM "public"."refresh_tokens" WHERE ("public"."refresh_tokens"."session_id" IN ($
+    1.30 |    9.7 |   285 | SELECT "public"."vacation_requests"."id", "public"."vacation_requests"."employee_id", "public"."vacation_requests"."start_date", "public"."vacation_requests"."e
+    1.18 |   11.9 |   285 | SELECT COUNT(*) AS "_count$_all" FROM (SELECT "public"."vacation_requests"."id" FROM "public"."vacation_requests" LEFT JOIN "public"."employees" AS "j0" ON ("j0
+    0.98 |   21.9 |   206 | SELECT (SELECT json_object_agg(s, n) FROM ( SELECT coalesce(state, $1) AS s, count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND bac
+    0.87 |   94.2 |  6487 | SELECT v.id, v.employee_id, to_char(v.start_date, $4) AS s, to_char(v.end_date, $5) AS e, v.type::text AS type, v.status::text AS status FROM vacation_requests 
+    0.81 |    4.8 |    86 | SELECT "public"."employees"."id", "public"."employees"."is_active", "public"."employees"."pw_version" FROM "public"."employees" WHERE "public"."employees"."id" 
+    0.79 |    6.6 |   715 | SELECT "public"."employees"."id", "public"."employees"."login", "public"."employees"."password_hash", "public"."employees"."pw_version", "public"."employees"."n
+(10 rows)
+
+Таблицы с последовательным чтением больших объёмов
+      relname      | seq_scan | seq_tup_read | idx_scan | n_live_tup 
+-------------------+----------+--------------+----------+------------
+ vacation_requests |      186 |      6645930 |   392857 |        876
+ employees         |     2397 |      4097167 |    94296 |          0
+ departments       |    39510 |      2410110 |     5110 |          0
+ work_patterns     |     1859 |      2321891 |   213109 |          0
+ notifications     |       36 |       999312 |     2412 |        890
+ email_outbox      |      398 |       831154 |      102 |          0
+ vacation_notices  |       34 |       807456 |     3973 |          5
+ data_version      |    10844 |       173504 |        0 |         16
+ refresh_tokens    |        3 |       159781 |    84111 |        971
+(9 rows)
+

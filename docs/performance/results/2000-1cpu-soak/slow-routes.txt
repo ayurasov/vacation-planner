@@ -1,0 +1,8 @@
+# Медленные запросы API (> 500 мс) за 7 ч 15 мин по маршрутам
+     65 /api/v1/reports/t7
+     15 /api/v1/reports/vacations
+      8 /api/v1/schedule
+      5 /api/v1/vacation-requests
+      3 /api/v1/auth/login
+      2 /api/v1/analytics/overview
+      1 /api/v1/employees/:id/balance

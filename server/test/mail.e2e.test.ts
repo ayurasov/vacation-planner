@@ -97,6 +97,19 @@ describe('письма о заявках', () => {
   });
 });
 
+describe('разбор очереди (v1.0.0, E51-03)', () => {
+  it('проход разбирает очередь пачками до конца, а не одну пачку в 15 секунд', async () => {
+    await mail.drain(); // очередь предыдущих проверок
+    const before = sent.length;
+    await t.prisma.emailOutbox.createMany({
+      data: Array.from({ length: 45 }, (_, i) => ({ to: `invite${i}@corp.test`, kind: 'planning_open', subject: 'Планирование отпусков', body: 'Приглашение' })),
+    });
+    expect(await mail.drain()).toEqual({ sent: 45, failed: 0 });
+    expect(sent.length - before).toBe(45);
+    expect(await t.prisma.emailOutbox.count({ where: { status: 'pending' } })).toBe(0);
+  });
+});
+
 describe('еженедельная сводка', () => {
   it('в пятницу после 12:00 — руководителю: кто в отпуске на следующей неделе и сколько заявок ждут; один раз за неделю', async () => {
     // первая пятница августа следующего года, 13:00 по Москве; отпуск сотрудника — на следующей неделе

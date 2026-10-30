@@ -6,12 +6,23 @@
 services:
   postgres:
     image: postgres:17-alpine
+    # Все долгоживущие сервисы поднимаются после перезагрузки узла (v1.0.0)
+    restart: unless-stopped
     environment:
       POSTGRES_USER: vacation
-      POSTGRES_PASSWORD: vacation
+      # Пароль задаётся при первом запуске (создании тома); смена на работающей БД — руководство, «Настройка»
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vacation}
       POSTGRES_DB: vacation
+    # Диагностика (v1.0.0, E51-05): медленные операторы — в журнал PostgreSQL, статистика
+    # запросов — pg_stat_statements (deploy/postgres/top-queries.sql)
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=${PG_SLOW_MS:-1000}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -22,18 +33,32 @@ services:
 
   server:
     profiles: ["full"]
+    # Имя образа с версией: дистрибутив загружает готовые образы (docker load) и запускается без сборки
+    image: vacation-planner-server:${VP_VERSION:-local}
     build:
       context: ./server
+    restart: unless-stopped
     environment:
       # DB_HOST — адрес БД; при переключении на реплику: DB_HOST=postgres-replica (руководство по развёртыванию)
-      DATABASE_URL: postgresql://vacation:vacation@${DB_HOST:-postgres}:5432/vacation
-      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-dev-only-secret-32ch}
+      DATABASE_URL: postgresql://vacation:${POSTGRES_PASSWORD:-vacation}@${DB_HOST:-postgres}:5432/vacation
+      # Соединений с БД на процесс; пусто — min(10, 40 / процессов), не меньше 3
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-}
+      # Каким прокси доверять при определении адреса клиента (лимит входа, журнал входов)
+      TRUST_PROXY: ${TRUST_PROXY:-loopback, linklocal, uniquelocal}
+      # Как часто процесс проверяет новые события для потока SSE, мс
+      EVENTS_POLL_MS: ${EVENTS_POLL_MS:-2000}
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в .env — случайная строка не короче 32 символов}
       PORT: 8080
       NODE_ENV: production
       # Процессы API: auto — по числу ядер контейнера (01-architecture, «Масштабирование»)
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-auto}
       # Токен для /metrics (необязательно): порт API наружу не публикуется
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Журнал сервера (v1.0.0): JSON с идентификатором запроса; медленные запросы API и операции БД
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      REQUEST_LOG: ${REQUEST_LOG:-slow}
+      SLOW_REQUEST_MS: ${SLOW_REQUEST_MS:-1000}
+      SLOW_QUERY_MS: ${SLOW_QUERY_MS:-0}
       # Плановые задачи (извещения, эскалация, напоминания) — раз в столько секунд в каждом процессе (ADR-017)
       JOBS_POLL_SECONDS: ${JOBS_POLL_SECONDS:-60}
       # Почта (необязательно): без SMTP_HOST письма не отправляются, уведомления — только в интерфейсе
@@ -57,8 +82,10 @@ services:
 
   web:
     profiles: ["full"]
+    image: vacation-planner-web:${VP_VERSION:-local}
     build:
       context: ./web
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
@@ -69,10 +96,11 @@ services:
   backup:
     profiles: ["full"]
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       PGHOST: ${DB_HOST:-postgres}
       PGUSER: vacation
-      PGPASSWORD: vacation
+      PGPASSWORD: ${POSTGRES_PASSWORD:-vacation}
       PGDATABASE: vacation
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
@@ -96,6 +124,7 @@ services:
   prometheus:
     profiles: ["monitoring"]
     image: prom/prometheus:v3.5.0
+    restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=30d

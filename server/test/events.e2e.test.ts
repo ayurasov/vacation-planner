@@ -18,14 +18,15 @@ beforeAll(async () => {
   mgr = await login(t, t.manager);
 });
 
+let closed = false; // последний тест останавливает приложение сам
 afterAll(async () => {
-  await destroyTestApp(t);
+  if (!closed) await destroyTestApp(t);
 });
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 /** Открыть поток и собирать события; close() — отключиться. */
-function open(ticket: string): Promise<{ status: number; type: string; events: Array<{ event: string; data: unknown }>; next: (name: string) => Promise<unknown>; close: () => void }> {
+function open(ticket: string): Promise<{ status: number; type: string; events: Array<{ event: string; data: unknown }>; next: (name: string) => Promise<unknown>; close: () => void; ended: Promise<void> }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest({ host: '127.0.0.1', port, path: `/api/v1/events?ticket=${encodeURIComponent(ticket)}` }, (res: IncomingMessage) => {
       const events: Array<{ event: string; data: unknown }> = [];
@@ -51,7 +52,8 @@ function open(ticket: string): Promise<{ status: number; type: string; events: A
         const have = events.find((e) => e.event === name);
         if (have) { events.splice(events.indexOf(have), 1); ok(have.data); } else waiters.push({ name, resolve: ok });
       });
-      resolve({ status: res.statusCode ?? 0, type: String(res.headers['content-type']), events, next, close: () => req.destroy() });
+      const ended = new Promise<void>((ok) => { res.on('end', () => ok()); res.on('close', () => ok()); });
+      resolve({ status: res.statusCode ?? 0, type: String(res.headers['content-type']), events, next, close: () => req.destroy(), ended });
     });
     req.on('error', reject);
     req.end();
@@ -102,5 +104,19 @@ describe('поток событий', () => {
     } finally {
       stream.close();
     }
+  });
+
+  // Последний: останавливает приложение. До v1.0.0 потоки закрывались после остановки HTTP-сервера,
+  // а сервер ждал открытые соединения — остановка висела до таймаута (15 с в кластере, SIGKILL в Docker)
+  it('остановка приложения закрывает открытые потоки и не ждёт их', async () => {
+    const adm = await login(t, t.admin);
+    const { body } = await t.http().post('/api/v1/events/ticket').set(auth(adm));
+    const stream = await open(body.ticket);
+    await stream.next('hello');
+    const started = Date.now();
+    await t.app.close();
+    closed = true;
+    expect(Date.now() - started).toBeLessThan(3000);
+    await stream.ended;
   });
 });

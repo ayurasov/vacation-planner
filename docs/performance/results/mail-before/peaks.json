@@ -1,0 +1,32 @@
+{
+  "open": {
+    "status": 200,
+    "ms": 752,
+    "invited": 2000,
+    "letters": 2000
+  },
+  "mailDrainSec": null,
+  "remind": {
+    "status": 200,
+    "ms": 457,
+    "reminded": null
+  },
+  "t7": {
+    "status": 200,
+    "ms": [
+      1810,
+      1066,
+      1141
+    ],
+    "kb": 217
+  },
+  "vacations": {
+    "status": 200,
+    "ms": [
+      529,
+      442,
+      404
+    ],
+    "kb": 312
+  }
+}

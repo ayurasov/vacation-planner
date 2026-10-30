@@ -1,0 +1,3 @@
+# 2026-10-30T03:23:58Z, 5 ч прогона soak: медиана 10 запросов; load.u00246 — 383 заявки (365 отменены за прогон), load.u01000 — 16
+load.u00246 {"mine":{"medianMs":21.6,"kb":89.1},"balance":{"medianMs":7.9,"kb":0.1},"planning":{"medianMs":7,"kb":0}}
+load.u01000 {"mine":{"medianMs":9.4,"kb":7},"balance":{"medianMs":6.5,"kb":0.1},"planning":{"medianMs":6.4,"kb":0}}

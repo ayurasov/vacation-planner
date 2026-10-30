@@ -29,7 +29,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: Больше 1 % ответов API — ошибки 5xx
-          description: 'Доля 5xx за 5 минут: {{ $value | humanizePercentage }}. Журнал контейнера server — «Необработанная ошибка».'
+          description: 'Доля 5xx за 5 минут: {{ $value | humanizePercentage }}. Журнал контейнера server — строки "msg":"unhandled error" со стеком и кодом запроса (docs/runbooks/alerts.md).'
 
       - alert: VacationReadLatencyHigh
         expr: |
@@ -38,7 +38,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: p95 чтения выше 300 мс
-          description: 'p95 GET за 5 минут: {{ $value | humanizeDuration }}. Панель «Задержки по маршрутам» покажет медленный маршрут.'
+          description: 'p95 GET за 5 минут: {{ $value | humanizeDuration }}. Панель «Задержка p95 по маршрутам» покажет медленный маршрут (docs/runbooks/alerts.md).'
 
       - alert: VacationWriteLatencyHigh
         expr: |

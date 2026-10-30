@@ -6,11 +6,14 @@
 help: ## показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
+# compose требует JWT_SECRET во всём файле; для одного PostgreSQL разработчика секрет не используется
+DEV_COMPOSE = JWT_SECRET=$${JWT_SECRET:-local-postgres-only-not-a-secret-32ch} docker compose
+
 up: ## поднять PostgreSQL
-	docker compose up -d postgres
+	$(DEV_COMPOSE) up -d postgres
 
 down: ## остановить всё
-	docker compose --profile full down
+	$(DEV_COMPOSE) --profile full down
 
 seed: ## миграции + демо-данные (131 сотрудник)
 	cd server && npx prisma migrate deploy && npm run db:seed

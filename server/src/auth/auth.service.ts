@@ -226,10 +226,23 @@ export class AuthService {
     return { minLength: (await this.securitySettings()).passwordMinLength };
   }
 
+  /**
+   * Неверный старый пароль считается неудачной попыткой входа (v1.0.0, E50-02): с похищенным сеансом
+   * пароль не подобрать перебором — после порога учётная запись блокируется, как при входе. Ответ — 400,
+   * а не 401: сеанс действует, и клиент не должен обновлять токен и повторять запрос.
+   */
   async changeOwnPassword(userId: number, oldPassword: string, newPassword: string): Promise<void> {
     const me = await this.prisma.employee.findUnique({ where: { id: userId } });
-    if (!me || !(await verifyPassword(oldPassword, me.passwordHash))) {
-      throw new ProblemException('auth/invalid-credentials', 'Старый пароль неверен');
+    if (!me) throw new ProblemException('not-found');
+    const settings = await this.securitySettings();
+    const state = await this.prisma.loginState.findUnique({ where: { employeeId: me.id } });
+    if (state?.lockedUntil && state.lockedUntil > new Date()) {
+      throw new ProblemException('auth/account-locked',
+        `Учётная запись заблокирована до ${clock(state.lockedUntil, settings.timezone)} после неудачных попыток ввода пароля`);
+    }
+    if (!(await verifyPassword(oldPassword, me.passwordHash))) {
+      await this.registerFailure(me, settings, { login: me.login, method: 'password' });
+      throw new ProblemException('validation/invalid-field', 'Старый пароль неверен');
     }
     if (oldPassword === newPassword) throw new ProblemException('validation/weak-password', 'Новый пароль совпадает с текущим');
     await this.assertStrong(newPassword, me);
@@ -257,9 +270,13 @@ export class AuthService {
     if (reason) throw new ProblemException('validation/weak-password', reason);
   }
 
-  /** Смена пароля завершает все сеансы; `resetBy` — кто сбросил чужой пароль (в аудит, сам пароль — нет). */
+  /**
+   * Смена пароля завершает все сеансы; `resetBy` — кто сбросил чужой пароль (в аудит, сам пароль — нет).
+   * Сотрудник получает уведомление (и письмо) о смене пароля — так он узнаёт о чужой смене (ASVS 2.2.3, v1.0.0).
+   */
   async setPassword(userId: number, newPassword: string, opts: { resetBy?: number; oneTime: boolean }): Promise<void> {
     const passwordHash = await hashPassword(newPassword); // до транзакции: хеш не держит соединение БД
+    const at = clock(new Date(), (await this.securitySettings()).timezone);
     await this.prisma.$transaction(async (tx) => {
       await tx.employee.update({
         where: { id: userId },
@@ -272,6 +289,9 @@ export class AuthService {
           actorId: opts.resetBy, action: 'employee.password_reset', entity: 'employee', entityId: userId,
         });
       }
+      await this.notify.notify(tx, userId, 'password_changed', opts.oneTime
+        ? `Кадровая служба выдала вам новый пароль (${at}); при входе его нужно сменить. Все сеансы завершены. Если вы не просили новый пароль — сообщите в службу информационной безопасности.`
+        : `Пароль изменён (${at}), все сеансы завершены. Если это были не вы — сообщите в службу информационной безопасности и кадровую службу.`);
     });
     invalidateSession(userId); // после фиксации — см. EmployeesService.remove
   }

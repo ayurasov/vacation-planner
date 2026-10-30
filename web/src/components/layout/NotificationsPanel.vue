@@ -20,6 +20,7 @@ const TARGET: Record<string, string> = {
   delegation_assigned: '/approvals',
   request_stalled: '/employees',
   account_locked: '/settings',
+  password_changed: '/settings',
   vacation_notice: '/my',
   planning_open: '/my',
   planning_reminder: '/my',
@@ -45,6 +46,7 @@ const KIND_ICON: Record<string, { icon: string; tone: string }> = {
   request_stalled: { icon: 'clock', tone: 'warning' },
   delegation_assigned: { icon: 'swap', tone: 'info' },
   account_locked: { icon: 'shield', tone: 'danger' },
+  password_changed: { icon: 'shield', tone: 'info' },
   vacation_notice: { icon: 'vacation', tone: 'info' },
   planning_open: { icon: 'schedule', tone: 'info' },
   planning_reminder: { icon: 'schedule', tone: 'warning' },
@@ -68,10 +70,12 @@ function onDocClick(e: MouseEvent): void {
 }
 
 onMounted(() => {
+  store.setPanel(true);
   setTimeout(() => document.addEventListener('click', onDocClick), 0);
   document.addEventListener('keydown', onKey);
 });
 onBeforeUnmount(() => {
+  store.setPanel(false);
   document.removeEventListener('click', onDocClick);
   document.removeEventListener('keydown', onKey);
 });

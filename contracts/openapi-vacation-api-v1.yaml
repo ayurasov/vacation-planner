@@ -13,6 +13,10 @@ info:
     Ошибки — RFC 9457 (application/problem+json) с кодом из каталога
     docs/specs/02-api-spec.md, раздел «Каталог ошибок».
 
+    Каждый ответ несёт заголовок X-Request-Id (с v1.0.0): переданный прокси идентификатор
+    вида [A-Za-z0-9._-]{8,64} сохраняется, иначе сервер создаёт свой; ошибка содержит его
+    в поле requestId.
+
     Любая операция при перегрузке или недоступности БД отвечает 503 service-unavailable
     с заголовком Retry-After (секунд); 429 rate-limited тоже несёт Retry-After.
   license:
@@ -131,7 +135,9 @@ paths:
       description: >-
         Новый пароль проверяется политикой (validation/weak-password): длина из правил организации, без логина
         и фамилии, не из списка распространённых, не последовательность, не совпадает с текущим. Доступна
-        и до смены одноразового пароля.
+        и до смены одноразового пароля. Неверный старый пароль (v1.0.0) — 400 validation/invalid-field, а не
+        401: сеанс действует; попытка считается неудачной, как при входе, и после порога учётная запись
+        блокируется (423 auth/account-locked). Сотрудник получает уведомление password_changed.
       requestBody:
         required: true
         content:
@@ -146,6 +152,7 @@ paths:
         '204': { description: Пароль изменён }
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
+        '423': { $ref: '#/components/responses/Problem' }  # v1.0.0: неверный старый пароль — неудачная попытка, после порога блокировка
 
   /auth/password-policy:
     get:
@@ -639,6 +646,11 @@ paths:
       tags: [employees]
       operationId: listEmployees
       summary: Список сотрудников (постранично, с фильтрами)
+      description: >-
+        Полная карточка — себе, своему руководителю, кадровой службе и администратору. Остальным (v1.0.0) —
+        справочная: id, name, position, deptId, deptName, role, empType, managerId, projectId, isActive — без
+        логина, почты, норм дней, табельного номера и служебных прав. Поиск по табельному номеру — только
+        кадровой службе и администратору.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -657,7 +669,7 @@ paths:
     post:
       tags: [employees]
       operationId: createEmployee
-      summary: Создать сотрудника (только администратор)
+      summary: Создать сотрудника (кадровая служба, администратор; служебные права выдаёт администратор)
       requestBody:
         required: true
         content:
@@ -681,6 +693,11 @@ paths:
       tags: [employees]
       operationId: getEmployee
       summary: Карточка сотрудника
+      description: >-
+        Полная карточка — себе, своему руководителю, кадровой службе и администратору. Остальным (v1.0.0) —
+        справочная: id, name, position, deptId, deptName, role, empType, managerId, projectId, isActive — без
+        логина, почты, норм дней, табельного номера и служебных прав. Поиск по табельному номеру — только
+        кадровой службе и администратору.
       responses:
         '200':
           description: Сотрудник
@@ -713,7 +730,7 @@ paths:
     delete:
       tags: [employees]
       operationId: deleteEmployee
-      summary: Уволить/удалить сотрудника (только администратор)
+      summary: Уволить/удалить сотрудника (кадровая служба — кроме администраторов и коллег по службе; администратор)
       description: Нельзя удалить последнего администратора.
       responses:
         '204': { description: Удалён }
@@ -747,6 +764,7 @@ paths:
         '204': { description: Пароль изменён }
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
+        '423': { $ref: '#/components/responses/Problem' }  # v1.0.0: неверный старый пароль — неудачная попытка, после порога блокировка
         '403': { $ref: '#/components/responses/Problem' }
 
   /employees/{id}/password-reset:
@@ -1114,7 +1132,7 @@ paths:
     post:
       tags: [directories]
       operationId: createDepartment
-      summary: Создать отдел (администратор)
+      summary: Создать отдел (кадровая служба, администратор)
       requestBody:
         required: true
         content:
@@ -1191,7 +1209,7 @@ paths:
     post:
       tags: [directories]
       operationId: createProject
-      summary: Создать проект (администратор)
+      summary: Создать проект (кадровая служба, администратор)
       requestBody:
         required: true
         content:
@@ -1464,7 +1482,7 @@ paths:
     get:
       tags: [audit]
       operationId: listAuditEvents
-      summary: Журнал изменений (администратор)
+      summary: Журнал изменений (администратор, кадровая служба)
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -1848,6 +1866,7 @@ components:
         status: { type: integer }
         detail: { type: string }
         instance: { type: string }
+        requestId: { type: string, description: 'Идентификатор запроса — тот же, что в заголовке ответа X-Request-Id; по нему находится строка журнала сервера (с v1.0.0)' }
 
     Session:
       type: object
@@ -2314,7 +2333,11 @@ components:
       type: object
       properties:
         id: { type: integer }
-        kind: { type: string, enum: [request_created, request_approved, request_rejected, request_cancelled, conflict_warning] }
+        kind:
+          type: string
+          description: 'Вид уведомления; тексты — документ 5, «Уведомления» (перечень сверен с кодом в v1.0.0)'
+          enum: [request_created, request_approved, request_rejected, request_cancelled, request_escalated, request_stalled,
+            delegation_assigned, account_locked, password_changed, vacation_notice, planning_open, planning_reminder]
         text: { type: string }
         read: { type: boolean }
         createdAt: { type: string, format: date-time }

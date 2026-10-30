@@ -8,13 +8,13 @@ import {
 import { PrismaService } from '../infra/prisma.service';
 import { ProblemException } from '../infra/problems';
 import { AllowedBeforePasswordChange, CurrentUser } from '../auth/guards';
-import { assertStaff } from '../auth/access';
+import { assertStaff, hasStaff, loadActor } from '../auth/access';
 import type { AccessClaims } from '../auth/token.service';
 import { AuthService } from '../auth/auth.service';
 import { RequestsService } from '../requests/requests.service';
 import { AuditService } from '../audit/audit.service';
 import { calendarDays, toIso } from '../requests/balance';
-import { EmployeesService, assertCanTouch, translitLogin } from './employees.service';
+import { EmployeesService, assertCanTouch, directoryView, translitLogin, type PublicEmployee } from './employees.service';
 
 export const PERSONNEL_NUMBER = /^[0-9A-Za-zА-Яа-яЁё/-]{1,20}$/;
 
@@ -189,13 +189,21 @@ export class EmployeesController {
     private readonly audit: AuditService,
   ) {}
 
+  /** Полная карточка — себе, своему руководителю и служебным ролям; остальным — справочная (directoryView). */
+  private async viewer(user: AccessClaims): Promise<{ staff: boolean; show: (e: PublicEmployee) => object }> {
+    const staff = hasStaff(await loadActor(this.prisma, user.sub), 'hr');
+    return { staff, show: (e) => (staff || e.id === user.sub || e.managerId === user.sub ? e : directoryView(e)) };
+  }
+
   @Get()
   @ApiOperation({ operationId: 'listEmployees', summary: 'Список сотрудников (постранично, с фильтрами)' })
-  async list(@Query() q: ListQuery) {
-    return this.employees.list({
+  async list(@CurrentUser() user: AccessClaims, @Query() q: ListQuery) {
+    const v = await this.viewer(user);
+    const page = await this.employees.list({
       page: q.page ?? 1, perPage: q.per_page ?? 50,
-      dept: q.dept, project: q.project, search: q.search, manager: q.manager,
+      dept: q.dept, project: q.project, search: q.search, manager: q.manager, byNumber: v.staff,
     });
+    return { ...page, items: page.items.map(v.show) };
   }
 
   @Post()
@@ -210,8 +218,8 @@ export class EmployeesController {
 
   @Get(':id')
   @ApiOperation({ operationId: 'getEmployee', summary: 'Карточка сотрудника' })
-  async get(@Param('id', ParseIntPipe) id: number) {
-    return this.employees.get(id);
+  async get(@CurrentUser() user: AccessClaims, @Param('id', ParseIntPipe) id: number) {
+    return (await this.viewer(user)).show(await this.employees.get(id));
   }
 
   @Patch(':id')

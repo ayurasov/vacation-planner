@@ -1,0 +1,9 @@
+# Ресурсы по часам (sample.mjs: ядра — среднее/максимум, RSS — максимум, куча V8 — среднее). Прогон прерван перезапуском стенда на 7 ч 15 мин
+   0m api 0.20/0.54 pg 0.05 gen 0.05 rss 764 heap 217 sse 704 conn 11 act 0.0
+  60m api 0.19/0.43 pg 0.05 gen 0.05 rss 647 heap 204 sse 715 conn 11 act 0.0
+ 120m api 0.20/0.46 pg 0.05 gen 0.05 rss 654 heap 204 sse 715 conn 11 act 0.0
+ 180m api 0.20/0.50 pg 0.05 gen 0.05 rss 693 heap 205 sse 715 conn 11 act 0.0
+ 240m api 0.21/0.51 pg 0.05 gen 0.06 rss 664 heap 207 sse 715 conn 11 act 0.0
+ 300m api 0.21/0.50 pg 0.05 gen 0.06 rss 659 heap 207 sse 715 conn 11 act 0.0
+ 360m api 0.22/0.52 pg 0.05 gen 0.06 rss 662 heap 205 sse 715 conn 11 act 0.0
+ 420m api 0.20/0.44 pg 0.05 gen 0.06 rss 670 heap 205 sse 715 conn 11 act 0.0

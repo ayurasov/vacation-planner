@@ -60,7 +60,9 @@ export class JwtAuthGuard implements CanActivate {
     }
     const claims = this.tokens.verifyAccess(header.slice(7));
     const s = await this.state(claims.sub, claims.sid);
-    const sessionAlive = !claims.sid || s.sids.get(claims.sid)?.alive;
+    // Токен без сеанса не принимается (v1.0.0): токены до v0.6.0 давно истекли, а без этой проверки
+    // подписи секретом было бы достаточно — с сеансом нужен ещё живой идентификатор из refresh_tokens
+    const sessionAlive = !!claims.sid && s.sids.get(claims.sid)?.alive;
     if (!s.active || s.pwv !== claims.pwv || !sessionAlive) throw new UnauthorizedException({ code: 'auth/token-expired' });
     // Вход по паролю, выданному кадровой службой: до смены доступны только профиль, смена пароля и выход
     if (s.mustChange && claims.amr !== 'sso'
@@ -91,28 +93,6 @@ export class JwtAuthGuard implements CanActivate {
     if (users.size > 50_000) users.clear(); // защита от роста
     users.set(userId, s);
     return s;
-  }
-}
-
-export const ROLES_KEY = 'vp_roles';
-
-/** Ограничение эндпоинта ролями; без декоратора — любой аутентифицированный. */
-export const Roles = (...roles: Array<'admin' | 'manager'>) => SetMetadata(ROLES_KEY, roles);
-
-@Injectable()
-export class RolesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
-
-  canActivate(ctx: ExecutionContext): boolean {
-    const roles = this.reflector.getAllAndOverride<Array<'admin' | 'manager'> | undefined>(ROLES_KEY, [
-      ctx.getHandler(), ctx.getClass(),
-    ]);
-    if (!roles?.length) return true;
-    const req = ctx.switchToHttp().getRequest<AuthedRequest>();
-    if (req.user && roles.includes('admin') && req.user.isAdmin) return true;
-    // manager-эндпоинты доступны всем аутентифицированным; проверка «мой подчинённый» — в сервисах
-    if (req.user && roles.includes('manager')) return true;
-    throw new UnauthorizedException({ code: 'auth/forbidden' });
   }
 }
 
